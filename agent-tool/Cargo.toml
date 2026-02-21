@@ -6,8 +6,13 @@ rust-version.workspace = true
 description = "Tool registry and middleware pipeline for rust-agent-blocks"
 license.workspace = true
 
+[features]
+default = ["macros"]
+macros = ["dep:agent-tool-macros"]
+
 [dependencies]
 agent-types.workspace = true
+agent-tool-macros = { workspace = true, optional = true }
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
@@ -18,3 +23,4 @@ tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 schemars.workspace = true
 thiserror.workspace = true
 tokio-util.workspace = true
+serde.workspace = true
