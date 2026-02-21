@@ -1,0 +1,20 @@
+[package]
+name = "agent-tool"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.90"
+description = "Tool registry and middleware pipeline for rust-agent-blocks"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+agent-types = { path = "../agent-types" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["sync"] }
+tracing = "0.1"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+schemars = "0.8"
+thiserror = "2"
+tokio-util = "0.7"
