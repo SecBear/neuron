@@ -10,7 +10,7 @@ use agent_tool::ToolRegistry;
 use agent_types::{
     ActivityOptions, CompletionRequest, CompletionResponse, ContentBlock, ContentItem,
     DurableContext, DurableError, HookAction, HookError, HookEvent, LoopError, Message,
-    ObservabilityHook, ProviderError, Role, StopReason, StreamError, StreamEvent, StreamHandle,
+    ObservabilityHook, ProviderError, Role, StopReason, StreamEvent, StreamHandle,
     SystemPrompt, TokenUsage, Tool, ToolContext, ToolDefinition, ToolOutput,
 };
 use futures::stream;
@@ -1094,5 +1094,257 @@ async fn test_run_stream_routes_through_durable_context() {
         llm.len(),
         1,
         "expected 1 durable LLM call, got: {llm:?}"
+    );
+}
+
+// --- Additional test coverage: hook actions in run_stream ---
+
+/// A hook that terminates the loop on PreLlmCall during streaming.
+struct StreamTerminatingHook;
+
+impl ObservabilityHook for StreamTerminatingHook {
+    fn on_event(
+        &self,
+        event: HookEvent<'_>,
+    ) -> impl Future<Output = Result<HookAction, HookError>> + Send {
+        let action = match event {
+            HookEvent::PreLlmCall { .. } => HookAction::Terminate {
+                reason: "stream terminated by hook".to_string(),
+            },
+            _ => HookAction::Continue,
+        };
+        std::future::ready(Ok(action))
+    }
+}
+
+#[tokio::test]
+async fn test_run_stream_terminate_stops_streaming() {
+    let provider = MockStreamProvider::new(vec![text_response("Should not reach")]);
+    let tools = ToolRegistry::new();
+    let context = SlidingWindowStrategy::new(10, 100_000);
+    let config = LoopConfig::default();
+
+    let mut agent = AgentLoop::new(provider, tools, context, config);
+    agent.add_hook(StreamTerminatingHook);
+
+    let user_msg = Message {
+        role: Role::User,
+        content: vec![ContentBlock::Text("Hi".to_string())],
+    };
+
+    let mut rx = agent.run_stream(user_msg, &test_tool_context()).await;
+
+    // Collect all events
+    let mut events = Vec::new();
+    while let Some(event) = rx.recv().await {
+        events.push(event);
+    }
+
+    // Should have received an error event about termination
+    let has_termination = events.iter().any(|e| {
+        matches!(e, StreamEvent::Error(err) if err.message.contains("stream terminated by hook"))
+    });
+    assert!(
+        has_termination,
+        "expected termination error event, got: {events:?}"
+    );
+
+    // Should NOT have any MessageComplete since we terminated before the LLM call
+    let has_message_complete = events
+        .iter()
+        .any(|e| matches!(e, StreamEvent::MessageComplete(_)));
+    assert!(
+        !has_message_complete,
+        "should not have MessageComplete after termination"
+    );
+}
+
+/// A hook that skips tool execution during streaming.
+struct StreamSkipToolHook;
+
+impl ObservabilityHook for StreamSkipToolHook {
+    fn on_event(
+        &self,
+        event: HookEvent<'_>,
+    ) -> impl Future<Output = Result<HookAction, HookError>> + Send {
+        let action = match event {
+            HookEvent::PreToolExecution { .. } => HookAction::Skip {
+                reason: "stream tool blocked".to_string(),
+            },
+            _ => HookAction::Continue,
+        };
+        std::future::ready(Ok(action))
+    }
+}
+
+#[tokio::test]
+async fn test_run_stream_skip_tool_sends_rejection() {
+    let provider = MockStreamProvider::new(vec![
+        tool_use_response("call-1", "echo", serde_json::json!({"text": "hello"})),
+        text_response("OK, tool was skipped"),
+    ]);
+
+    let mut tools = ToolRegistry::new();
+    tools.register(EchoTool);
+
+    let context = SlidingWindowStrategy::new(10, 100_000);
+    let config = LoopConfig::default();
+
+    let mut agent = AgentLoop::new(provider, tools, context, config);
+    agent.add_hook(StreamSkipToolHook);
+
+    let user_msg = Message {
+        role: Role::User,
+        content: vec![ContentBlock::Text("Echo".to_string())],
+    };
+
+    let mut rx = agent.run_stream(user_msg, &test_tool_context()).await;
+
+    // Collect all events
+    let mut events = Vec::new();
+    while let Some(event) = rx.recv().await {
+        events.push(event);
+    }
+
+    // Should have a MessageComplete with the final text response
+    let has_final_response = events.iter().any(|e| {
+        if let StreamEvent::MessageComplete(msg) = e {
+            msg.content.iter().any(|b| matches!(b, ContentBlock::Text(t) if t == "OK, tool was skipped"))
+        } else {
+            false
+        }
+    });
+    assert!(
+        has_final_response,
+        "expected final response after skip, got: {events:?}"
+    );
+
+    // Verify the loop continued after skip (the tool result message in the conversation
+    // should contain the skip reason)
+    let messages = agent.messages();
+    let has_skip_result = messages.iter().any(|m| {
+        m.content.iter().any(|b| {
+            if let ContentBlock::ToolResult {
+                content, is_error, ..
+            } = b
+            {
+                *is_error
+                    && content.iter().any(|c| {
+                        if let ContentItem::Text(t) = c {
+                            t.contains("stream tool blocked")
+                        } else {
+                            false
+                        }
+                    })
+            } else {
+                false
+            }
+        })
+    });
+    assert!(
+        has_skip_result,
+        "expected tool result with skip reason in messages"
+    );
+}
+
+#[tokio::test]
+async fn test_loop_iteration_fires_every_turn_multi_turn() {
+    // Provider returns tool call then final text (2 turns)
+    let provider = MockProvider::new(vec![
+        tool_use_response("call-1", "echo", serde_json::json!({"text": "first"})),
+        tool_use_response("call-2", "echo", serde_json::json!({"text": "second"})),
+        text_response("Final after two tool turns"),
+    ]);
+
+    let mut tools = ToolRegistry::new();
+    tools.register(EchoTool);
+
+    let context = SlidingWindowStrategy::new(10, 100_000);
+    let config = LoopConfig::default();
+
+    let mut agent = AgentLoop::new(provider, tools, context, config);
+
+    /// A hook that records LoopIteration turn numbers.
+    struct TurnTracker {
+        turns: Arc<Mutex<Vec<usize>>>,
+    }
+
+    impl ObservabilityHook for TurnTracker {
+        fn on_event(
+            &self,
+            event: HookEvent<'_>,
+        ) -> impl Future<Output = Result<HookAction, HookError>> + Send {
+            if let HookEvent::LoopIteration { turn } = event {
+                self.turns.lock().expect("lock").push(turn);
+            }
+            std::future::ready(Ok(HookAction::Continue))
+        }
+    }
+
+    let turns_log = Arc::new(Mutex::new(Vec::new()));
+    let hook = TurnTracker {
+        turns: turns_log.clone(),
+    };
+    agent.add_hook(hook);
+
+    let user_msg = Message {
+        role: Role::User,
+        content: vec![ContentBlock::Text("Go multi-turn".to_string())],
+    };
+
+    let result = agent.run(user_msg, &test_tool_context()).await.expect("run should succeed");
+    assert_eq!(result.turns, 3);
+
+    let turns = turns_log.lock().expect("lock");
+    assert_eq!(
+        *turns,
+        vec![0, 1, 2],
+        "expected LoopIteration for turns 0, 1, 2, got: {turns:?}"
+    );
+}
+
+#[tokio::test]
+async fn test_context_compaction_fires_during_streaming() {
+    // Use a very low max_tokens so compaction triggers.
+    let provider = MockStreamProvider::new(vec![
+        tool_use_response(
+            "call-1",
+            "echo",
+            serde_json::json!({"text": "first message with enough words to generate tokens"}),
+        ),
+        tool_use_response(
+            "call-2",
+            "echo",
+            serde_json::json!({"text": "second message with even more words for token counting"}),
+        ),
+        text_response("Final after compaction in stream"),
+    ]);
+
+    let mut tools = ToolRegistry::new();
+    tools.register(EchoTool);
+
+    // Very low max_tokens to force compaction, window_size of 2
+    let context = SlidingWindowStrategy::new(2, 50);
+    let config = LoopConfig::default();
+
+    let mut agent = AgentLoop::new(provider, tools, context, config);
+    let (hook, events) = RecordingHook::new();
+    agent.add_hook(hook);
+
+    let user_msg = Message {
+        role: Role::User,
+        content: vec![ContentBlock::Text(
+            "Start with a reasonably long message so tokens accumulate quickly for testing"
+                .to_string(),
+        )],
+    };
+
+    let mut rx = agent.run_stream(user_msg, &test_tool_context()).await;
+    while let Some(_event) = rx.recv().await {}
+
+    let recorded = events.lock().expect("lock");
+    assert!(
+        recorded.contains(&"ContextCompaction".to_string()),
+        "expected ContextCompaction event during streaming, got: {recorded:?}"
     );
 }
