@@ -69,11 +69,11 @@ impl<'a, P: Provider, C: ContextStrategy> StepIterator<'a, P, C> {
         }
 
         // Check max turns
-        if let Some(max) = self.loop_ref.config.max_turns {
-            if self.turns >= max {
-                self.finished = true;
-                return Some(TurnResult::MaxTurnsReached);
-            }
+        if let Some(max) = self.loop_ref.config.max_turns
+            && self.turns >= max
+        {
+            self.finished = true;
+            return Some(TurnResult::MaxTurnsReached);
         }
 
         // Check context compaction
@@ -387,13 +387,13 @@ impl<P: Provider, C: ContextStrategy> AgentLoop<P, C> {
 
         loop {
             // Check max turns
-            if let Some(max) = self.config.max_turns {
-                if turns >= max {
-                    let _ = tx
-                        .send(StreamEvent::Error(format!("max turns reached ({max})")))
-                        .await;
-                    break;
-                }
+            if let Some(max) = self.config.max_turns
+                && turns >= max
+            {
+                let _ = tx
+                    .send(StreamEvent::Error(format!("max turns reached ({max})")))
+                    .await;
+                break;
             }
 
             // Check context compaction

@@ -1,7 +1,6 @@
 //! Integration tests for agent-loop.
 
 use std::collections::HashMap;
-use std::future::Future;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
@@ -44,11 +43,11 @@ impl agent_types::Provider for MockProvider {
         async move { Ok(response) }
     }
 
-    fn complete_stream(
+    async fn complete_stream(
         &self,
         _request: CompletionRequest,
-    ) -> impl Future<Output = Result<StreamHandle, ProviderError>> + Send {
-        async { Err(ProviderError::InvalidRequest("streaming not implemented in mock".into())) }
+    ) -> Result<StreamHandle, ProviderError> {
+        Err(ProviderError::InvalidRequest("streaming not implemented in mock".into()))
     }
 }
 
@@ -82,12 +81,12 @@ impl Tool for EchoTool {
         }
     }
 
-    fn call(
+    async fn call(
         &self,
         args: EchoArgs,
         _ctx: &ToolContext,
-    ) -> impl Future<Output = Result<String, std::io::Error>> + Send {
-        async move { Ok(format!("echo: {}", args.text)) }
+    ) -> Result<String, std::io::Error> {
+        Ok(format!("echo: {}", args.text))
     }
 }
 
@@ -535,10 +534,11 @@ struct MockDurable {
     llm_responses: Mutex<Vec<CompletionResponse>>,
 }
 
+/// Alias for a shared log of call names.
+type CallLog = Arc<Mutex<Vec<String>>>;
+
 impl MockDurable {
-    fn new(
-        llm_responses: Vec<CompletionResponse>,
-    ) -> (Self, Arc<Mutex<Vec<String>>>, Arc<Mutex<Vec<String>>>) {
+    fn new(llm_responses: Vec<CompletionResponse>) -> (Self, CallLog, CallLog) {
         let llm_calls = Arc::new(Mutex::new(Vec::new()));
         let tool_calls = Arc::new(Mutex::new(Vec::new()));
         (

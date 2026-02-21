@@ -73,8 +73,6 @@ pub(crate) trait ErasedDurable: Send + Sync {
         ctx: &'a ToolContext,
         options: ActivityOptions,
     ) -> DurableToolFuture<'a>;
-
-    fn erased_should_continue_as_new(&self) -> bool;
 }
 
 impl<D: DurableContext> ErasedDurable for D {
@@ -94,10 +92,6 @@ impl<D: DurableContext> ErasedDurable for D {
         options: ActivityOptions,
     ) -> DurableToolFuture<'a> {
         Box::pin(self.execute_tool(tool_name, input, ctx, options))
-    }
-
-    fn erased_should_continue_as_new(&self) -> bool {
-        self.should_continue_as_new()
     }
 }
 
@@ -228,10 +222,10 @@ impl<P: Provider, C: ContextStrategy> AgentLoop<P, C> {
 
         loop {
             // Check max turns
-            if let Some(max) = self.config.max_turns {
-                if turns >= max {
-                    return Err(LoopError::MaxTurns(max));
-                }
+            if let Some(max) = self.config.max_turns
+                && turns >= max
+            {
+                return Err(LoopError::MaxTurns(max));
             }
 
             // Check context compaction
@@ -242,12 +236,10 @@ impl<P: Provider, C: ContextStrategy> AgentLoop<P, C> {
                 let new_tokens = self.context.token_estimate(&self.messages);
 
                 // Fire ContextCompaction hooks
-                if let Some(action) =
+                if let Some(HookAction::Terminate { reason }) =
                     fire_compaction_hooks(&self.hooks, old_tokens, new_tokens).await?
                 {
-                    if let HookAction::Terminate { reason } = action {
-                        return Err(LoopError::HookTerminated(reason));
-                    }
+                    return Err(LoopError::HookTerminated(reason));
                 }
             }
 
@@ -269,10 +261,10 @@ impl<P: Provider, C: ContextStrategy> AgentLoop<P, C> {
             };
 
             // Fire PreLlmCall hooks
-            if let Some(action) = fire_pre_llm_hooks(&self.hooks, &request).await? {
-                if let HookAction::Terminate { reason } = action {
-                    return Err(LoopError::HookTerminated(reason));
-                }
+            if let Some(HookAction::Terminate { reason }) =
+                fire_pre_llm_hooks(&self.hooks, &request).await?
+            {
+                return Err(LoopError::HookTerminated(reason));
             }
 
             // Call provider (via durability wrapper if present)
@@ -292,10 +284,10 @@ impl<P: Provider, C: ContextStrategy> AgentLoop<P, C> {
             };
 
             // Fire PostLlmCall hooks
-            if let Some(action) = fire_post_llm_hooks(&self.hooks, &response).await? {
-                if let HookAction::Terminate { reason } = action {
-                    return Err(LoopError::HookTerminated(reason));
-                }
+            if let Some(HookAction::Terminate { reason }) =
+                fire_post_llm_hooks(&self.hooks, &response).await?
+            {
+                return Err(LoopError::HookTerminated(reason));
             }
 
             // Accumulate usage
@@ -373,12 +365,10 @@ impl<P: Provider, C: ContextStrategy> AgentLoop<P, C> {
                 };
 
                 // Fire PostToolExecution hooks
-                if let Some(action) =
+                if let Some(HookAction::Terminate { reason }) =
                     fire_post_tool_hooks(&self.hooks, tool_name, &result).await?
                 {
-                    if let HookAction::Terminate { reason } = action {
-                        return Err(LoopError::HookTerminated(reason));
-                    }
+                    return Err(LoopError::HookTerminated(reason));
                 }
 
                 tool_result_blocks.push(ContentBlock::ToolResult {
