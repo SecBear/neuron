@@ -1,6 +1,13 @@
 //! Core message and request/response types.
 
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::Arc;
+
 use serde::{Deserialize, Serialize};
+use tokio_util::sync::CancellationToken;
+
+use crate::wasm::{WasmCompatSend, WasmCompatSync};
 
 /// The role of a message participant.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -323,4 +330,40 @@ pub struct ToolAnnotations {
     pub idempotent_hint: Option<bool>,
     /// Whether the tool interacts with external systems.
     pub open_world_hint: Option<bool>,
+}
+
+/// Output from a tool execution.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolOutput {
+    /// Human-readable content items.
+    pub content: Vec<ContentItem>,
+    /// Optional structured JSON output for programmatic consumption.
+    pub structured_content: Option<serde_json::Value>,
+    /// Whether this output represents an error.
+    pub is_error: bool,
+}
+
+/// Runtime context provided to tools during execution.
+pub struct ToolContext {
+    /// Current working directory.
+    pub cwd: PathBuf,
+    /// Session identifier.
+    pub session_id: String,
+    /// Environment variables available to the tool.
+    pub environment: HashMap<String, String>,
+    /// Token for cooperative cancellation.
+    pub cancellation_token: CancellationToken,
+    /// Optional progress reporter for long-running tools.
+    pub progress_reporter: Option<Arc<dyn ProgressReporter>>,
+}
+
+/// Reports progress for long-running tool operations.
+pub trait ProgressReporter: WasmCompatSend + WasmCompatSync {
+    /// Report progress.
+    ///
+    /// # Arguments
+    /// * `progress` - Current progress value.
+    /// * `total` - Optional total value (for percentage calculation).
+    /// * `message` - Optional status message.
+    fn report(&self, progress: f64, total: Option<f64>, message: Option<&str>);
 }
