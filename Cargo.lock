@@ -125,6 +125,7 @@ dependencies = [
  "agent-tool",
  "agent-types",
  "chrono",
+ "futures",
  "schemars 0.8.22",
  "serde",
  "serde_json",
@@ -140,6 +141,7 @@ dependencies = [
 name = "agent-tool"
 version = "0.1.0"
 dependencies = [
+ "agent-tool-macros",
  "agent-types",
  "schemars 0.8.22",
  "serde",

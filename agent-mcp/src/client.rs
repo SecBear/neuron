@@ -235,8 +235,7 @@ impl McpClient {
             serde_json::Value::Null => None,
             other => {
                 return Err(McpError::ToolCall(format!(
-                    "expected object or null arguments, got {}",
-                    other
+                    "expected object or null arguments, got {other}",
                 )));
             }
         };

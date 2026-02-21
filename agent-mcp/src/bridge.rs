@@ -81,8 +81,7 @@ impl ToolDyn for McpToolBridge {
                 serde_json::Value::Null => None,
                 other => {
                     return Err(ToolError::InvalidInput(format!(
-                        "expected object or null, got {}",
-                        other
+                        "expected object or null, got {other}",
                     )));
                 }
             };
