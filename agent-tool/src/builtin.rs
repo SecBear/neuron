@@ -84,10 +84,14 @@ impl ToolMiddleware for OutputFormatter {
                 .into_iter()
                 .map(|item| match item {
                     ContentItem::Text(text) if text.len() > self.max_chars => {
-                        // Use floor_char_boundary to avoid slicing in the
-                        // middle of a multi-byte UTF-8 character.
-                        #[allow(clippy::incompatible_msrv)]
-                        let boundary = text.floor_char_boundary(self.max_chars);
+                        // Find the nearest char boundary at or before max_chars
+                        // to avoid slicing in the middle of a multi-byte UTF-8
+                        // character. This is a stable polyfill for
+                        // str::floor_char_boundary (stabilized in 1.93).
+                        let mut boundary = self.max_chars;
+                        while boundary > 0 && !text.is_char_boundary(boundary) {
+                            boundary -= 1;
+                        }
                         ContentItem::Text(format!(
                             "{}... [truncated, {} chars total]",
                             &text[..boundary],
