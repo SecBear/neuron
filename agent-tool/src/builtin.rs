@@ -80,9 +80,12 @@ impl ToolMiddleware for OutputFormatter {
                 .into_iter()
                 .map(|item| match item {
                     ContentItem::Text(text) if text.len() > self.max_chars => {
+                        // Use floor_char_boundary to avoid slicing in the
+                        // middle of a multi-byte UTF-8 character.
+                        let boundary = text.floor_char_boundary(self.max_chars);
                         ContentItem::Text(format!(
                             "{}... [truncated, {} chars total]",
-                            &text[..self.max_chars],
+                            &text[..boundary],
                             text.len()
                         ))
                     }
