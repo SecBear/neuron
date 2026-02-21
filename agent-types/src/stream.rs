@@ -1,0 +1,1 @@
+//! Streaming event types.
