@@ -1,5 +1,6 @@
 //! Streaming event types for incremental LLM responses.
 
+use std::fmt;
 use std::pin::Pin;
 
 use futures::Stream;
@@ -46,4 +47,10 @@ pub enum StreamEvent {
 pub struct StreamHandle {
     /// The stream of events. Consume with `StreamExt::next()`.
     pub receiver: Pin<Box<dyn Stream<Item = StreamEvent> + Send>>,
+}
+
+impl fmt::Debug for StreamHandle {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("StreamHandle").finish_non_exhaustive()
+    }
 }
