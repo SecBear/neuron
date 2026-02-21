@@ -94,26 +94,25 @@ impl Provider for OpenAi {
         &self,
         request: CompletionRequest,
     ) -> impl Future<Output = Result<CompletionResponse, ProviderError>> + Send {
+        let url = self.completions_url();
+        let api_key = self.api_key.clone();
         let default_model = self.model.clone();
-        let this_api_key = self.api_key.clone();
-        let this_base_url = self.base_url.clone();
-        let this_org = self.organization.clone();
+        let organization = self.organization.clone();
         let http_client = self.client.clone();
 
         async move {
             let mut body = to_api_request(&request, &default_model);
             body["stream"] = serde_json::Value::Bool(false);
 
-            let url = format!("{this_base_url}/v1/chat/completions");
             tracing::debug!(url = %url, model = %body["model"], "sending completion request");
 
             let mut req = http_client
                 .post(&url)
-                .header("authorization", format!("Bearer {this_api_key}"))
+                .header("authorization", format!("Bearer {api_key}"))
                 .header("content-type", "application/json")
                 .json(&body);
 
-            if let Some(org) = &this_org {
+            if let Some(org) = &organization {
                 req = req.header("openai-organization", org);
             }
 
@@ -142,10 +141,10 @@ impl Provider for OpenAi {
         &self,
         request: CompletionRequest,
     ) -> impl Future<Output = Result<StreamHandle, ProviderError>> + Send {
+        let url = self.completions_url();
+        let api_key = self.api_key.clone();
         let default_model = self.model.clone();
-        let this_api_key = self.api_key.clone();
-        let this_base_url = self.base_url.clone();
-        let this_org = self.organization.clone();
+        let organization = self.organization.clone();
         let http_client = self.client.clone();
 
         async move {
@@ -154,16 +153,15 @@ impl Provider for OpenAi {
             // Request usage stats in the stream
             body["stream_options"] = serde_json::json!({ "include_usage": true });
 
-            let url = format!("{this_base_url}/v1/chat/completions");
             tracing::debug!(url = %url, model = %body["model"], "sending streaming completion request");
 
             let mut req = http_client
                 .post(&url)
-                .header("authorization", format!("Bearer {this_api_key}"))
+                .header("authorization", format!("Bearer {api_key}"))
                 .header("content-type", "application/json")
                 .json(&body);
 
-            if let Some(org) = &this_org {
+            if let Some(org) = &organization {
                 req = req.header("openai-organization", org);
             }
 

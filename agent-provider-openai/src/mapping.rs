@@ -357,10 +357,10 @@ pub fn from_api_response(body: &serde_json::Value) -> Result<CompletionResponse,
     let mut content_blocks = Vec::new();
 
     // Parse text content
-    if let Some(text) = message["content"].as_str() {
-        if !text.is_empty() {
-            content_blocks.push(ContentBlock::Text(text.to_string()));
-        }
+    if let Some(text) = message["content"].as_str()
+        && !text.is_empty()
+    {
+        content_blocks.push(ContentBlock::Text(text.to_string()));
     }
 
     // Parse tool calls

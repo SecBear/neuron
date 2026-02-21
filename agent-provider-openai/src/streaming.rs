@@ -168,91 +168,90 @@ impl SseParserState {
         let mut events = Vec::new();
 
         // Process choices[0].delta
-        if let Some(choices) = json["choices"].as_array() {
-            if let Some(choice) = choices.first() {
-                let delta = &choice["delta"];
+        if let Some(choices) = json["choices"].as_array()
+            && let Some(choice) = choices.first()
+        {
+            let delta = &choice["delta"];
 
-                // Text content delta
-                if let Some(content) = delta["content"].as_str() {
-                    if !content.is_empty() {
-                        self.text_buf.push_str(content);
-                        events.push(StreamEvent::TextDelta(content.to_string()));
+            // Text content delta
+            if let Some(content) = delta["content"].as_str()
+                && !content.is_empty()
+            {
+                self.text_buf.push_str(content);
+                events.push(StreamEvent::TextDelta(content.to_string()));
+            }
+
+            // Tool calls delta
+            if let Some(tool_calls) = delta["tool_calls"].as_array() {
+                for tc in tool_calls {
+                    let index = tc["index"].as_u64().unwrap_or(0) as usize;
+
+                    // If this delta has an id, it's a new tool call start
+                    if let Some(id) = tc["id"].as_str() {
+                        let name = tc["function"]["name"]
+                            .as_str()
+                            .unwrap_or_default()
+                            .to_string();
+                        let tool_id = id.to_string();
+                        let tool_name = name.clone();
+                        self.tool_uses.insert(
+                            index,
+                            ToolUseInProgress {
+                                id: tool_id.clone(),
+                                name,
+                                input_buf: String::new(),
+                            },
+                        );
+                        events.push(StreamEvent::ToolUseStart {
+                            id: tool_id,
+                            name: tool_name,
+                        });
+                    }
+
+                    // Accumulate arguments fragment
+                    if let Some(args) = tc["function"]["arguments"].as_str()
+                        && !args.is_empty()
+                        && let Some(tool) = self.tool_uses.get_mut(&index)
+                    {
+                        tool.input_buf.push_str(args);
+                        events.push(StreamEvent::ToolUseInputDelta {
+                            id: tool.id.clone(),
+                            delta: args.to_string(),
+                        });
                     }
                 }
+            }
 
-                // Tool calls delta
-                if let Some(tool_calls) = delta["tool_calls"].as_array() {
-                    for tc in tool_calls {
-                        let index = tc["index"].as_u64().unwrap_or(0) as usize;
-
-                        // If this delta has an id, it's a new tool call start
-                        if let Some(id) = tc["id"].as_str() {
-                            let name = tc["function"]["name"]
-                                .as_str()
-                                .unwrap_or_default()
-                                .to_string();
-                            let tool_id = id.to_string();
-                            let tool_name = name.clone();
-                            self.tool_uses.insert(
-                                index,
-                                ToolUseInProgress {
-                                    id: tool_id.clone(),
-                                    name,
-                                    input_buf: String::new(),
-                                },
-                            );
-                            events.push(StreamEvent::ToolUseStart {
-                                id: tool_id,
-                                name: tool_name,
-                            });
-                        }
-
-                        // Accumulate arguments fragment
-                        if let Some(args) = tc["function"]["arguments"].as_str() {
-                            if !args.is_empty() {
-                                if let Some(tool) = self.tool_uses.get_mut(&index) {
-                                    tool.input_buf.push_str(args);
-                                    events.push(StreamEvent::ToolUseInputDelta {
-                                        id: tool.id.clone(),
-                                        delta: args.to_string(),
-                                    });
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // Check for finish_reason — tool call end
-                if let Some(finish_reason) = choice["finish_reason"].as_str() {
-                    if finish_reason == "tool_calls" || finish_reason == "stop" {
-                        // Emit ToolUseEnd for all in-progress tool calls
-                        for tool in self.tool_uses.values() {
-                            events.push(StreamEvent::ToolUseEnd {
-                                id: tool.id.clone(),
-                            });
-                        }
-                    }
+            // Check for finish_reason — tool call end
+            if let Some(finish_reason) = choice["finish_reason"].as_str()
+                && (finish_reason == "tool_calls" || finish_reason == "stop")
+            {
+                // Emit ToolUseEnd for all in-progress tool calls
+                for tool in self.tool_uses.values() {
+                    events.push(StreamEvent::ToolUseEnd {
+                        id: tool.id.clone(),
+                    });
                 }
             }
         }
 
         // Process usage (may be present in the final chunk)
-        if let Some(usage_val) = json.get("usage") {
-            if usage_val.is_object() {
-                let usage = TokenUsage {
-                    input_tokens: usage_val["prompt_tokens"].as_u64().unwrap_or(0) as usize,
-                    output_tokens: usage_val["completion_tokens"].as_u64().unwrap_or(0) as usize,
-                    cache_read_tokens: usage_val["prompt_tokens_details"]["cached_tokens"]
-                        .as_u64()
-                        .map(|n| n as usize),
-                    cache_creation_tokens: None,
-                    reasoning_tokens: usage_val["completion_tokens_details"]["reasoning_tokens"]
-                        .as_u64()
-                        .map(|n| n as usize),
-                };
-                self.usage = Some(usage.clone());
-                events.push(StreamEvent::Usage(usage));
-            }
+        if let Some(usage_val) = json.get("usage")
+            && usage_val.is_object()
+        {
+            let usage = TokenUsage {
+                input_tokens: usage_val["prompt_tokens"].as_u64().unwrap_or(0) as usize,
+                output_tokens: usage_val["completion_tokens"].as_u64().unwrap_or(0) as usize,
+                cache_read_tokens: usage_val["prompt_tokens_details"]["cached_tokens"]
+                    .as_u64()
+                    .map(|n| n as usize),
+                cache_creation_tokens: None,
+                reasoning_tokens: usage_val["completion_tokens_details"]["reasoning_tokens"]
+                    .as_u64()
+                    .map(|n| n as usize),
+            };
+            self.usage = Some(usage.clone());
+            events.push(StreamEvent::Usage(usage));
         }
 
         events
