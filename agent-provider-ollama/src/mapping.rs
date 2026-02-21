@@ -289,7 +289,7 @@ fn parse_stop_reason(body: &serde_json::Value) -> StopReason {
             if body["message"]["tool_calls"].is_array()
                 && !body["message"]["tool_calls"]
                     .as_array()
-                    .map_or(true, |a| a.is_empty())
+                    .is_none_or(|a| a.is_empty())
             {
                 StopReason::ToolUse
             } else {

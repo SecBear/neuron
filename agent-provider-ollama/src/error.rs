@@ -20,8 +20,6 @@ pub(crate) fn map_http_status(status: reqwest::StatusCode, body: &str) -> Provid
 pub(crate) fn map_reqwest_error(err: reqwest::Error) -> ProviderError {
     if err.is_timeout() {
         ProviderError::Timeout(Duration::from_secs(30))
-    } else if err.is_connect() {
-        ProviderError::Network(Box::new(err))
     } else {
         ProviderError::Network(Box::new(err))
     }

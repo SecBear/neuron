@@ -1,5 +1,13 @@
 //! Ollama API client struct and builder.
 
+use std::future::Future;
+
+use agent_types::{CompletionRequest, CompletionResponse, Provider, ProviderError, StreamHandle};
+
+use crate::error::{map_http_status, map_reqwest_error};
+use crate::mapping::{from_api_response, to_api_request};
+use crate::streaming::stream_completion;
+
 /// Default model used when none is specified on the request.
 const DEFAULT_MODEL: &str = "llama3.2";
 
@@ -79,6 +87,95 @@ impl Ollama {
 impl Default for Ollama {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl Provider for Ollama {
+    /// Send a completion request to the Ollama Chat API.
+    ///
+    /// Maps the [`CompletionRequest`] to Ollama's JSON format, sends it with
+    /// `stream: false`, and maps the response back to [`CompletionResponse`].
+    fn complete(
+        &self,
+        request: CompletionRequest,
+    ) -> impl Future<Output = Result<CompletionResponse, ProviderError>> + Send {
+        let url = self.chat_url();
+        let default_model = self.model.clone();
+        let keep_alive = self.keep_alive.clone();
+        let http_client = self.client.clone();
+
+        async move {
+            let mut body = to_api_request(
+                &request,
+                &default_model,
+                keep_alive.as_deref(),
+            );
+            body["stream"] = serde_json::Value::Bool(false);
+
+            tracing::debug!(url = %url, model = %body["model"], "sending completion request to Ollama");
+
+            let response = http_client
+                .post(&url)
+                .header("content-type", "application/json")
+                .json(&body)
+                .send()
+                .await
+                .map_err(map_reqwest_error)?;
+
+            let status = response.status();
+            let response_text = response.text().await.map_err(map_reqwest_error)?;
+
+            if !status.is_success() {
+                return Err(map_http_status(status, &response_text));
+            }
+
+            let json: serde_json::Value = serde_json::from_str(&response_text)
+                .map_err(|e| ProviderError::InvalidRequest(format!("invalid JSON response: {e}")))?;
+
+            from_api_response(&json)
+        }
+    }
+
+    /// Send a streaming completion request to the Ollama Chat API.
+    ///
+    /// Returns a [`StreamHandle`] whose receiver emits [`StreamEvent`]s as the
+    /// model generates content. Ollama uses NDJSON (newline-delimited JSON)
+    /// rather than SSE for streaming.
+    fn complete_stream(
+        &self,
+        request: CompletionRequest,
+    ) -> impl Future<Output = Result<StreamHandle, ProviderError>> + Send {
+        let url = self.chat_url();
+        let default_model = self.model.clone();
+        let keep_alive = self.keep_alive.clone();
+        let http_client = self.client.clone();
+
+        async move {
+            let mut body = to_api_request(
+                &request,
+                &default_model,
+                keep_alive.as_deref(),
+            );
+            body["stream"] = serde_json::Value::Bool(true);
+
+            tracing::debug!(url = %url, model = %body["model"], "sending streaming completion request to Ollama");
+
+            let response = http_client
+                .post(&url)
+                .header("content-type", "application/json")
+                .json(&body)
+                .send()
+                .await
+                .map_err(map_reqwest_error)?;
+
+            let status = response.status();
+            if !status.is_success() {
+                let body_text = response.text().await.map_err(map_reqwest_error)?;
+                return Err(map_http_status(status, &body_text));
+            }
+
+            Ok(stream_completion(response))
+        }
     }
 }
 
