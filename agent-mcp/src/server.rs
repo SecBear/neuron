@@ -5,7 +5,6 @@
 
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::future::Future;
 use std::sync::Arc;
 
 use rmcp::handler::server::ServerHandler;
@@ -173,67 +172,63 @@ impl ServerHandler for McpServer {
         }
     }
 
-    fn list_tools(
+    async fn list_tools(
         &self,
         _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
-    ) -> impl Future<Output = Result<ListToolsResult, ErrorData>> + Send + '_ {
-        async {
-            let definitions = self.registry.definitions();
-            let tools: Vec<RmcpTool> = definitions
-                .iter()
-                .map(Self::definition_to_rmcp_tool)
-                .collect();
+    ) -> Result<ListToolsResult, ErrorData> {
+        let definitions = self.registry.definitions();
+        let tools: Vec<RmcpTool> = definitions
+            .iter()
+            .map(Self::definition_to_rmcp_tool)
+            .collect();
 
-            Ok(ListToolsResult::with_all_items(tools))
-        }
+        Ok(ListToolsResult::with_all_items(tools))
     }
 
-    fn call_tool(
+    async fn call_tool(
         &self,
         request: CallToolRequestParams,
         _context: RequestContext<RoleServer>,
-    ) -> impl Future<Output = Result<CallToolResult, ErrorData>> + Send + '_ {
-        async move {
-            let name = request.name.as_ref();
-            let input = match request.arguments {
-                Some(args) => serde_json::Value::Object(args),
-                None => serde_json::Value::Object(serde_json::Map::new()),
-            };
+    ) -> Result<CallToolResult, ErrorData> {
+        let name = request.name.as_ref();
+        let input = match request.arguments {
+            Some(args) => serde_json::Value::Object(args),
+            None => serde_json::Value::Object(serde_json::Map::new()),
+        };
 
-            let ctx = Self::default_tool_context();
+        let ctx = Self::default_tool_context();
 
-            let result = self
-                .registry
-                .execute(name, input, &ctx)
-                .await
-                .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+        let result = self
+            .registry
+            .execute(name, input, &ctx)
+            .await
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
 
-            // Convert our ToolOutput to rmcp's CallToolResult
-            let content: Vec<Content> = result
-                .content
-                .into_iter()
-                .map(|item| match item {
-                    agent_types::ContentItem::Text(text) => Content::text(text),
-                    agent_types::ContentItem::Image { source } => match source {
-                        agent_types::ImageSource::Base64 {
-                            media_type, data, ..
-                        } => Content::image(data, media_type),
-                        agent_types::ImageSource::Url { url } => {
-                            // rmcp doesn't have a URL image type; send as text
-                            Content::text(format!("[image: {}]", url))
-                        }
-                    },
-                })
-                .collect();
-
-            Ok(CallToolResult {
-                content,
-                structured_content: result.structured_content,
-                is_error: if result.is_error { Some(true) } else { None },
-                meta: None,
+        // Convert our ToolOutput to rmcp's CallToolResult
+        let content: Vec<Content> = result
+            .content
+            .into_iter()
+            .map(|item| match item {
+                agent_types::ContentItem::Text(text) => Content::text(text),
+                agent_types::ContentItem::Image { source } => match source {
+                    agent_types::ImageSource::Base64 {
+                        media_type, data, ..
+                    } => Content::image(data, media_type),
+                    agent_types::ImageSource::Url { url } => {
+                        // rmcp doesn't have a URL image type; send as text
+                        Content::text(format!("[image: {url}]"))
+                    }
+                },
             })
-        }
+            .collect();
+
+        Ok(CallToolResult {
+            content,
+            structured_content: result.structured_content,
+            is_error: if result.is_error { Some(true) } else { None },
+            meta: None,
+        })
     }
 
     fn get_tool(&self, name: &str) -> Option<RmcpTool> {
