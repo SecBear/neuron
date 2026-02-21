@@ -79,9 +79,60 @@ impl McpClient {
         Ok(Self { service, peer })
     }
 
+    /// Connect to an MCP server via Streamable HTTP transport.
+    ///
+    /// Connects to the specified URL using HTTP with Server-Sent Events
+    /// for streaming responses.
+    ///
+    /// # Arguments
+    ///
+    /// * `config` - Configuration specifying the URL, auth, and headers.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`McpError::Connection`] if the HTTP connection fails,
+    /// or [`McpError::Initialization`] if the MCP handshake fails.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let client = McpClient::connect_http(HttpConfig {
+    ///     url: "http://localhost:8080/mcp".to_string(),
+    ///     auth_header: Some("Bearer my-token".to_string()),
+    ///     headers: vec![],
+    /// }).await?;
+    /// ```
+    pub async fn connect_http(config: HttpConfig) -> Result<Self, McpError> {
+        use rmcp::transport::StreamableHttpClientTransport;
+
+        let transport = if let Some(auth) = config.auth_header {
+            use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig;
+
+            let transport_config =
+                StreamableHttpClientTransportConfig::with_uri(&*config.url).auth_header(auth);
+
+            StreamableHttpClientTransport::from_config(transport_config)
+        } else {
+            StreamableHttpClientTransport::from_uri(&*config.url)
+        };
+
+        let service = ().serve(transport)
+            .await
+            .map_err(from_client_init_error)?;
+
+        let peer = service.peer().clone();
+
+        Ok(Self { service, peer })
+    }
+
     /// Get a reference to the underlying rmcp peer for advanced operations.
     pub fn peer(&self) -> &Peer<RoleClient> {
         &self.peer
+    }
+
+    /// Check whether the transport connection has been closed.
+    pub fn is_closed(&self) -> bool {
+        self.peer.is_transport_closed()
     }
 
     /// List all tools available on the MCP server.
