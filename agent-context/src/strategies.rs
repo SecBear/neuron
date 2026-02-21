@@ -315,7 +315,7 @@ impl<P: Provider> ContextStrategy for SummarizationStrategy<P> {
         let recent_messages = non_system[split_at..].to_vec();
 
         let summarize_request = CompletionRequest {
-            model: "claude-sonnet-4-6".to_string(),
+            model: String::new(),
             messages: old_messages,
             system: Some(SystemPrompt::Text(
                 "Summarize the conversation above concisely. Focus on key information, \
