@@ -3,3 +3,6 @@ target/
 
 # Worktrees
 .worktrees/
+
+# direnv
+.direnv/
