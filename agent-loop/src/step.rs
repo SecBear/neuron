@@ -9,7 +9,7 @@ use futures::StreamExt;
 
 use agent_types::{
     CompletionRequest, ContentBlock, ContentItem, ContextStrategy, HookAction, LoopError, Message,
-    Provider, Role, StopReason, StreamEvent, TokenUsage, ToolContext, ToolOutput,
+    Provider, Role, StopReason, StreamError, StreamEvent, TokenUsage, ToolContext, ToolOutput,
 };
 
 use crate::loop_impl::{
@@ -391,7 +391,9 @@ impl<P: Provider, C: ContextStrategy> AgentLoop<P, C> {
                 && turns >= max
             {
                 let _ = tx
-                    .send(StreamEvent::Error(format!("max turns reached ({max})")))
+                    .send(StreamEvent::Error(StreamError::non_retryable(format!(
+                        "max turns reached ({max})"
+                    ))))
                     .await;
                 break;
             }
@@ -403,7 +405,9 @@ impl<P: Provider, C: ContextStrategy> AgentLoop<P, C> {
                     Ok(compacted) => self.messages = compacted,
                     Err(e) => {
                         let _ = tx
-                            .send(StreamEvent::Error(format!("compaction error: {e}")))
+                            .send(StreamEvent::Error(StreamError::non_retryable(format!(
+                                "compaction error: {e}"
+                            ))))
                             .await;
                         break;
                     }
@@ -432,7 +436,9 @@ impl<P: Provider, C: ContextStrategy> AgentLoop<P, C> {
                 Ok(h) => h,
                 Err(e) => {
                     let _ = tx
-                        .send(StreamEvent::Error(format!("provider error: {e}")))
+                        .send(StreamEvent::Error(StreamError::non_retryable(format!(
+                            "provider error: {e}"
+                        ))))
                         .await;
                     break;
                 }
@@ -467,9 +473,9 @@ impl<P: Provider, C: ContextStrategy> AgentLoop<P, C> {
                 Some(m) => m,
                 None => {
                     let _ = tx
-                        .send(StreamEvent::Error(
-                            "stream ended without MessageComplete".into(),
-                        ))
+                        .send(StreamEvent::Error(StreamError::non_retryable(
+                            "stream ended without MessageComplete",
+                        )))
                         .await;
                     break;
                 }
@@ -508,7 +514,9 @@ impl<P: Provider, C: ContextStrategy> AgentLoop<P, C> {
                     }
                     Err(e) => {
                         let _ = tx
-                            .send(StreamEvent::Error(format!("tool error: {e}")))
+                            .send(StreamEvent::Error(StreamError::non_retryable(format!(
+                                "tool error: {e}"
+                            ))))
                             .await;
                         return rx;
                     }

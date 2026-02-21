@@ -7,6 +7,39 @@ use futures::Stream;
 
 use crate::types::{Message, TokenUsage};
 
+/// Error information from a stream event.
+#[derive(Debug, Clone)]
+pub struct StreamError {
+    /// Human-readable error message.
+    pub message: String,
+    /// Whether the error is retryable (e.g., rate limit, transient network).
+    pub is_retryable: bool,
+}
+
+impl StreamError {
+    /// Create a non-retryable error from a message string.
+    pub fn non_retryable(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            is_retryable: false,
+        }
+    }
+
+    /// Create a retryable error from a message string.
+    pub fn retryable(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            is_retryable: true,
+        }
+    }
+}
+
+impl fmt::Display for StreamError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.message)
+    }
+}
+
 /// An event emitted during streaming completion.
 #[derive(Debug, Clone)]
 pub enum StreamEvent {
@@ -40,7 +73,7 @@ pub enum StreamEvent {
     /// Token usage statistics for the stream.
     Usage(TokenUsage),
     /// An error occurred during streaming.
-    Error(String),
+    Error(StreamError),
 }
 
 /// Handle to a streaming completion response.

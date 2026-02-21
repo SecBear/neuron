@@ -38,3 +38,39 @@ fn stream_event_message_complete() {
         panic!("expected MessageComplete");
     }
 }
+
+#[test]
+fn stream_event_error_with_stream_error() {
+    let error = StreamError {
+        message: "connection reset".to_string(),
+        is_retryable: true,
+    };
+    let event = StreamEvent::Error(error);
+    if let StreamEvent::Error(e) = event {
+        assert_eq!(e.message, "connection reset");
+        assert!(e.is_retryable);
+    } else {
+        panic!("expected Error variant");
+    }
+}
+
+#[test]
+fn stream_error_non_retryable() {
+    let error = StreamError {
+        message: "invalid API key".to_string(),
+        is_retryable: false,
+    };
+    assert_eq!(error.message, "invalid API key");
+    assert!(!error.is_retryable);
+}
+
+#[test]
+fn stream_error_clone() {
+    let error = StreamError {
+        message: "timeout".to_string(),
+        is_retryable: true,
+    };
+    let cloned = error.clone();
+    assert_eq!(cloned.message, error.message);
+    assert_eq!(cloned.is_retryable, error.is_retryable);
+}

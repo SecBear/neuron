@@ -7,7 +7,7 @@
 
 use std::collections::HashMap;
 
-use agent_types::{ContentBlock, Message, Role, StreamEvent, StreamHandle, TokenUsage};
+use agent_types::{ContentBlock, Message, Role, StreamError, StreamEvent, StreamHandle, TokenUsage};
 use futures::{Stream, StreamExt};
 use reqwest::Response;
 
@@ -45,7 +45,7 @@ fn parse_sse_stream(
             let chunk = match chunk_result {
                 Ok(b) => b,
                 Err(e) => {
-                    yield StreamEvent::Error(format!("stream read error: {e}"));
+                    yield StreamEvent::Error(StreamError::retryable(format!("stream read error: {e}")));
                     return;
                 }
             };
@@ -53,7 +53,7 @@ fn parse_sse_stream(
             let chunk_str = match std::str::from_utf8(&chunk) {
                 Ok(s) => s,
                 Err(e) => {
-                    yield StreamEvent::Error(format!("UTF-8 decode error: {e}"));
+                    yield StreamEvent::Error(StreamError::non_retryable(format!("UTF-8 decode error: {e}")));
                     return;
                 }
             };
@@ -152,7 +152,7 @@ impl SseParserState {
         let json: serde_json::Value = match serde_json::from_str(&data) {
             Ok(v) => v,
             Err(e) => {
-                return vec![StreamEvent::Error(format!("JSON parse error in SSE: {e}"))];
+                return vec![StreamEvent::Error(StreamError::non_retryable(format!("JSON parse error in SSE: {e}")))];
             }
         };
 
@@ -162,7 +162,7 @@ impl SseParserState {
                 .as_str()
                 .unwrap_or("unknown streaming error")
                 .to_string();
-            return vec![StreamEvent::Error(msg)];
+            return vec![StreamEvent::Error(StreamError::non_retryable(msg))];
         }
 
         let mut events = Vec::new();
@@ -440,7 +440,7 @@ data: [DONE]
         let events = feed_sse(&mut state, sse);
         let has_error = events
             .iter()
-            .any(|e| matches!(e, StreamEvent::Error(msg) if msg.contains("Rate limit")));
+            .any(|e| matches!(e, StreamEvent::Error(err) if err.message.contains("Rate limit")));
         assert!(has_error, "expected Error event");
     }
 

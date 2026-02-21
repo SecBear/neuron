@@ -12,7 +12,7 @@
 //!
 //! Reference: <https://github.com/ollama/ollama/blob/main/docs/api.md#generate-a-chat-completion>
 
-use agent_types::{ContentBlock, Message, Role, StreamEvent, StreamHandle, TokenUsage};
+use agent_types::{ContentBlock, Message, Role, StreamError, StreamEvent, StreamHandle, TokenUsage};
 use futures::{Stream, StreamExt};
 use reqwest::Response;
 
@@ -46,7 +46,7 @@ fn parse_ndjson_stream(
             let chunk = match chunk_result {
                 Ok(b) => b,
                 Err(e) => {
-                    yield StreamEvent::Error(format!("stream read error: {e}"));
+                    yield StreamEvent::Error(StreamError::retryable(format!("stream read error: {e}")));
                     return;
                 }
             };
@@ -54,7 +54,7 @@ fn parse_ndjson_stream(
             let chunk_str = match std::str::from_utf8(&chunk) {
                 Ok(s) => s,
                 Err(e) => {
-                    yield StreamEvent::Error(format!("UTF-8 decode error: {e}"));
+                    yield StreamEvent::Error(StreamError::non_retryable(format!("UTF-8 decode error: {e}")));
                     return;
                 }
             };
@@ -128,9 +128,9 @@ impl NdjsonParserState {
         let json: serde_json::Value = match serde_json::from_str(line) {
             Ok(v) => v,
             Err(e) => {
-                return vec![StreamEvent::Error(format!(
+                return vec![StreamEvent::Error(StreamError::non_retryable(format!(
                     "JSON parse error in NDJSON: {e}"
-                ))];
+                )))];
             }
         };
 
