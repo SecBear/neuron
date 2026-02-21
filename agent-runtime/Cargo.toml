@@ -1,0 +1,26 @@
+[package]
+name = "agent-runtime"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.90"
+description = "Production runtime layer for rust-agent-blocks"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+agent-types = { path = "../agent-types" }
+agent-tool = { path = "../agent-tool" }
+agent-loop = { path = "../agent-loop" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v4"] }
+tokio = { version = "1", features = ["sync", "fs", "time"] }
+tracing = "0.1"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+agent-context = { path = "../agent-context" }
+schemars = "0.8"
+thiserror = "2"
+tempfile = "3"
+tokio-util = "0.7"
