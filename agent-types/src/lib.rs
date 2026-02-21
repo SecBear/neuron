@@ -8,3 +8,6 @@ pub mod traits;
 pub mod error;
 pub mod wasm;
 pub mod stream;
+
+pub use types::*;
+pub use wasm::*;
