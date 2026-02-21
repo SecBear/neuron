@@ -1,9 +1,187 @@
 //! Integration tests for agent-runtime.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::Mutex;
 
-use agent_runtime::{FileSessionStorage, InMemorySessionStorage, Session, SessionStorage};
-use agent_types::{ContentBlock, Message, Role, TokenUsage};
+use agent_context::SlidingWindowStrategy;
+use agent_runtime::{
+    FileSessionStorage, InMemorySessionStorage, Session, SessionStorage, SubAgentConfig,
+    SubAgentManager,
+};
+use agent_tool::ToolRegistry;
+use agent_types::{
+    CompletionRequest, CompletionResponse, ContentBlock, Message, ProviderError, Role, StopReason,
+    StreamHandle, SystemPrompt, TokenUsage, Tool, ToolContext, ToolDefinition, ToolOutput,
+};
+use tokio_util::sync::CancellationToken;
+
+// ============================================================================
+// Shared test helpers
+// ============================================================================
+
+/// A mock provider that returns pre-configured responses in sequence.
+struct MockProvider {
+    responses: Mutex<Vec<CompletionResponse>>,
+}
+
+impl MockProvider {
+    fn new(responses: Vec<CompletionResponse>) -> Self {
+        Self {
+            responses: Mutex::new(responses),
+        }
+    }
+}
+
+impl agent_types::Provider for MockProvider {
+    fn complete(
+        &self,
+        _request: CompletionRequest,
+    ) -> impl Future<Output = Result<CompletionResponse, ProviderError>> + Send {
+        let response = {
+            let mut responses = self.responses.lock().expect("test lock poisoned");
+            if responses.is_empty() {
+                panic!("MockProvider: no more responses configured");
+            }
+            responses.remove(0)
+        };
+        async move { Ok(response) }
+    }
+
+    async fn complete_stream(
+        &self,
+        _request: CompletionRequest,
+    ) -> Result<StreamHandle, ProviderError> {
+        Err(ProviderError::InvalidRequest(
+            "streaming not implemented in mock".into(),
+        ))
+    }
+}
+
+/// A mock tool that echoes its input.
+struct EchoTool;
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+struct EchoArgs {
+    text: String,
+}
+
+impl Tool for EchoTool {
+    const NAME: &'static str = "echo";
+    type Args = EchoArgs;
+    type Output = String;
+    type Error = std::io::Error;
+
+    fn definition(&self) -> ToolDefinition {
+        ToolDefinition {
+            name: "echo".to_string(),
+            title: Some("Echo".to_string()),
+            description: "Echoes input text".to_string(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": { "text": { "type": "string" } },
+                "required": ["text"]
+            }),
+            output_schema: None,
+            annotations: None,
+            cache_control: None,
+        }
+    }
+
+    async fn call(&self, args: EchoArgs, _ctx: &ToolContext) -> Result<String, std::io::Error> {
+        Ok(format!("echo: {}", args.text))
+    }
+}
+
+/// A second mock tool for testing tool filtering.
+struct UpperTool;
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+struct UpperArgs {
+    text: String,
+}
+
+impl Tool for UpperTool {
+    const NAME: &'static str = "upper";
+    type Args = UpperArgs;
+    type Output = String;
+    type Error = std::io::Error;
+
+    fn definition(&self) -> ToolDefinition {
+        ToolDefinition {
+            name: "upper".to_string(),
+            title: Some("Upper".to_string()),
+            description: "Uppercases input text".to_string(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": { "text": { "type": "string" } },
+                "required": ["text"]
+            }),
+            output_schema: None,
+            annotations: None,
+            cache_control: None,
+        }
+    }
+
+    async fn call(&self, args: UpperArgs, _ctx: &ToolContext) -> Result<String, std::io::Error> {
+        Ok(args.text.to_uppercase())
+    }
+}
+
+/// Helper to create a default ToolContext for tests.
+fn test_tool_context() -> ToolContext {
+    ToolContext {
+        cwd: PathBuf::from("/tmp"),
+        session_id: "test-session".to_string(),
+        environment: HashMap::new(),
+        cancellation_token: CancellationToken::new(),
+        progress_reporter: None,
+    }
+}
+
+/// Helper to create a simple text CompletionResponse.
+fn text_response(text: &str) -> CompletionResponse {
+    CompletionResponse {
+        id: "test-id".to_string(),
+        model: "mock-model".to_string(),
+        message: Message {
+            role: Role::Assistant,
+            content: vec![ContentBlock::Text(text.to_string())],
+        },
+        usage: TokenUsage {
+            input_tokens: 10,
+            output_tokens: 5,
+            ..Default::default()
+        },
+        stop_reason: StopReason::EndTurn,
+    }
+}
+
+/// Helper to create a tool_use CompletionResponse.
+fn tool_use_response(
+    tool_id: &str,
+    tool_name: &str,
+    input: serde_json::Value,
+) -> CompletionResponse {
+    CompletionResponse {
+        id: "test-id".to_string(),
+        model: "mock-model".to_string(),
+        message: Message {
+            role: Role::Assistant,
+            content: vec![ContentBlock::ToolUse {
+                id: tool_id.to_string(),
+                name: tool_name.to_string(),
+                input,
+            }],
+        },
+        usage: TokenUsage {
+            input_tokens: 10,
+            output_tokens: 5,
+            ..Default::default()
+        },
+        stop_reason: StopReason::ToolUse,
+    }
+}
 
 // ============================================================================
 // Task 9.2 tests: Session and SessionState types
@@ -257,4 +435,228 @@ async fn test_file_list_empty_nonexistent_dir() {
     let storage = FileSessionStorage::new(PathBuf::from("/tmp/nonexistent_agent_runtime_test"));
     let summaries = storage.list().await.expect("list should succeed");
     assert!(summaries.is_empty());
+}
+
+// ============================================================================
+// Task 9.5 tests: SubAgentConfig and SubAgentManager
+// ============================================================================
+
+#[test]
+fn test_sub_agent_config_defaults() {
+    let config = SubAgentConfig::new(SystemPrompt::Text("You are a helper.".to_string()));
+    assert_eq!(config.max_depth, 1);
+    assert!(config.max_turns.is_none());
+    assert!(config.tools.is_empty());
+    assert!(config.model.is_none());
+}
+
+#[test]
+fn test_sub_agent_config_builder() {
+    let config = SubAgentConfig::new(SystemPrompt::Text("Helper".to_string()))
+        .with_tools(vec!["echo".to_string()])
+        .with_max_depth(3)
+        .with_max_turns(10);
+
+    assert_eq!(config.max_depth, 3);
+    assert_eq!(config.max_turns, Some(10));
+    assert_eq!(config.tools, vec!["echo"]);
+}
+
+#[tokio::test]
+async fn test_sub_agent_spawn_basic() {
+    let provider = MockProvider::new(vec![text_response("Sub-agent done")]);
+    let context = SlidingWindowStrategy::new(10, 100_000);
+
+    let mut parent_tools = ToolRegistry::new();
+    parent_tools.register(EchoTool);
+
+    let mut manager = SubAgentManager::new();
+    manager.register(
+        "helper",
+        SubAgentConfig::new(SystemPrompt::Text("You help.".to_string()))
+            .with_tools(vec!["echo".to_string()]),
+    );
+
+    let user_msg = Message {
+        role: Role::User,
+        content: vec![ContentBlock::Text("Do something".to_string())],
+    };
+
+    let result = manager
+        .spawn(
+            "helper",
+            provider,
+            context,
+            &parent_tools,
+            user_msg,
+            &test_tool_context(),
+            0,
+        )
+        .await
+        .expect("spawn should succeed");
+
+    assert_eq!(result.response, "Sub-agent done");
+}
+
+#[tokio::test]
+async fn test_sub_agent_not_found() {
+    let provider = MockProvider::new(vec![]);
+    let context = SlidingWindowStrategy::new(10, 100_000);
+    let parent_tools = ToolRegistry::new();
+    let manager = SubAgentManager::new();
+
+    let user_msg = Message {
+        role: Role::User,
+        content: vec![ContentBlock::Text("Hello".to_string())],
+    };
+
+    let err = manager
+        .spawn(
+            "nonexistent",
+            provider,
+            context,
+            &parent_tools,
+            user_msg,
+            &test_tool_context(),
+            0,
+        )
+        .await
+        .unwrap_err();
+
+    assert!(matches!(err, agent_types::SubAgentError::NotFound(_)));
+}
+
+#[tokio::test]
+async fn test_sub_agent_max_depth_exceeded() {
+    let provider = MockProvider::new(vec![]);
+    let context = SlidingWindowStrategy::new(10, 100_000);
+    let parent_tools = ToolRegistry::new();
+
+    let mut manager = SubAgentManager::new();
+    manager.register(
+        "helper",
+        SubAgentConfig::new(SystemPrompt::Text("Helper".to_string())).with_max_depth(2),
+    );
+
+    let user_msg = Message {
+        role: Role::User,
+        content: vec![ContentBlock::Text("Hello".to_string())],
+    };
+
+    // current_depth = 2, max_depth = 2 -> exceeded
+    let err = manager
+        .spawn(
+            "helper",
+            provider,
+            context,
+            &parent_tools,
+            user_msg,
+            &test_tool_context(),
+            2,
+        )
+        .await
+        .unwrap_err();
+
+    assert!(matches!(
+        err,
+        agent_types::SubAgentError::MaxDepthExceeded(2)
+    ));
+}
+
+#[tokio::test]
+async fn test_sub_agent_tool_filtering() {
+    // Sub-agent only gets "echo", not "upper"
+    let provider = MockProvider::new(vec![
+        tool_use_response("call-1", "echo", serde_json::json!({"text": "hi"})),
+        text_response("Done"),
+    ]);
+    let context = SlidingWindowStrategy::new(10, 100_000);
+
+    let mut parent_tools = ToolRegistry::new();
+    parent_tools.register(EchoTool);
+    parent_tools.register(UpperTool);
+
+    let mut manager = SubAgentManager::new();
+    manager.register(
+        "echo-only",
+        SubAgentConfig::new(SystemPrompt::Text("Only echo".to_string()))
+            .with_tools(vec!["echo".to_string()]),
+    );
+
+    let user_msg = Message {
+        role: Role::User,
+        content: vec![ContentBlock::Text("Echo something".to_string())],
+    };
+
+    let result = manager
+        .spawn(
+            "echo-only",
+            provider,
+            context,
+            &parent_tools,
+            user_msg,
+            &test_tool_context(),
+            0,
+        )
+        .await
+        .expect("spawn should succeed");
+
+    assert_eq!(result.response, "Done");
+    assert_eq!(result.turns, 2);
+}
+
+// ============================================================================
+// Task 9.6 tests: spawn_parallel
+// ============================================================================
+
+#[tokio::test]
+async fn test_sub_agent_spawn_parallel() {
+    let mut parent_tools = ToolRegistry::new();
+    parent_tools.register(EchoTool);
+
+    let mut manager = SubAgentManager::new();
+    manager.register(
+        "helper",
+        SubAgentConfig::new(SystemPrompt::Text("You help.".to_string()))
+            .with_tools(vec!["echo".to_string()]),
+    );
+
+    let tasks = vec![
+        (
+            "helper".to_string(),
+            MockProvider::new(vec![text_response("Result 1")]),
+            SlidingWindowStrategy::new(10, 100_000),
+            Message {
+                role: Role::User,
+                content: vec![ContentBlock::Text("Task 1".to_string())],
+            },
+        ),
+        (
+            "helper".to_string(),
+            MockProvider::new(vec![text_response("Result 2")]),
+            SlidingWindowStrategy::new(10, 100_000),
+            Message {
+                role: Role::User,
+                content: vec![ContentBlock::Text("Task 2".to_string())],
+            },
+        ),
+        (
+            "helper".to_string(),
+            MockProvider::new(vec![text_response("Result 3")]),
+            SlidingWindowStrategy::new(10, 100_000),
+            Message {
+                role: Role::User,
+                content: vec![ContentBlock::Text("Task 3".to_string())],
+            },
+        ),
+    ];
+
+    let results = manager
+        .spawn_parallel(tasks, &parent_tools, &test_tool_context(), 0)
+        .await;
+
+    assert_eq!(results.len(), 3);
+    assert_eq!(results[0].as_ref().unwrap().response, "Result 1");
+    assert_eq!(results[1].as_ref().unwrap().response, "Result 2");
+    assert_eq!(results[2].as_ref().unwrap().response, "Result 3");
 }
