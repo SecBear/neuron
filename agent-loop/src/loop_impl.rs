@@ -59,7 +59,7 @@ type DurableToolFuture<'a> =
     Pin<Box<dyn Future<Output = Result<ToolOutput, DurableError>> + Send + 'a>>;
 
 /// Dyn-compatible wrapper for [`DurableContext`].
-trait ErasedDurable: Send + Sync {
+pub(crate) trait ErasedDurable: Send + Sync {
     fn erased_execute_llm_call(
         &self,
         request: CompletionRequest,
@@ -104,7 +104,7 @@ impl<D: DurableContext> ErasedDurable for D {
 /// A type-erased durable context for use in [`AgentLoop`].
 ///
 /// Wraps any [`DurableContext`] into a dyn-compatible form.
-pub struct BoxedDurable(Arc<dyn ErasedDurable>);
+pub struct BoxedDurable(pub(crate) Arc<dyn ErasedDurable>);
 
 impl BoxedDurable {
     /// Wrap any [`DurableContext`] into a type-erased `BoxedDurable`.
@@ -131,20 +131,20 @@ pub struct AgentResult {
 // --- AgentLoop ---
 
 /// Default activity timeout for durable execution.
-const DEFAULT_ACTIVITY_TIMEOUT: Duration = Duration::from_secs(120);
+pub(crate) const DEFAULT_ACTIVITY_TIMEOUT: Duration = Duration::from_secs(120);
 
 /// The agentic while loop: drives provider + tool + context interactions.
 ///
 /// Generic over `P: Provider` (the LLM backend) and `C: ContextStrategy`
 /// (the compaction strategy). Hooks and durability are optional.
 pub struct AgentLoop<P: Provider, C: ContextStrategy> {
-    provider: P,
-    tools: ToolRegistry,
-    context: C,
-    hooks: Vec<BoxedHook>,
-    durability: Option<BoxedDurable>,
-    config: LoopConfig,
-    messages: Vec<Message>,
+    pub(crate) provider: P,
+    pub(crate) tools: ToolRegistry,
+    pub(crate) context: C,
+    pub(crate) hooks: Vec<BoxedHook>,
+    pub(crate) durability: Option<BoxedDurable>,
+    pub(crate) config: LoopConfig,
+    pub(crate) messages: Vec<Message>,
 }
 
 impl<P: Provider, C: ContextStrategy> AgentLoop<P, C> {
@@ -400,7 +400,7 @@ impl<P: Provider, C: ContextStrategy> AgentLoop<P, C> {
 // --- Hook firing helpers ---
 
 /// Fire all hooks for a PreLlmCall event, returning the first non-Continue action.
-async fn fire_pre_llm_hooks(
+pub(crate) async fn fire_pre_llm_hooks(
     hooks: &[BoxedHook],
     request: &CompletionRequest,
 ) -> Result<Option<HookAction>, LoopError> {
@@ -417,7 +417,7 @@ async fn fire_pre_llm_hooks(
 }
 
 /// Fire all hooks for a PostLlmCall event, returning the first non-Continue action.
-async fn fire_post_llm_hooks(
+pub(crate) async fn fire_post_llm_hooks(
     hooks: &[BoxedHook],
     response: &CompletionResponse,
 ) -> Result<Option<HookAction>, LoopError> {
@@ -434,7 +434,7 @@ async fn fire_post_llm_hooks(
 }
 
 /// Fire all hooks for a PreToolExecution event, returning the first non-Continue action.
-async fn fire_pre_tool_hooks(
+pub(crate) async fn fire_pre_tool_hooks(
     hooks: &[BoxedHook],
     tool_name: &str,
     input: &serde_json::Value,
@@ -452,7 +452,7 @@ async fn fire_pre_tool_hooks(
 }
 
 /// Fire all hooks for a PostToolExecution event, returning the first non-Continue action.
-async fn fire_post_tool_hooks(
+pub(crate) async fn fire_post_tool_hooks(
     hooks: &[BoxedHook],
     tool_name: &str,
     output: &ToolOutput,
@@ -470,7 +470,7 @@ async fn fire_post_tool_hooks(
 }
 
 /// Fire all hooks for a ContextCompaction event, returning the first non-Continue action.
-async fn fire_compaction_hooks(
+pub(crate) async fn fire_compaction_hooks(
     hooks: &[BoxedHook],
     old_tokens: usize,
     new_tokens: usize,
@@ -493,7 +493,7 @@ async fn fire_compaction_hooks(
 // --- Utility functions ---
 
 /// Extract text content from a message.
-fn extract_text(message: &Message) -> String {
+pub(crate) fn extract_text(message: &Message) -> String {
     message
         .content
         .iter()
@@ -509,7 +509,7 @@ fn extract_text(message: &Message) -> String {
 }
 
 /// Accumulate token usage from a response into the total.
-fn accumulate_usage(total: &mut TokenUsage, delta: &TokenUsage) {
+pub(crate) fn accumulate_usage(total: &mut TokenUsage, delta: &TokenUsage) {
     total.input_tokens += delta.input_tokens;
     total.output_tokens += delta.output_tokens;
     if let Some(cache_read) = delta.cache_read_tokens {

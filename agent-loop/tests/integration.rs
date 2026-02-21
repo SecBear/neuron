@@ -707,3 +707,171 @@ async fn test_without_durability_calls_provider_directly() {
     let result = agent.run(user_msg, &test_tool_context()).await.expect("run should succeed");
     assert_eq!(result.response, "Direct response");
 }
+
+// --- Task 5.7 tests ---
+
+use agent_loop::TurnResult;
+
+#[tokio::test]
+async fn test_run_step_yields_turn_results() {
+    let provider = MockProvider::new(vec![
+        tool_use_response("call-1", "echo", serde_json::json!({"text": "step1"})),
+        text_response("Final step response"),
+    ]);
+
+    let mut tools = ToolRegistry::new();
+    tools.register(EchoTool);
+
+    let context = SlidingWindowStrategy::new(10, 100_000);
+    let config = LoopConfig::default();
+
+    let mut agent = AgentLoop::new(provider, tools, context, config);
+    let user_msg = Message {
+        role: Role::User,
+        content: vec![ContentBlock::Text("Go step by step".to_string())],
+    };
+    let tool_ctx = test_tool_context();
+    let mut iter = agent.run_step(user_msg, &tool_ctx);
+
+    // First turn: tool execution
+    let result = iter.next().await.expect("should have a turn");
+    match result {
+        TurnResult::ToolsExecuted { calls, results } => {
+            assert_eq!(calls.len(), 1);
+            assert_eq!(calls[0].1, "echo");
+            assert_eq!(results.len(), 1);
+        }
+        other => panic!("expected ToolsExecuted, got: {other:?}"),
+    }
+
+    // Can inspect messages between turns
+    assert!(iter.messages().len() >= 3); // user + assistant + tool_result
+
+    // Second turn: final response
+    let result = iter.next().await.expect("should have a turn");
+    match result {
+        TurnResult::FinalResponse(agent_result) => {
+            assert_eq!(agent_result.response, "Final step response");
+            assert_eq!(agent_result.turns, 2);
+        }
+        other => panic!("expected FinalResponse, got: {other:?}"),
+    }
+
+    // No more turns
+    assert!(iter.next().await.is_none());
+}
+
+#[tokio::test]
+async fn test_run_step_inject_message() {
+    // Provider returns text after seeing injected message
+    let provider = MockProvider::new(vec![
+        text_response("I see you injected something"),
+    ]);
+
+    let tools = ToolRegistry::new();
+    let context = SlidingWindowStrategy::new(10, 100_000);
+    let config = LoopConfig::default();
+
+    let mut agent = AgentLoop::new(provider, tools, context, config);
+    let user_msg = Message {
+        role: Role::User,
+        content: vec![ContentBlock::Text("Start".to_string())],
+    };
+    let tool_ctx = test_tool_context();
+    let mut iter = agent.run_step(user_msg, &tool_ctx);
+
+    // Inject an additional message before the first turn
+    iter.inject_message(Message {
+        role: Role::User,
+        content: vec![ContentBlock::Text("Injected context".to_string())],
+    });
+
+    // Messages should include both the original and injected message
+    assert_eq!(iter.messages().len(), 2);
+
+    let result = iter.next().await.expect("should have a turn");
+    match result {
+        TurnResult::FinalResponse(agent_result) => {
+            assert_eq!(agent_result.response, "I see you injected something");
+        }
+        other => panic!("expected FinalResponse, got: {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn test_run_step_tools_mut() {
+    // Start with no tools, add one between steps
+    let provider = MockProvider::new(vec![
+        tool_use_response("call-1", "echo", serde_json::json!({"text": "dynamic"})),
+        text_response("Done with dynamic tool"),
+    ]);
+
+    let tools = ToolRegistry::new(); // Empty initially
+    let context = SlidingWindowStrategy::new(10, 100_000);
+    let config = LoopConfig::default();
+
+    let mut agent = AgentLoop::new(provider, tools, context, config);
+    let user_msg = Message {
+        role: Role::User,
+        content: vec![ContentBlock::Text("Use echo".to_string())],
+    };
+    let tool_ctx = test_tool_context();
+    let mut iter = agent.run_step(user_msg, &tool_ctx);
+
+    // Register tool dynamically before first turn
+    iter.tools_mut().register(EchoTool);
+
+    // First turn: tool execution should succeed now
+    let result = iter.next().await.expect("should have a turn");
+    match result {
+        TurnResult::ToolsExecuted { calls, .. } => {
+            assert_eq!(calls.len(), 1);
+        }
+        other => panic!("expected ToolsExecuted, got: {other:?}"),
+    }
+
+    // Second turn: final response
+    let result = iter.next().await.expect("should have a turn");
+    match result {
+        TurnResult::FinalResponse(agent_result) => {
+            assert_eq!(agent_result.response, "Done with dynamic tool");
+        }
+        other => panic!("expected FinalResponse, got: {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn test_run_step_max_turns_reached() {
+    let provider = MockProvider::new(vec![
+        tool_use_response("call-1", "echo", serde_json::json!({"text": "1"})),
+        tool_use_response("call-2", "echo", serde_json::json!({"text": "2"})),
+    ]);
+
+    let mut tools = ToolRegistry::new();
+    tools.register(EchoTool);
+
+    let context = SlidingWindowStrategy::new(10, 100_000);
+    let config = LoopConfig {
+        max_turns: Some(1),
+        ..LoopConfig::default()
+    };
+
+    let mut agent = AgentLoop::new(provider, tools, context, config);
+    let user_msg = Message {
+        role: Role::User,
+        content: vec![ContentBlock::Text("Go".to_string())],
+    };
+    let tool_ctx = test_tool_context();
+    let mut iter = agent.run_step(user_msg, &tool_ctx);
+
+    // First turn succeeds
+    let result = iter.next().await.expect("should have a turn");
+    assert!(matches!(result, TurnResult::ToolsExecuted { .. }));
+
+    // Second turn: max turns reached
+    let result = iter.next().await.expect("should have a turn");
+    assert!(matches!(result, TurnResult::MaxTurnsReached));
+
+    // No more turns
+    assert!(iter.next().await.is_none());
+}
