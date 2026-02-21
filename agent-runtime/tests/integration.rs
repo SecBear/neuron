@@ -778,3 +778,136 @@ async fn test_run_output_guardrails_tripwire() {
     let result = run_output_guardrails(&guardrails, "key is sk-secret").await;
     assert!(result.is_tripwire());
 }
+
+// ============================================================================
+// Task 9.8 tests: LocalDurableContext
+// ============================================================================
+
+use agent_runtime::LocalDurableContext;
+use agent_types::{ActivityOptions, DurableContext};
+use std::sync::Arc;
+
+#[tokio::test]
+async fn test_local_durable_context_llm_passthrough() {
+    let provider = Arc::new(MockProvider::new(vec![text_response("Durable local")]));
+    let tools = Arc::new(ToolRegistry::new());
+    let ctx = LocalDurableContext::new(provider, tools);
+
+    let request = CompletionRequest {
+        model: String::new(),
+        messages: vec![Message {
+            role: Role::User,
+            content: vec![ContentBlock::Text("Hi".to_string())],
+        }],
+        system: None,
+        tools: vec![],
+        max_tokens: None,
+        temperature: None,
+        top_p: None,
+        stop_sequences: vec![],
+        tool_choice: None,
+        response_format: None,
+        thinking: None,
+        reasoning_effort: None,
+        extra: None,
+    };
+
+    let options = ActivityOptions {
+        start_to_close_timeout: std::time::Duration::from_secs(30),
+        heartbeat_timeout: None,
+        retry_policy: None,
+    };
+
+    let response = ctx
+        .execute_llm_call(request, options)
+        .await
+        .expect("should succeed");
+    assert_eq!(
+        response.message.content.first().map(|c| match c {
+            ContentBlock::Text(t) => t.as_str(),
+            _ => "",
+        }),
+        Some("Durable local")
+    );
+}
+
+#[tokio::test]
+async fn test_local_durable_context_tool_passthrough() {
+    let provider = Arc::new(MockProvider::new(vec![]));
+    let mut registry = ToolRegistry::new();
+    registry.register(EchoTool);
+    let tools = Arc::new(registry);
+    let ctx = LocalDurableContext::new(provider, tools);
+
+    let options = ActivityOptions {
+        start_to_close_timeout: std::time::Duration::from_secs(30),
+        heartbeat_timeout: None,
+        retry_policy: None,
+    };
+
+    let result = ctx
+        .execute_tool(
+            "echo",
+            serde_json::json!({"text": "durable"}),
+            &test_tool_context(),
+            options,
+        )
+        .await
+        .expect("should succeed");
+
+    assert!(!result.is_error);
+    let text = result
+        .content
+        .iter()
+        .find_map(|c| match c {
+            agent_types::ContentItem::Text(t) => Some(t.as_str()),
+            _ => None,
+        })
+        .expect("should have text");
+    assert!(text.contains("durable"));
+}
+
+#[tokio::test]
+async fn test_local_durable_context_should_continue_as_new() {
+    let provider = Arc::new(MockProvider::new(vec![]));
+    let tools = Arc::new(ToolRegistry::new());
+    let ctx = LocalDurableContext::new(provider, tools);
+
+    assert!(!ctx.should_continue_as_new());
+}
+
+#[tokio::test]
+async fn test_local_durable_context_continue_as_new_noop() {
+    let provider = Arc::new(MockProvider::new(vec![]));
+    let tools = Arc::new(ToolRegistry::new());
+    let ctx = LocalDurableContext::new(provider, tools);
+
+    ctx.continue_as_new(serde_json::json!({}))
+        .await
+        .expect("should succeed as no-op");
+}
+
+#[tokio::test]
+async fn test_local_durable_context_sleep() {
+    let provider = Arc::new(MockProvider::new(vec![]));
+    let tools = Arc::new(ToolRegistry::new());
+    let ctx = LocalDurableContext::new(provider, tools);
+
+    let start = std::time::Instant::now();
+    ctx.sleep(std::time::Duration::from_millis(10)).await;
+    let elapsed = start.elapsed();
+    assert!(elapsed >= std::time::Duration::from_millis(5));
+}
+
+#[tokio::test]
+async fn test_local_durable_context_now() {
+    let provider = Arc::new(MockProvider::new(vec![]));
+    let tools = Arc::new(ToolRegistry::new());
+    let ctx = LocalDurableContext::new(provider, tools);
+
+    let before = chrono::Utc::now();
+    let now = ctx.now();
+    let after = chrono::Utc::now();
+    assert!(now >= before);
+    assert!(now <= after);
+}
