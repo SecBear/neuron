@@ -911,3 +911,117 @@ async fn test_local_durable_context_now() {
     assert!(now >= before);
     assert!(now <= after);
 }
+
+// ============================================================================
+// Task 9.9 tests: Sandbox
+// ============================================================================
+
+use agent_runtime::{NoOpSandbox, Sandbox};
+use agent_types::ToolDyn;
+
+#[tokio::test]
+async fn test_noop_sandbox_passthrough() {
+    let sandbox = NoOpSandbox;
+    let tool = EchoTool;
+    let tool_ctx = test_tool_context();
+
+    let result = sandbox
+        .execute_tool(
+            &tool as &dyn ToolDyn,
+            serde_json::json!({"text": "sandboxed"}),
+            &tool_ctx,
+        )
+        .await
+        .expect("should succeed");
+
+    assert!(!result.is_error);
+    let text = result
+        .content
+        .iter()
+        .find_map(|c| match c {
+            agent_types::ContentItem::Text(t) => Some(t.as_str()),
+            _ => None,
+        })
+        .expect("should have text");
+    assert!(text.contains("sandboxed"));
+}
+
+#[tokio::test]
+async fn test_noop_sandbox_error_propagation() {
+    let sandbox = NoOpSandbox;
+    let tool = EchoTool;
+    let tool_ctx = test_tool_context();
+
+    // Invalid input should produce an error
+    let result = sandbox
+        .execute_tool(
+            &tool as &dyn ToolDyn,
+            serde_json::json!({"wrong_field": "value"}),
+            &tool_ctx,
+        )
+        .await;
+
+    assert!(result.is_err());
+}
+
+/// A mock sandbox that wraps tool output with a prefix.
+struct MockSandbox {
+    prefix: String,
+}
+
+impl Sandbox for MockSandbox {
+    async fn execute_tool(
+        &self,
+        tool: &dyn ToolDyn,
+        input: serde_json::Value,
+        ctx: &ToolContext,
+    ) -> Result<ToolOutput, agent_types::SandboxError> {
+        let mut output = tool
+            .call_dyn(input, ctx)
+            .await
+            .map_err(|e| agent_types::SandboxError::ExecutionFailed(e.to_string()))?;
+
+        // Wrap content with sandbox prefix
+        output.content = output
+            .content
+            .into_iter()
+            .map(|item| match item {
+                agent_types::ContentItem::Text(t) => {
+                    agent_types::ContentItem::Text(format!("[{}] {}", self.prefix, t))
+                }
+                other => other,
+            })
+            .collect();
+
+        Ok(output)
+    }
+}
+
+#[tokio::test]
+async fn test_mock_sandbox_wraps_output() {
+    let sandbox = MockSandbox {
+        prefix: "SANDBOXED".to_string(),
+    };
+    let tool = EchoTool;
+    let tool_ctx = test_tool_context();
+
+    let result = sandbox
+        .execute_tool(
+            &tool as &dyn ToolDyn,
+            serde_json::json!({"text": "hello"}),
+            &tool_ctx,
+        )
+        .await
+        .expect("should succeed");
+
+    let text = result
+        .content
+        .iter()
+        .find_map(|c| match c {
+            agent_types::ContentItem::Text(t) => Some(t.as_str()),
+            _ => None,
+        })
+        .expect("should have text");
+    assert!(text.starts_with("[SANDBOXED]"));
+    assert!(text.contains("hello"));
+}
