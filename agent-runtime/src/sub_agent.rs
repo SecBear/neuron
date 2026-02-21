@@ -140,15 +140,22 @@ impl SubAgentManager {
         Ok(result)
     }
 
-    /// Spawn multiple sub-agents in parallel.
+    /// Spawn multiple sub-agents with the same parent tools and context.
     ///
     /// Each entry is `(name, provider, context, user_message)`. All share the
-    /// same parent tools and tool context. Returns results in the same order
-    /// as the input.
+    /// same parent tools and tool context. Results are returned in the same
+    /// order as the input.
+    ///
+    /// **Note:** Despite the name, this method currently executes sub-agents
+    /// **sequentially**, not in parallel. `Provider` and `ContextStrategy` use
+    /// RPITIT and are therefore not `'static`, which prevents spawning them
+    /// onto `tokio::spawn`. For true parallelism, callers should use
+    /// `tokio::spawn` directly with `'static` provider and context types.
     ///
     /// # Errors
     ///
-    /// Returns the first error encountered (all tasks are awaited).
+    /// Each element of the returned `Vec` is an independent `Result`. All
+    /// sub-agents are executed regardless of earlier failures.
     #[must_use = "this returns a Result that should be handled"]
     pub async fn spawn_parallel<P, C>(
         &self,
