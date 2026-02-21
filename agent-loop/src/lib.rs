@@ -2,6 +2,7 @@
 //!
 //! This crate provides:
 //! - [`AgentLoop`] — the core loop that drives provider + tool + context interactions
+//! - [`AgentLoopBuilder`] — builder pattern for constructing an `AgentLoop`
 //! - [`LoopConfig`] — configuration for the loop (system prompt, max turns, etc.)
 //! - [`AgentResult`] — the final result of a loop run
 //! - [`TurnResult`] — per-turn result for step-by-step iteration

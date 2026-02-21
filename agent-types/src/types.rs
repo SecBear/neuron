@@ -367,3 +367,15 @@ pub trait ProgressReporter: WasmCompatSend + WasmCompatSync {
     /// * `message` - Optional status message.
     fn report(&self, progress: f64, total: Option<f64>, message: Option<&str>);
 }
+
+impl From<String> for SystemPrompt {
+    fn from(s: String) -> Self {
+        SystemPrompt::Text(s)
+    }
+}
+
+impl From<&str> for SystemPrompt {
+    fn from(s: &str) -> Self {
+        SystemPrompt::Text(s.to_string())
+    }
+}

@@ -73,3 +73,15 @@ fn token_usage_default() {
     assert_eq!(usage.input_tokens, 0);
     assert_eq!(usage.output_tokens, 0);
 }
+
+#[test]
+fn system_prompt_from_str() {
+    let prompt: SystemPrompt = "You are helpful.".into();
+    assert!(matches!(prompt, SystemPrompt::Text(s) if s == "You are helpful."));
+}
+
+#[test]
+fn system_prompt_from_string() {
+    let prompt: SystemPrompt = String::from("You are helpful.").into();
+    assert!(matches!(prompt, SystemPrompt::Text(s) if s == "You are helpful."));
+}

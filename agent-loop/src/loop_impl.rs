@@ -398,6 +398,129 @@ impl<P: Provider, C: ContextStrategy> AgentLoop<P, C> {
             });
         }
     }
+
+    /// Convenience method to run the loop with a plain text message.
+    ///
+    /// Wraps `text` into a `Message { role: User, content: [Text(text)] }`
+    /// and calls [`run`](Self::run).
+    #[must_use = "this returns a Result that should be handled"]
+    pub async fn run_text(
+        &mut self,
+        text: &str,
+        tool_ctx: &ToolContext,
+    ) -> Result<AgentResult, LoopError> {
+        let message = Message {
+            role: Role::User,
+            content: vec![ContentBlock::Text(text.to_string())],
+        };
+        self.run(message, tool_ctx).await
+    }
+
+    /// Create a builder with the required provider and context strategy.
+    ///
+    /// All other options have sensible defaults:
+    /// - Empty tool registry
+    /// - Default loop config (no turn limit, empty system prompt)
+    /// - No hooks or durability
+    #[must_use]
+    pub fn builder(provider: P, context: C) -> AgentLoopBuilder<P, C> {
+        AgentLoopBuilder {
+            provider,
+            context,
+            tools: ToolRegistry::new(),
+            config: LoopConfig::default(),
+            hooks: Vec::new(),
+            durability: None,
+        }
+    }
+}
+
+/// Builder for constructing an [`AgentLoop`] with optional configuration.
+///
+/// Created via [`AgentLoop::builder`]. Only `provider` and `context` are required;
+/// everything else has sensible defaults.
+///
+/// # Example
+///
+/// ```ignore
+/// let agent = AgentLoop::builder(provider, context)
+///     .tools(tools)
+///     .system_prompt("You are a helpful assistant.")
+///     .max_turns(10)
+///     .build();
+/// ```
+pub struct AgentLoopBuilder<P: Provider, C: ContextStrategy> {
+    provider: P,
+    context: C,
+    tools: ToolRegistry,
+    config: LoopConfig,
+    hooks: Vec<BoxedHook>,
+    durability: Option<BoxedDurable>,
+}
+
+impl<P: Provider, C: ContextStrategy> AgentLoopBuilder<P, C> {
+    /// Set the tool registry.
+    #[must_use]
+    pub fn tools(mut self, tools: ToolRegistry) -> Self {
+        self.tools = tools;
+        self
+    }
+
+    /// Set the full loop configuration.
+    #[must_use]
+    pub fn config(mut self, config: LoopConfig) -> Self {
+        self.config = config;
+        self
+    }
+
+    /// Set the system prompt (convenience for setting `config.system_prompt`).
+    #[must_use]
+    pub fn system_prompt(mut self, prompt: impl Into<agent_types::SystemPrompt>) -> Self {
+        self.config.system_prompt = prompt.into();
+        self
+    }
+
+    /// Set the maximum number of turns (convenience for setting `config.max_turns`).
+    #[must_use]
+    pub fn max_turns(mut self, max: usize) -> Self {
+        self.config.max_turns = Some(max);
+        self
+    }
+
+    /// Enable parallel tool execution (convenience for setting `config.parallel_tool_execution`).
+    #[must_use]
+    pub fn parallel_tool_execution(mut self, parallel: bool) -> Self {
+        self.config.parallel_tool_execution = parallel;
+        self
+    }
+
+    /// Add an observability hook.
+    #[must_use]
+    pub fn hook<H: ObservabilityHook + 'static>(mut self, hook: H) -> Self {
+        self.hooks.push(BoxedHook::new(hook));
+        self
+    }
+
+    /// Set the durable context for crash-recoverable execution.
+    #[must_use]
+    pub fn durability<D: DurableContext + 'static>(mut self, durable: D) -> Self {
+        self.durability = Some(BoxedDurable::new(durable));
+        self
+    }
+
+    /// Build the [`AgentLoop`].
+    #[must_use]
+    pub fn build(self) -> AgentLoop<P, C> {
+        AgentLoop {
+            provider: self.provider,
+            tools: self.tools,
+            context: self.context,
+            hooks: self.hooks,
+            durability: self.durability,
+            config: self.config,
+            messages: Vec::new(),
+        }
+    }
 }
 
 // --- Hook firing helpers ---
