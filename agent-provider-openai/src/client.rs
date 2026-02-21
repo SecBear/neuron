@@ -1,5 +1,11 @@
 //! OpenAI API client struct and builder.
 
+use agent_types::{CompletionRequest, CompletionResponse, Provider, ProviderError, StreamHandle};
+
+use crate::error::{map_http_status, map_reqwest_error};
+use crate::mapping::{from_api_response, to_api_request};
+use crate::streaming::stream_completion;
+
 /// Default model used when none is specified on the request.
 const DEFAULT_MODEL: &str = "gpt-4o";
 
@@ -76,7 +82,106 @@ impl OpenAi {
     pub(crate) fn completions_url(&self) -> String {
         format!("{}/v1/chat/completions", self.base_url)
     }
+
 }
+
+impl Provider for OpenAi {
+    /// Send a completion request to the OpenAI Chat Completions API.
+    ///
+    /// Maps the [`CompletionRequest`] to OpenAI's JSON format, sends it with
+    /// the required headers, and maps the response back to [`CompletionResponse`].
+    fn complete(
+        &self,
+        request: CompletionRequest,
+    ) -> impl Future<Output = Result<CompletionResponse, ProviderError>> + Send {
+        let default_model = self.model.clone();
+        let this_api_key = self.api_key.clone();
+        let this_base_url = self.base_url.clone();
+        let this_org = self.organization.clone();
+        let http_client = self.client.clone();
+
+        async move {
+            let mut body = to_api_request(&request, &default_model);
+            body["stream"] = serde_json::Value::Bool(false);
+
+            let url = format!("{this_base_url}/v1/chat/completions");
+            tracing::debug!(url = %url, model = %body["model"], "sending completion request");
+
+            let mut req = http_client
+                .post(&url)
+                .header("authorization", format!("Bearer {this_api_key}"))
+                .header("content-type", "application/json")
+                .json(&body);
+
+            if let Some(org) = &this_org {
+                req = req.header("openai-organization", org);
+            }
+
+            let response = req.send().await.map_err(map_reqwest_error)?;
+
+            let status = response.status();
+            let response_text = response.text().await.map_err(map_reqwest_error)?;
+
+            if !status.is_success() {
+                return Err(map_http_status(status, &response_text));
+            }
+
+            let json: serde_json::Value = serde_json::from_str(&response_text).map_err(|e| {
+                ProviderError::InvalidRequest(format!("invalid JSON response: {e}"))
+            })?;
+
+            from_api_response(&json)
+        }
+    }
+
+    /// Send a streaming completion request to the OpenAI Chat Completions API.
+    ///
+    /// Returns a [`StreamHandle`] whose receiver emits [`StreamEvent`]s as the
+    /// model generates content.
+    fn complete_stream(
+        &self,
+        request: CompletionRequest,
+    ) -> impl Future<Output = Result<StreamHandle, ProviderError>> + Send {
+        let default_model = self.model.clone();
+        let this_api_key = self.api_key.clone();
+        let this_base_url = self.base_url.clone();
+        let this_org = self.organization.clone();
+        let http_client = self.client.clone();
+
+        async move {
+            let mut body = to_api_request(&request, &default_model);
+            body["stream"] = serde_json::Value::Bool(true);
+            // Request usage stats in the stream
+            body["stream_options"] = serde_json::json!({ "include_usage": true });
+
+            let url = format!("{this_base_url}/v1/chat/completions");
+            tracing::debug!(url = %url, model = %body["model"], "sending streaming completion request");
+
+            let mut req = http_client
+                .post(&url)
+                .header("authorization", format!("Bearer {this_api_key}"))
+                .header("content-type", "application/json")
+                .json(&body);
+
+            if let Some(org) = &this_org {
+                req = req.header("openai-organization", org);
+            }
+
+            let response = req.send().await.map_err(map_reqwest_error)?;
+
+            let status = response.status();
+            if !status.is_success() {
+                let body_text = response.text().await.map_err(map_reqwest_error)?;
+                return Err(map_http_status(status, &body_text));
+            }
+
+            Ok(stream_completion(response))
+        }
+    }
+}
+
+// Required to satisfy the `use std::future::Future` in the trait impl bodies
+use std::future::Future;
 
 #[cfg(test)]
 mod tests {
