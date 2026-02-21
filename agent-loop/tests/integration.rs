@@ -10,9 +10,10 @@ use agent_tool::ToolRegistry;
 use agent_types::{
     ActivityOptions, CompletionRequest, CompletionResponse, ContentBlock, ContentItem,
     DurableContext, DurableError, HookAction, HookError, HookEvent, LoopError, Message,
-    ObservabilityHook, ProviderError, Role, StopReason, StreamHandle, SystemPrompt, TokenUsage,
-    Tool, ToolContext, ToolDefinition, ToolOutput,
+    ObservabilityHook, ProviderError, Role, StopReason, StreamError, StreamEvent, StreamHandle,
+    SystemPrompt, TokenUsage, Tool, ToolContext, ToolDefinition, ToolOutput,
 };
+use futures::stream;
 use tokio_util::sync::CancellationToken;
 
 /// A mock provider that returns pre-configured responses in sequence.
@@ -926,5 +927,172 @@ async fn test_loop_iteration_event_fired_in_run_step() {
     assert!(
         recorded.contains(&"LoopIteration".to_string()),
         "expected LoopIteration event in run_step, got: {recorded:?}"
+    );
+}
+
+// --- Issue I-8 tests: run_stream() hooks and durability ---
+
+/// A mock provider that supports streaming by returning StreamHandles.
+/// Each call to complete_stream() produces a stream of events ending in MessageComplete.
+struct MockStreamProvider {
+    /// Pre-configured responses, returned as streams.
+    responses: Mutex<Vec<CompletionResponse>>,
+}
+
+impl MockStreamProvider {
+    fn new(responses: Vec<CompletionResponse>) -> Self {
+        Self {
+            responses: Mutex::new(responses),
+        }
+    }
+}
+
+impl agent_types::Provider for MockStreamProvider {
+    async fn complete(
+        &self,
+        _request: CompletionRequest,
+    ) -> Result<CompletionResponse, ProviderError> {
+        Err(ProviderError::InvalidRequest("use complete_stream".into()))
+    }
+
+    async fn complete_stream(
+        &self,
+        _request: CompletionRequest,
+    ) -> Result<StreamHandle, ProviderError> {
+        let response = {
+            let mut responses = self.responses.lock().expect("test lock poisoned");
+            if responses.is_empty() {
+                panic!("MockStreamProvider: no more responses configured");
+            }
+            responses.remove(0)
+        };
+
+        // Build stream events from the response: text deltas + MessageComplete
+        let mut events: Vec<StreamEvent> = Vec::new();
+        for block in &response.message.content {
+            match block {
+                ContentBlock::Text(text) => {
+                    events.push(StreamEvent::TextDelta(text.clone()));
+                }
+                ContentBlock::ToolUse { id, name, .. } => {
+                    events.push(StreamEvent::ToolUseStart {
+                        id: id.clone(),
+                        name: name.clone(),
+                    });
+                    events.push(StreamEvent::ToolUseEnd { id: id.clone() });
+                }
+                _ => {}
+            }
+        }
+        events.push(StreamEvent::Usage(response.usage.clone()));
+        events.push(StreamEvent::MessageComplete(response.message.clone()));
+
+        let event_stream = stream::iter(events);
+        Ok(StreamHandle {
+            receiver: Box::pin(event_stream),
+        })
+    }
+}
+
+#[tokio::test]
+async fn test_run_stream_fires_pre_and_post_llm_hooks() {
+    let provider = MockStreamProvider::new(vec![text_response("Streamed hello")]);
+    let tools = ToolRegistry::new();
+    let context = SlidingWindowStrategy::new(10, 100_000);
+    let config = LoopConfig::default();
+
+    let mut agent = AgentLoop::new(provider, tools, context, config);
+    let (hook, events) = RecordingHook::new();
+    agent.add_hook(hook);
+
+    let user_msg = Message {
+        role: Role::User,
+        content: vec![ContentBlock::Text("Hi".to_string())],
+    };
+
+    let mut rx = agent.run_stream(user_msg, &test_tool_context()).await;
+
+    // Drain the stream
+    while let Some(_event) = rx.recv().await {}
+
+    let recorded = events.lock().expect("lock");
+    assert!(
+        recorded.contains(&"PreLlmCall".to_string()),
+        "expected PreLlmCall event in run_stream, got: {recorded:?}"
+    );
+    assert!(
+        recorded.contains(&"PostLlmCall".to_string()),
+        "expected PostLlmCall event in run_stream, got: {recorded:?}"
+    );
+    assert!(
+        recorded.contains(&"LoopIteration".to_string()),
+        "expected LoopIteration event in run_stream, got: {recorded:?}"
+    );
+}
+
+#[tokio::test]
+async fn test_run_stream_fires_tool_hooks() {
+    let provider = MockStreamProvider::new(vec![
+        tool_use_response("call-1", "echo", serde_json::json!({"text": "hello"})),
+        text_response("Done streaming"),
+    ]);
+
+    let mut tools = ToolRegistry::new();
+    tools.register(EchoTool);
+
+    let context = SlidingWindowStrategy::new(10, 100_000);
+    let config = LoopConfig::default();
+
+    let mut agent = AgentLoop::new(provider, tools, context, config);
+    let (hook, events) = RecordingHook::new();
+    agent.add_hook(hook);
+
+    let user_msg = Message {
+        role: Role::User,
+        content: vec![ContentBlock::Text("Echo".to_string())],
+    };
+
+    let mut rx = agent.run_stream(user_msg, &test_tool_context()).await;
+    while let Some(_event) = rx.recv().await {}
+
+    let recorded = events.lock().expect("lock");
+    assert!(
+        recorded.contains(&"PreToolExecution:echo".to_string()),
+        "expected PreToolExecution:echo event in run_stream, got: {recorded:?}"
+    );
+    assert!(
+        recorded.contains(&"PostToolExecution:echo".to_string()),
+        "expected PostToolExecution:echo event in run_stream, got: {recorded:?}"
+    );
+}
+
+#[tokio::test]
+async fn test_run_stream_routes_through_durable_context() {
+    let provider = MockStreamProvider::new(vec![]); // empty, should not be called
+
+    let (durable, llm_calls, _tool_calls) = MockDurable::new(vec![
+        text_response("Durable streamed"),
+    ]);
+
+    let tools = ToolRegistry::new();
+    let context = SlidingWindowStrategy::new(10, 100_000);
+    let config = LoopConfig::default();
+
+    let mut agent = AgentLoop::new(provider, tools, context, config);
+    agent.set_durability(durable);
+
+    let user_msg = Message {
+        role: Role::User,
+        content: vec![ContentBlock::Text("Hello".to_string())],
+    };
+
+    let mut rx = agent.run_stream(user_msg, &test_tool_context()).await;
+    while let Some(_event) = rx.recv().await {}
+
+    let llm = llm_calls.lock().expect("lock");
+    assert_eq!(
+        llm.len(),
+        1,
+        "expected 1 durable LLM call, got: {llm:?}"
     );
 }

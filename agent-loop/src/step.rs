@@ -379,7 +379,13 @@ impl<P: Provider, C: ContextStrategy> AgentLoop<P, C> {
     /// Run the loop with streaming, forwarding [`StreamEvent`]s through a channel.
     ///
     /// Uses `provider.complete_stream()` instead of `provider.complete()` for
-    /// each LLM turn. Tool execution is handled identically to [`run`](AgentLoop::run).
+    /// each LLM turn. When durability is set, falls back to `DurableContext::execute_llm_call`
+    /// (full response) and synthesizes stream events from the result.
+    ///
+    /// Tool execution is handled identically to [`run`](AgentLoop::run).
+    /// Fires the same hook events as `run()`: `LoopIteration`, `PreLlmCall`,
+    /// `PostLlmCall`, `PreToolExecution`, `PostToolExecution`, and
+    /// `ContextCompaction`.
     ///
     /// Returns a receiver that yields `StreamEvent`s. The final
     /// `StreamEvent::MessageComplete` on the last turn signals the loop
@@ -411,11 +417,57 @@ impl<P: Provider, C: ContextStrategy> AgentLoop<P, C> {
                 break;
             }
 
+            // Fire LoopIteration hooks
+            match fire_loop_iteration_hooks(&self.hooks, turns).await {
+                Ok(Some(HookAction::Terminate { reason })) => {
+                    let _ = tx
+                        .send(StreamEvent::Error(StreamError::non_retryable(format!(
+                            "hook terminated: {reason}"
+                        ))))
+                        .await;
+                    break;
+                }
+                Err(e) => {
+                    let _ = tx
+                        .send(StreamEvent::Error(StreamError::non_retryable(format!(
+                            "hook error: {e}"
+                        ))))
+                        .await;
+                    break;
+                }
+                _ => {}
+            }
+
             // Check context compaction
             let token_count = self.context.token_estimate(&self.messages);
             if self.context.should_compact(&self.messages, token_count) {
+                let old_tokens = token_count;
                 match self.context.compact(self.messages.clone()).await {
-                    Ok(compacted) => self.messages = compacted,
+                    Ok(compacted) => {
+                        self.messages = compacted;
+                        let new_tokens = self.context.token_estimate(&self.messages);
+
+                        // Fire ContextCompaction hooks
+                        match fire_compaction_hooks(&self.hooks, old_tokens, new_tokens).await {
+                            Ok(Some(HookAction::Terminate { reason })) => {
+                                let _ = tx
+                                    .send(StreamEvent::Error(StreamError::non_retryable(format!(
+                                        "hook terminated: {reason}"
+                                    ))))
+                                    .await;
+                                break;
+                            }
+                            Err(e) => {
+                                let _ = tx
+                                    .send(StreamEvent::Error(StreamError::non_retryable(format!(
+                                        "hook error: {e}"
+                                    ))))
+                                    .await;
+                                break;
+                            }
+                            _ => {}
+                        }
+                    }
                     Err(e) => {
                         let _ = tx
                             .send(StreamEvent::Error(StreamError::non_retryable(format!(
@@ -444,55 +496,207 @@ impl<P: Provider, C: ContextStrategy> AgentLoop<P, C> {
                 extra: None,
             };
 
-            // Use streaming provider call
-            let stream_handle = match self.provider.complete_stream(request).await {
-                Ok(h) => h,
-                Err(e) => {
+            // Fire PreLlmCall hooks
+            match fire_pre_llm_hooks(&self.hooks, &request).await {
+                Ok(Some(HookAction::Terminate { reason })) => {
                     let _ = tx
                         .send(StreamEvent::Error(StreamError::non_retryable(format!(
-                            "provider error: {e}"
+                            "hook terminated: {reason}"
                         ))))
                         .await;
                     break;
                 }
-            };
-
-            // Forward all stream events to the channel, collect the assembled message
-            let mut assembled_message: Option<Message> = None;
-            let mut _usage: Option<agent_types::TokenUsage> = None;
-            let mut stream = stream_handle.receiver;
-
-            while let Some(event) = stream.next().await {
-                match &event {
-                    StreamEvent::MessageComplete(msg) => {
-                        assembled_message = Some(msg.clone());
-                    }
-                    StreamEvent::Usage(u) => {
-                        _usage = Some(u.clone());
-                    }
-                    _ => {}
-                }
-                // Forward event to caller
-                if tx.send(event).await.is_err() {
-                    // Receiver dropped, stop
-                    return rx;
-                }
-            }
-
-            turns += 1;
-
-            // Process the assembled message
-            let message = match assembled_message {
-                Some(m) => m,
-                None => {
+                Err(e) => {
                     let _ = tx
-                        .send(StreamEvent::Error(StreamError::non_retryable(
-                            "stream ended without MessageComplete",
-                        )))
+                        .send(StreamEvent::Error(StreamError::non_retryable(format!(
+                            "hook error: {e}"
+                        ))))
                         .await;
                     break;
                 }
+                _ => {}
+            }
+
+            // Call provider: durable path uses complete() with synthesized events,
+            // non-durable path uses complete_stream() for real streaming.
+            let message = if let Some(ref durable) = self.durability {
+                // Durable path: use execute_llm_call for journaling/replay
+                let options = agent_types::ActivityOptions {
+                    start_to_close_timeout: DEFAULT_ACTIVITY_TIMEOUT,
+                    heartbeat_timeout: None,
+                    retry_policy: None,
+                };
+                let response = match durable.0.erased_execute_llm_call(request, options).await {
+                    Ok(r) => r,
+                    Err(e) => {
+                        let _ = tx
+                            .send(StreamEvent::Error(StreamError::non_retryable(format!(
+                                "durable error: {e}"
+                            ))))
+                            .await;
+                        break;
+                    }
+                };
+
+                // Synthesize stream events from the durable response
+                for block in &response.message.content {
+                    match block {
+                        ContentBlock::Text(text) => {
+                            if tx.send(StreamEvent::TextDelta(text.clone())).await.is_err() {
+                                return rx;
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                if tx.send(StreamEvent::Usage(response.usage.clone())).await.is_err() {
+                    return rx;
+                }
+                if tx
+                    .send(StreamEvent::MessageComplete(response.message.clone()))
+                    .await
+                    .is_err()
+                {
+                    return rx;
+                }
+
+                // Fire PostLlmCall hooks
+                match fire_post_llm_hooks(&self.hooks, &response).await {
+                    Ok(Some(HookAction::Terminate { reason })) => {
+                        let _ = tx
+                            .send(StreamEvent::Error(StreamError::non_retryable(format!(
+                                "hook terminated: {reason}"
+                            ))))
+                            .await;
+                        break;
+                    }
+                    Err(e) => {
+                        let _ = tx
+                            .send(StreamEvent::Error(StreamError::non_retryable(format!(
+                                "hook error: {e}"
+                            ))))
+                            .await;
+                        break;
+                    }
+                    _ => {}
+                }
+
+                response.message
+            } else {
+                // Non-durable path: use streaming provider call
+                let stream_handle = match self.provider.complete_stream(request).await {
+                    Ok(h) => h,
+                    Err(e) => {
+                        let _ = tx
+                            .send(StreamEvent::Error(StreamError::non_retryable(format!(
+                                "provider error: {e}"
+                            ))))
+                            .await;
+                        break;
+                    }
+                };
+
+                // Forward all stream events to the channel, collect the assembled message
+                let mut assembled_message: Option<Message> = None;
+                let mut assembled_response: Option<agent_types::CompletionResponse> = None;
+                let mut stream = stream_handle.receiver;
+
+                while let Some(event) = stream.next().await {
+                    match &event {
+                        StreamEvent::MessageComplete(msg) => {
+                            assembled_message = Some(msg.clone());
+                        }
+                        StreamEvent::Usage(u) => {
+                            // Build a partial CompletionResponse for PostLlmCall
+                            assembled_response = Some(agent_types::CompletionResponse {
+                                id: String::new(),
+                                model: String::new(),
+                                message: assembled_message.clone().unwrap_or(Message {
+                                    role: Role::Assistant,
+                                    content: vec![],
+                                }),
+                                usage: u.clone(),
+                                stop_reason: StopReason::EndTurn,
+                            });
+                        }
+                        _ => {}
+                    }
+                    // Forward event to caller
+                    if tx.send(event).await.is_err() {
+                        // Receiver dropped, stop
+                        return rx;
+                    }
+                }
+
+                // Process the assembled message
+                let msg = match assembled_message {
+                    Some(m) => m,
+                    None => {
+                        let _ = tx
+                            .send(StreamEvent::Error(StreamError::non_retryable(
+                                "stream ended without MessageComplete",
+                            )))
+                            .await;
+                        break;
+                    }
+                };
+
+                // Fire PostLlmCall hooks with the assembled response
+                if let Some(mut resp) = assembled_response {
+                    resp.message = msg.clone();
+                    match fire_post_llm_hooks(&self.hooks, &resp).await {
+                        Ok(Some(HookAction::Terminate { reason })) => {
+                            let _ = tx
+                                .send(StreamEvent::Error(StreamError::non_retryable(format!(
+                                    "hook terminated: {reason}"
+                                ))))
+                                .await;
+                            break;
+                        }
+                        Err(e) => {
+                            let _ = tx
+                                .send(StreamEvent::Error(StreamError::non_retryable(format!(
+                                    "hook error: {e}"
+                                ))))
+                                .await;
+                            break;
+                        }
+                        _ => {}
+                    }
+                } else {
+                    // No usage event received; construct a minimal response for the hook
+                    let resp = agent_types::CompletionResponse {
+                        id: String::new(),
+                        model: String::new(),
+                        message: msg.clone(),
+                        usage: TokenUsage::default(),
+                        stop_reason: StopReason::EndTurn,
+                    };
+                    match fire_post_llm_hooks(&self.hooks, &resp).await {
+                        Ok(Some(HookAction::Terminate { reason })) => {
+                            let _ = tx
+                                .send(StreamEvent::Error(StreamError::non_retryable(format!(
+                                    "hook terminated: {reason}"
+                                ))))
+                                .await;
+                            break;
+                        }
+                        Err(e) => {
+                            let _ = tx
+                                .send(StreamEvent::Error(StreamError::non_retryable(format!(
+                                    "hook error: {e}"
+                                ))))
+                                .await;
+                            break;
+                        }
+                        _ => {}
+                    }
+                }
+
+                msg
             };
+
+            turns += 1;
 
             // Check for tool calls
             let tool_calls: Vec<_> = message
@@ -514,26 +718,102 @@ impl<P: Provider, C: ContextStrategy> AgentLoop<P, C> {
                 break;
             }
 
-            // Execute tool calls (same as run())
+            // Execute tool calls with hooks and durability
             let mut tool_result_blocks = Vec::new();
             for (call_id, tool_name, input) in &tool_calls {
-                match self.tools.execute(tool_name, input.clone(), tool_ctx).await {
-                    Ok(result) => {
-                        tool_result_blocks.push(ContentBlock::ToolResult {
-                            tool_use_id: call_id.clone(),
-                            content: result.content,
-                            is_error: result.is_error,
-                        });
-                    }
-                    Err(e) => {
+                // Fire PreToolExecution hooks
+                match fire_pre_tool_hooks(&self.hooks, tool_name, input).await {
+                    Ok(Some(HookAction::Terminate { reason })) => {
                         let _ = tx
                             .send(StreamEvent::Error(StreamError::non_retryable(format!(
-                                "tool error: {e}"
+                                "hook terminated: {reason}"
                             ))))
                             .await;
                         return rx;
                     }
+                    Ok(Some(HookAction::Skip { reason })) => {
+                        tool_result_blocks.push(ContentBlock::ToolResult {
+                            tool_use_id: call_id.clone(),
+                            content: vec![ContentItem::Text(format!(
+                                "Tool call skipped: {reason}"
+                            ))],
+                            is_error: true,
+                        });
+                        continue;
+                    }
+                    Err(e) => {
+                        let _ = tx
+                            .send(StreamEvent::Error(StreamError::non_retryable(format!(
+                                "hook error: {e}"
+                            ))))
+                            .await;
+                        return rx;
+                    }
+                    _ => {}
                 }
+
+                // Execute tool (via durability wrapper if present)
+                let result = if let Some(ref durable) = self.durability {
+                    let options = agent_types::ActivityOptions {
+                        start_to_close_timeout: DEFAULT_ACTIVITY_TIMEOUT,
+                        heartbeat_timeout: None,
+                        retry_policy: None,
+                    };
+                    match durable
+                        .0
+                        .erased_execute_tool(tool_name, input.clone(), tool_ctx, options)
+                        .await
+                    {
+                        Ok(r) => r,
+                        Err(e) => {
+                            let _ = tx
+                                .send(StreamEvent::Error(StreamError::non_retryable(format!(
+                                    "durable tool error: {e}"
+                                ))))
+                                .await;
+                            return rx;
+                        }
+                    }
+                } else {
+                    match self.tools.execute(tool_name, input.clone(), tool_ctx).await {
+                        Ok(r) => r,
+                        Err(e) => {
+                            let _ = tx
+                                .send(StreamEvent::Error(StreamError::non_retryable(format!(
+                                    "tool error: {e}"
+                                ))))
+                                .await;
+                            return rx;
+                        }
+                    }
+                };
+
+                // Fire PostToolExecution hooks
+                match fire_post_tool_hooks(&self.hooks, tool_name, &result).await {
+                    Ok(Some(HookAction::Terminate { reason })) => {
+                        let _ = tx
+                            .send(StreamEvent::Error(StreamError::non_retryable(format!(
+                                "hook terminated: {reason}"
+                            ))))
+                            .await;
+                        return rx;
+                    }
+                    Err(e) => {
+                        let _ = tx
+                            .send(StreamEvent::Error(StreamError::non_retryable(format!(
+                                "hook error: {e}"
+                            ))))
+                            .await;
+                        return rx;
+                    }
+                    _ => {}
+                }
+
+                tool_result_blocks.push(ContentBlock::ToolResult {
+                    tool_use_id: call_id.clone(),
+                    content: result.content,
+                    is_error: result.is_error,
+                });
             }
 
             self.messages.push(Message {
