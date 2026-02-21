@@ -12,3 +12,4 @@ pub mod stream;
 pub use types::*;
 pub use error::*;
 pub use wasm::*;
+pub use stream::*;
