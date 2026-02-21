@@ -4,7 +4,6 @@
 //! its own system prompt, and a max depth guard to prevent infinite nesting.
 
 use std::collections::HashMap;
-use std::sync::Arc;
 
 use agent_loop::{AgentLoop, AgentResult, LoopConfig};
 use agent_tool::ToolRegistry;
@@ -96,6 +95,7 @@ impl SubAgentManager {
     /// Returns `SubAgentError::MaxDepthExceeded` if `current_depth >= config.max_depth`.
     /// Returns `SubAgentError::Loop` if the sub-agent's loop fails.
     #[must_use = "this returns a Result that should be handled"]
+    #[allow(clippy::too_many_arguments)]
     pub async fn spawn<P: Provider, C: ContextStrategy>(
         &self,
         name: &str,

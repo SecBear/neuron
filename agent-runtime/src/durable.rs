@@ -12,8 +12,8 @@ use std::time::Duration;
 
 use agent_tool::ToolRegistry;
 use agent_types::{
-    ActivityOptions, CompletionRequest, CompletionResponse, ContextStrategy, DurableContext,
-    DurableError, Provider, ToolContext, ToolOutput, WasmCompatSend,
+    ActivityOptions, CompletionRequest, CompletionResponse, DurableContext, DurableError, Provider,
+    ToolContext, ToolOutput, WasmCompatSend,
 };
 
 /// A passthrough durable context for local development and testing.
