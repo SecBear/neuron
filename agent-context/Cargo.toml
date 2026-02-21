@@ -1,16 +1,16 @@
 [package]
 name = "agent-context"
 version = "0.1.0"
-edition = "2024"
-rust-version = "1.90"
+edition.workspace = true
+rust-version.workspace = true
 description = "Context engine with compaction strategies for rust-agent-blocks"
-license = "MIT OR Apache-2.0"
+license.workspace = true
 
 [dependencies]
-agent-types = { path = "../agent-types" }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-tracing = "0.1"
+agent-types.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
 
 [dev-dependencies]
-tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

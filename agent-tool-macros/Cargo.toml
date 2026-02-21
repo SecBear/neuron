@@ -1,0 +1,15 @@
+[package]
+name = "agent-tool-macros"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "Proc-macro for deriving Tool implementations"
+license.workspace = true
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn.workspace = true
+quote.workspace = true
+proc-macro2.workspace = true

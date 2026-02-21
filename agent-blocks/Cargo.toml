@@ -1,10 +1,10 @@
 [package]
 name = "agent-blocks"
 version = "0.1.0"
-edition = "2024"
-rust-version = "1.90"
+edition.workspace = true
+rust-version.workspace = true
 description = "Umbrella crate for rust-agent-blocks — composable building blocks for AI agents"
-license = "MIT OR Apache-2.0"
+license.workspace = true
 
 [features]
 default = ["anthropic"]
@@ -16,21 +16,21 @@ runtime = ["dep:agent-runtime"]
 full = ["anthropic", "openai", "ollama", "mcp", "runtime"]
 
 [dependencies]
-agent-types = { path = "../agent-types" }
-agent-tool = { path = "../agent-tool" }
-agent-context = { path = "../agent-context" }
-agent-loop = { path = "../agent-loop" }
-agent-provider-anthropic = { path = "../agent-provider-anthropic", optional = true }
-agent-provider-openai = { path = "../agent-provider-openai", optional = true }
-agent-provider-ollama = { path = "../agent-provider-ollama", optional = true }
-agent-mcp = { path = "../agent-mcp", optional = true }
-agent-runtime = { path = "../agent-runtime", optional = true }
+agent-types.workspace = true
+agent-tool.workspace = true
+agent-context.workspace = true
+agent-loop.workspace = true
+agent-provider-anthropic = { workspace = true, optional = true }
+agent-provider-openai = { workspace = true, optional = true }
+agent-provider-ollama = { workspace = true, optional = true }
+agent-mcp = { workspace = true, optional = true }
+agent-runtime = { workspace = true, optional = true }
 
 [dev-dependencies]
-tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
-tokio-util = "0.7"
-futures = "0.3"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-schemars = "0.8"
-thiserror = "2"
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tokio-util.workspace = true
+futures.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+schemars.workspace = true
+thiserror.workspace = true
