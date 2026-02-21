@@ -214,11 +214,7 @@ impl ContextStrategy for ToolResultClearingStrategy {
             }
 
             let total = tool_result_positions.len();
-            let to_clear_count = if total > keep_recent_n {
-                total - keep_recent_n
-            } else {
-                0
-            };
+            let to_clear_count = total.saturating_sub(keep_recent_n);
 
             if to_clear_count == 0 {
                 return Ok(messages);

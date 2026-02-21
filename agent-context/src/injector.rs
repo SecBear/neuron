@@ -65,7 +65,7 @@ impl SystemInjector {
         self.rules
             .iter()
             .filter(|rule| match rule.trigger {
-                InjectionTrigger::EveryNTurns(n) => n > 0 && turn > 0 && turn % n == 0,
+                InjectionTrigger::EveryNTurns(n) => n > 0 && turn > 0 && turn.is_multiple_of(n),
                 InjectionTrigger::OnTokenThreshold(threshold) => token_count >= threshold,
             })
             .map(|rule| rule.content.clone())
