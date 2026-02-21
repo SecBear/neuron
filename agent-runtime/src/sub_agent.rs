@@ -140,17 +140,16 @@ impl SubAgentManager {
         Ok(result)
     }
 
-    /// Spawn multiple sub-agents with the same parent tools and context.
+    /// Spawn multiple sub-agents concurrently with the same parent tools and context.
     ///
     /// Each entry is `(name, provider, context, user_message)`. All share the
     /// same parent tools and tool context. Results are returned in the same
     /// order as the input.
     ///
-    /// **Note:** Despite the name, this method currently executes sub-agents
-    /// **sequentially**, not in parallel. `Provider` and `ContextStrategy` use
-    /// RPITIT and are therefore not `'static`, which prevents spawning them
-    /// onto `tokio::spawn`. For true parallelism, callers should use
-    /// `tokio::spawn` directly with `'static` provider and context types.
+    /// Sub-agents run concurrently on the current task via [`futures::future::join_all`],
+    /// which interleaves their execution without requiring `'static` bounds. This
+    /// avoids the `tokio::spawn` limitation where `Provider` and `ContextStrategy`
+    /// RPITIT types are not `'static`.
     ///
     /// # Errors
     ///
@@ -168,25 +167,26 @@ impl SubAgentManager {
         P: Provider,
         C: ContextStrategy,
     {
-        // We cannot use join_all with tokio::spawn because Provider/ContextStrategy
-        // are not 'static in general. Instead, we run them sequentially for correctness.
-        // For true parallelism, callers can use tokio::spawn with 'static bounds.
-        let mut results = Vec::with_capacity(tasks.len());
+        // Separate names so they live long enough for the spawn futures to borrow.
+        let mut names = Vec::with_capacity(tasks.len());
+        let mut rest = Vec::with_capacity(tasks.len());
         for (name, provider, context, message) in tasks {
-            let result = self
-                .spawn(
-                    &name,
-                    provider,
-                    context,
-                    parent_tools,
-                    message,
-                    tool_ctx,
-                    current_depth,
-                )
-                .await;
-            results.push(result);
+            names.push(name);
+            rest.push((provider, context, message));
         }
-        results
+
+        // Build all futures upfront. Each future borrows &self, &names[i],
+        // parent_tools, and tool_ctx immutably while owning provider, context,
+        // and message.
+        let futs: Vec<_> = names
+            .iter()
+            .zip(rest)
+            .map(|(name, (provider, context, message))| {
+                self.spawn(name, provider, context, parent_tools, message, tool_ctx, current_depth)
+            })
+            .collect();
+
+        futures::future::join_all(futs).await
     }
 }
 

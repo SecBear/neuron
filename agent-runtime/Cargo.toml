@@ -15,6 +15,7 @@ serde_json.workspace = true
 chrono.workspace = true
 uuid.workspace = true
 tokio = { workspace = true, features = ["fs", "time"] }
+futures.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]

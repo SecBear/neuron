@@ -1025,3 +1025,80 @@ async fn test_mock_sandbox_wraps_output() {
     assert!(text.starts_with("[SANDBOXED]"));
     assert!(text.contains("hello"));
 }
+
+// ============================================================================
+// spawn_parallel concurrency tests
+// ============================================================================
+
+#[tokio::test]
+async fn spawn_parallel_preserves_order() {
+    let mut parent_tools = ToolRegistry::new();
+    parent_tools.register(EchoTool);
+
+    let mut manager = SubAgentManager::new();
+    manager.register(
+        "helper",
+        SubAgentConfig::new(SystemPrompt::Text("You help.".to_string()))
+            .with_tools(vec!["echo".to_string()]),
+    );
+
+    // Create 3 tasks with distinct responses so we can verify ordering.
+    let tasks = vec![
+        (
+            "helper".to_string(),
+            MockProvider::new(vec![text_response("first")]),
+            SlidingWindowStrategy::new(10, 100_000),
+            Message {
+                role: Role::User,
+                content: vec![ContentBlock::Text("Task A".to_string())],
+            },
+        ),
+        (
+            "helper".to_string(),
+            MockProvider::new(vec![text_response("second")]),
+            SlidingWindowStrategy::new(10, 100_000),
+            Message {
+                role: Role::User,
+                content: vec![ContentBlock::Text("Task B".to_string())],
+            },
+        ),
+        (
+            "helper".to_string(),
+            MockProvider::new(vec![text_response("third")]),
+            SlidingWindowStrategy::new(10, 100_000),
+            Message {
+                role: Role::User,
+                content: vec![ContentBlock::Text("Task C".to_string())],
+            },
+        ),
+    ];
+
+    let results = manager
+        .spawn_parallel(tasks, &parent_tools, &test_tool_context(), 0)
+        .await;
+
+    assert_eq!(results.len(), 3);
+    assert_eq!(results[0].as_ref().unwrap().response, "first");
+    assert_eq!(results[1].as_ref().unwrap().response, "second");
+    assert_eq!(results[2].as_ref().unwrap().response, "third");
+}
+
+#[tokio::test]
+async fn spawn_parallel_handles_empty() {
+    let parent_tools = ToolRegistry::new();
+
+    let manager = SubAgentManager::new();
+
+    let tasks: Vec<(
+        String,
+        MockProvider,
+        SlidingWindowStrategy,
+        Message,
+    )> = vec![];
+
+    let results = manager
+        .spawn_parallel(tasks, &parent_tools, &test_tool_context(), 0)
+        .await;
+
+    assert!(results.is_empty());
+}
