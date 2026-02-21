@@ -148,6 +148,23 @@ impl<P: Provider, C: ContextStrategy> AgentLoop<P, C> {
                 }
             }
 
+            // Check context compaction
+            let token_count = self.context.token_estimate(&self.messages);
+            if self.context.should_compact(&self.messages, token_count) {
+                let old_tokens = token_count;
+                self.messages = self.context.compact(self.messages.clone()).await?;
+                let new_tokens = self.context.token_estimate(&self.messages);
+
+                // Fire ContextCompaction hooks
+                if let Some(action) =
+                    fire_compaction_hooks(&self.hooks, old_tokens, new_tokens).await?
+                {
+                    if let HookAction::Terminate { reason } = action {
+                        return Err(LoopError::HookTerminated(reason));
+                    }
+                }
+            }
+
             // Build completion request
             let request = CompletionRequest {
                 model: String::new(), // Provider decides the model

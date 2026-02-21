@@ -466,3 +466,60 @@ async fn test_hook_skip_returns_rejection_message() {
     });
     assert!(has_skip_text, "tool result should contain skip reason");
 }
+
+// --- Task 5.5 tests ---
+
+#[tokio::test]
+async fn test_context_compaction_triggered_by_token_threshold() {
+    // Use a very low max_tokens so compaction triggers after a few messages.
+    // SlidingWindowStrategy with window_size=2 and max_tokens=50
+    // The TokenCounter estimates ~4 tokens per word, so a few messages will exceed 50.
+
+    // The provider will return tool calls for 3 turns, then text.
+    // After the first couple of turns, context should be compacted.
+    let provider = MockProvider::new(vec![
+        tool_use_response(
+            "call-1",
+            "echo",
+            serde_json::json!({"text": "first message with enough words to generate tokens"}),
+        ),
+        tool_use_response(
+            "call-2",
+            "echo",
+            serde_json::json!({"text": "second message with even more words for token counting"}),
+        ),
+        text_response("Final answer after compaction"),
+    ]);
+
+    let mut tools = ToolRegistry::new();
+    tools.register(EchoTool);
+
+    // Very low max_tokens to force compaction, window_size of 2
+    let context = SlidingWindowStrategy::new(2, 50);
+    let config = LoopConfig::default();
+
+    let mut agent = AgentLoop::new(provider, tools, context, config);
+    let (hook, events) = RecordingHook::new();
+    agent.add_hook(hook);
+
+    let user_msg = Message {
+        role: Role::User,
+        content: vec![ContentBlock::Text(
+            "Start with a reasonably long message so tokens accumulate quickly for testing".to_string(),
+        )],
+    };
+
+    let result = agent
+        .run(user_msg, &test_tool_context())
+        .await
+        .expect("run should succeed");
+
+    assert_eq!(result.response, "Final answer after compaction");
+
+    // Verify the ContextCompaction hook event was fired
+    let recorded = events.lock().expect("lock");
+    assert!(
+        recorded.contains(&"ContextCompaction".to_string()),
+        "expected ContextCompaction event, got: {recorded:?}"
+    );
+}
