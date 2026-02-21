@@ -660,3 +660,121 @@ async fn test_sub_agent_spawn_parallel() {
     assert_eq!(results[1].as_ref().unwrap().response, "Result 2");
     assert_eq!(results[2].as_ref().unwrap().response, "Result 3");
 }
+
+// ============================================================================
+// Task 9.7 tests: Guardrails
+// ============================================================================
+
+use agent_runtime::{
+    run_input_guardrails, run_output_guardrails, ErasedInputGuardrail, ErasedOutputGuardrail,
+    GuardrailResult, InputGuardrail, OutputGuardrail,
+};
+
+/// Input guardrail that rejects messages containing "DROP TABLE".
+struct SqlInjectionGuard;
+
+impl InputGuardrail for SqlInjectionGuard {
+    fn check(&self, input: &str) -> impl Future<Output = GuardrailResult> + Send {
+        let result = if input.contains("DROP TABLE") {
+            GuardrailResult::Tripwire("SQL injection detected".to_string())
+        } else {
+            GuardrailResult::Pass
+        };
+        std::future::ready(result)
+    }
+}
+
+/// Output guardrail that flags secrets in output.
+struct SecretLeakGuard;
+
+impl OutputGuardrail for SecretLeakGuard {
+    fn check(&self, output: &str) -> impl Future<Output = GuardrailResult> + Send {
+        let result = if output.contains("sk-") || output.contains("API_KEY=") {
+            GuardrailResult::Tripwire("Secret detected in output".to_string())
+        } else if output.contains("password") {
+            GuardrailResult::Warn("Output mentions 'password'".to_string())
+        } else {
+            GuardrailResult::Pass
+        };
+        std::future::ready(result)
+    }
+}
+
+#[tokio::test]
+async fn test_input_guardrail_pass() {
+    let guard = SqlInjectionGuard;
+    let result = guard.check("SELECT * FROM users").await;
+    assert!(result.is_pass());
+}
+
+#[tokio::test]
+async fn test_input_guardrail_tripwire() {
+    let guard = SqlInjectionGuard;
+    let result = guard.check("DROP TABLE users").await;
+    assert!(result.is_tripwire());
+    match result {
+        GuardrailResult::Tripwire(reason) => {
+            assert!(reason.contains("SQL injection"));
+        }
+        other => panic!("expected Tripwire, got: {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn test_output_guardrail_tripwire_on_secret() {
+    let guard = SecretLeakGuard;
+    let result = guard.check("Here is the key: sk-abc123").await;
+    assert!(result.is_tripwire());
+}
+
+#[tokio::test]
+async fn test_output_guardrail_warn() {
+    let guard = SecretLeakGuard;
+    let result = guard.check("Please update your password").await;
+    assert!(result.is_warn());
+    match result {
+        GuardrailResult::Warn(msg) => {
+            assert!(msg.contains("password"));
+        }
+        other => panic!("expected Warn, got: {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn test_output_guardrail_pass() {
+    let guard = SecretLeakGuard;
+    let result = guard.check("Everything looks good").await;
+    assert!(result.is_pass());
+}
+
+#[tokio::test]
+async fn test_run_input_guardrails_all_pass() {
+    let guard = SqlInjectionGuard;
+    let guardrails: Vec<&dyn ErasedInputGuardrail> = vec![&guard];
+    let result = run_input_guardrails(&guardrails, "safe input").await;
+    assert!(result.is_pass());
+}
+
+#[tokio::test]
+async fn test_run_input_guardrails_first_tripwire_stops() {
+    let guard = SqlInjectionGuard;
+    let guardrails: Vec<&dyn ErasedInputGuardrail> = vec![&guard];
+    let result = run_input_guardrails(&guardrails, "DROP TABLE users").await;
+    assert!(result.is_tripwire());
+}
+
+#[tokio::test]
+async fn test_run_output_guardrails_all_pass() {
+    let guard = SecretLeakGuard;
+    let guardrails: Vec<&dyn ErasedOutputGuardrail> = vec![&guard];
+    let result = run_output_guardrails(&guardrails, "clean output").await;
+    assert!(result.is_pass());
+}
+
+#[tokio::test]
+async fn test_run_output_guardrails_tripwire() {
+    let guard = SecretLeakGuard;
+    let guardrails: Vec<&dyn ErasedOutputGuardrail> = vec![&guard];
+    let result = run_output_guardrails(&guardrails, "key is sk-secret").await;
+    assert!(result.is_tripwire());
+}
