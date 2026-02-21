@@ -13,9 +13,9 @@ use agent_types::{
 };
 
 use crate::loop_impl::{
-    accumulate_usage, extract_text, fire_compaction_hooks, fire_post_llm_hooks,
-    fire_post_tool_hooks, fire_pre_llm_hooks, fire_pre_tool_hooks, AgentLoop, AgentResult,
-    DEFAULT_ACTIVITY_TIMEOUT,
+    accumulate_usage, extract_text, fire_compaction_hooks, fire_loop_iteration_hooks,
+    fire_post_llm_hooks, fire_post_tool_hooks, fire_pre_llm_hooks, fire_pre_tool_hooks,
+    AgentLoop, AgentResult, DEFAULT_ACTIVITY_TIMEOUT,
 };
 
 /// The result of a single turn in the agentic loop.
@@ -74,6 +74,19 @@ impl<'a, P: Provider, C: ContextStrategy> StepIterator<'a, P, C> {
         {
             self.finished = true;
             return Some(TurnResult::MaxTurnsReached);
+        }
+
+        // Fire LoopIteration hooks
+        match fire_loop_iteration_hooks(&self.loop_ref.hooks, self.turns).await {
+            Ok(Some(HookAction::Terminate { reason })) => {
+                self.finished = true;
+                return Some(TurnResult::Error(LoopError::HookTerminated(reason)));
+            }
+            Err(e) => {
+                self.finished = true;
+                return Some(TurnResult::Error(e));
+            }
+            _ => {}
         }
 
         // Check context compaction

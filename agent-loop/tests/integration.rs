@@ -875,3 +875,56 @@ async fn test_run_step_max_turns_reached() {
     // No more turns
     assert!(iter.next().await.is_none());
 }
+
+// --- Issue I-5 tests: LoopIteration hook event ---
+
+#[tokio::test]
+async fn test_loop_iteration_event_fired_in_run() {
+    let provider = MockProvider::new(vec![text_response("Hello")]);
+    let tools = ToolRegistry::new();
+    let context = SlidingWindowStrategy::new(10, 100_000);
+    let config = LoopConfig::default();
+
+    let mut agent = AgentLoop::new(provider, tools, context, config);
+    let (hook, events) = RecordingHook::new();
+    agent.add_hook(hook);
+
+    let user_msg = Message {
+        role: Role::User,
+        content: vec![ContentBlock::Text("Hi".to_string())],
+    };
+
+    agent.run(user_msg, &test_tool_context()).await.expect("run should succeed");
+
+    let recorded = events.lock().expect("lock");
+    assert!(
+        recorded.contains(&"LoopIteration".to_string()),
+        "expected LoopIteration event, got: {recorded:?}"
+    );
+}
+
+#[tokio::test]
+async fn test_loop_iteration_event_fired_in_run_step() {
+    let provider = MockProvider::new(vec![text_response("Hello")]);
+    let tools = ToolRegistry::new();
+    let context = SlidingWindowStrategy::new(10, 100_000);
+    let config = LoopConfig::default();
+
+    let mut agent = AgentLoop::new(provider, tools, context, config);
+    let (hook, events) = RecordingHook::new();
+    agent.add_hook(hook);
+
+    let user_msg = Message {
+        role: Role::User,
+        content: vec![ContentBlock::Text("Hi".to_string())],
+    };
+    let tool_ctx = test_tool_context();
+    let mut iter = agent.run_step(user_msg, &tool_ctx);
+    let _ = iter.next().await;
+
+    let recorded = events.lock().expect("lock");
+    assert!(
+        recorded.contains(&"LoopIteration".to_string()),
+        "expected LoopIteration event in run_step, got: {recorded:?}"
+    );
+}

@@ -228,6 +228,13 @@ impl<P: Provider, C: ContextStrategy> AgentLoop<P, C> {
                 return Err(LoopError::MaxTurns(max));
             }
 
+            // Fire LoopIteration hooks
+            if let Some(HookAction::Terminate { reason }) =
+                fire_loop_iteration_hooks(&self.hooks, turns).await?
+            {
+                return Err(LoopError::HookTerminated(reason));
+            }
+
             // Check context compaction
             let token_count = self.context.token_estimate(&self.messages);
             if self.context.should_compact(&self.messages, token_count) {
@@ -450,6 +457,23 @@ pub(crate) async fn fire_post_tool_hooks(
     for hook in hooks {
         let action = hook
             .fire(HookEvent::PostToolExecution { tool_name, output })
+            .await
+            .map_err(|e| LoopError::HookTerminated(e.to_string()))?;
+        if !matches!(action, HookAction::Continue) {
+            return Ok(Some(action));
+        }
+    }
+    Ok(None)
+}
+
+/// Fire all hooks for a LoopIteration event, returning the first non-Continue action.
+pub(crate) async fn fire_loop_iteration_hooks(
+    hooks: &[BoxedHook],
+    turn: usize,
+) -> Result<Option<HookAction>, LoopError> {
+    for hook in hooks {
+        let action = hook
+            .fire(HookEvent::LoopIteration { turn })
             .await
             .map_err(|e| LoopError::HookTerminated(e.to_string()))?;
         if !matches!(action, HookAction::Continue) {
