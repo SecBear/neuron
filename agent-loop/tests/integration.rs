@@ -9,9 +9,9 @@ use agent_context::SlidingWindowStrategy;
 use agent_loop::{AgentLoop, LoopConfig};
 use agent_tool::ToolRegistry;
 use agent_types::{
-    CompletionRequest, CompletionResponse, ContentBlock, ContentItem, LoopError, Message,
-    ProviderError, Role, StopReason, StreamHandle, SystemPrompt, TokenUsage, Tool, ToolContext,
-    ToolDefinition, ToolOutput,
+    CompletionRequest, CompletionResponse, ContentBlock, ContentItem, HookAction, HookError,
+    HookEvent, LoopError, Message, ObservabilityHook, ProviderError, Role, StopReason,
+    StreamHandle, SystemPrompt, TokenUsage, Tool, ToolContext, ToolDefinition, ToolOutput,
 };
 use tokio_util::sync::CancellationToken;
 
@@ -261,4 +261,208 @@ async fn test_run_max_turns_limit() {
         LoopError::MaxTurns(n) => assert_eq!(n, 2),
         other => panic!("expected MaxTurns error, got: {other:?}"),
     }
+}
+
+// --- Task 5.4 tests ---
+
+/// A hook that records which events it receives.
+struct RecordingHook {
+    events: Arc<Mutex<Vec<String>>>,
+}
+
+impl RecordingHook {
+    fn new() -> (Self, Arc<Mutex<Vec<String>>>) {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        (Self { events: events.clone() }, events)
+    }
+}
+
+impl ObservabilityHook for RecordingHook {
+    fn on_event(
+        &self,
+        event: HookEvent<'_>,
+    ) -> impl Future<Output = Result<HookAction, HookError>> + Send {
+        let label = match &event {
+            HookEvent::PreLlmCall { .. } => "PreLlmCall",
+            HookEvent::PostLlmCall { .. } => "PostLlmCall",
+            HookEvent::PreToolExecution { tool_name, .. } => {
+                let name = format!("PreToolExecution:{tool_name}");
+                self.events.lock().expect("lock").push(name);
+                return std::future::ready(Ok(HookAction::Continue));
+            }
+            HookEvent::PostToolExecution { tool_name, .. } => {
+                let name = format!("PostToolExecution:{tool_name}");
+                self.events.lock().expect("lock").push(name);
+                return std::future::ready(Ok(HookAction::Continue));
+            }
+            HookEvent::ContextCompaction { .. } => "ContextCompaction",
+            HookEvent::LoopIteration { .. } => "LoopIteration",
+            HookEvent::SessionStart { .. } => "SessionStart",
+            HookEvent::SessionEnd { .. } => "SessionEnd",
+        };
+        self.events.lock().expect("lock").push(label.to_string());
+        std::future::ready(Ok(HookAction::Continue))
+    }
+}
+
+#[tokio::test]
+async fn test_hooks_receive_pre_and_post_llm_events() {
+    let provider = MockProvider::new(vec![text_response("Hi there")]);
+    let tools = ToolRegistry::new();
+    let context = SlidingWindowStrategy::new(10, 100_000);
+    let config = LoopConfig::default();
+
+    let mut agent = AgentLoop::new(provider, tools, context, config);
+    let (hook, events) = RecordingHook::new();
+    agent.add_hook(hook);
+
+    let user_msg = Message {
+        role: Role::User,
+        content: vec![ContentBlock::Text("Hello".to_string())],
+    };
+
+    agent.run(user_msg, &test_tool_context()).await.expect("run should succeed");
+
+    let recorded = events.lock().expect("lock");
+    assert!(recorded.contains(&"PreLlmCall".to_string()));
+    assert!(recorded.contains(&"PostLlmCall".to_string()));
+}
+
+#[tokio::test]
+async fn test_hooks_receive_tool_execution_events() {
+    let provider = MockProvider::new(vec![
+        tool_use_response("call-1", "echo", serde_json::json!({"text": "hello"})),
+        text_response("Done"),
+    ]);
+
+    let mut tools = ToolRegistry::new();
+    tools.register(EchoTool);
+
+    let context = SlidingWindowStrategy::new(10, 100_000);
+    let config = LoopConfig::default();
+
+    let mut agent = AgentLoop::new(provider, tools, context, config);
+    let (hook, events) = RecordingHook::new();
+    agent.add_hook(hook);
+
+    let user_msg = Message {
+        role: Role::User,
+        content: vec![ContentBlock::Text("Echo".to_string())],
+    };
+
+    agent.run(user_msg, &test_tool_context()).await.expect("run should succeed");
+
+    let recorded = events.lock().expect("lock");
+    assert!(recorded.contains(&"PreToolExecution:echo".to_string()));
+    assert!(recorded.contains(&"PostToolExecution:echo".to_string()));
+}
+
+/// A hook that terminates the loop on PreLlmCall.
+struct TerminatingHook;
+
+impl ObservabilityHook for TerminatingHook {
+    fn on_event(
+        &self,
+        event: HookEvent<'_>,
+    ) -> impl Future<Output = Result<HookAction, HookError>> + Send {
+        let action = match event {
+            HookEvent::PreLlmCall { .. } => HookAction::Terminate {
+                reason: "test termination".to_string(),
+            },
+            _ => HookAction::Continue,
+        };
+        std::future::ready(Ok(action))
+    }
+}
+
+#[tokio::test]
+async fn test_hook_terminate_stops_loop() {
+    let provider = MockProvider::new(vec![text_response("Should not reach this")]);
+    let tools = ToolRegistry::new();
+    let context = SlidingWindowStrategy::new(10, 100_000);
+    let config = LoopConfig::default();
+
+    let mut agent = AgentLoop::new(provider, tools, context, config);
+    agent.add_hook(TerminatingHook);
+
+    let user_msg = Message {
+        role: Role::User,
+        content: vec![ContentBlock::Text("Hello".to_string())],
+    };
+
+    let err = agent.run(user_msg, &test_tool_context()).await.unwrap_err();
+    match err {
+        LoopError::HookTerminated(reason) => assert_eq!(reason, "test termination"),
+        other => panic!("expected HookTerminated, got: {other:?}"),
+    }
+}
+
+/// A hook that skips tool execution.
+struct SkipToolHook;
+
+impl ObservabilityHook for SkipToolHook {
+    fn on_event(
+        &self,
+        event: HookEvent<'_>,
+    ) -> impl Future<Output = Result<HookAction, HookError>> + Send {
+        let action = match event {
+            HookEvent::PreToolExecution { .. } => HookAction::Skip {
+                reason: "tool blocked by policy".to_string(),
+            },
+            _ => HookAction::Continue,
+        };
+        std::future::ready(Ok(action))
+    }
+}
+
+#[tokio::test]
+async fn test_hook_skip_returns_rejection_message() {
+    let provider = MockProvider::new(vec![
+        tool_use_response("call-1", "echo", serde_json::json!({"text": "hello"})),
+        text_response("OK, tool was skipped"),
+    ]);
+
+    let mut tools = ToolRegistry::new();
+    tools.register(EchoTool);
+
+    let context = SlidingWindowStrategy::new(10, 100_000);
+    let config = LoopConfig::default();
+
+    let mut agent = AgentLoop::new(provider, tools, context, config);
+    agent.add_hook(SkipToolHook);
+
+    let user_msg = Message {
+        role: Role::User,
+        content: vec![ContentBlock::Text("Echo".to_string())],
+    };
+
+    let result = agent.run(user_msg, &test_tool_context()).await.expect("run should succeed");
+    assert_eq!(result.response, "OK, tool was skipped");
+
+    // Check that the tool result message contains the skip reason
+    let tool_result_msg = result
+        .messages
+        .iter()
+        .find(|m| {
+            m.content.iter().any(|b| {
+                matches!(b, ContentBlock::ToolResult { is_error: true, .. })
+            })
+        })
+        .expect("should have a tool result message with error");
+
+    let has_skip_text = tool_result_msg.content.iter().any(|b| {
+        if let ContentBlock::ToolResult { content, is_error, .. } = b {
+            *is_error
+                && content.iter().any(|c| {
+                    if let ContentItem::Text(t) = c {
+                        t.contains("tool blocked by policy")
+                    } else {
+                        false
+                    }
+                })
+        } else {
+            false
+        }
+    });
+    assert!(has_skip_text, "tool result should contain skip reason");
 }

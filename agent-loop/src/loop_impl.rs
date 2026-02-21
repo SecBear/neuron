@@ -1,12 +1,52 @@
 //! Core AgentLoop struct and run methods.
 
+use std::future::Future;
+use std::pin::Pin;
+use std::sync::Arc;
+
 use agent_tool::ToolRegistry;
 use agent_types::{
-    CompletionRequest, ContentBlock, ContextStrategy, LoopError, Message, Provider, Role,
-    StopReason, TokenUsage, ToolContext,
+    CompletionRequest, CompletionResponse, ContentBlock, ContentItem, ContextStrategy, HookAction,
+    HookError, HookEvent, LoopError, Message, ObservabilityHook, Provider, Role, StopReason,
+    TokenUsage, ToolContext, ToolOutput,
 };
 
 use crate::config::LoopConfig;
+
+// --- Type erasure for ObservabilityHook (RPITIT is not dyn-compatible) ---
+
+/// Type alias for a pinned, boxed, Send future returning a HookAction.
+type HookFuture<'a> = Pin<Box<dyn Future<Output = Result<HookAction, HookError>> + Send + 'a>>;
+
+/// Dyn-compatible wrapper for [`ObservabilityHook`].
+trait ErasedHook: Send + Sync {
+    fn erased_on_event<'a>(&'a self, event: HookEvent<'a>) -> HookFuture<'a>;
+}
+
+impl<H: ObservabilityHook> ErasedHook for H {
+    fn erased_on_event<'a>(&'a self, event: HookEvent<'a>) -> HookFuture<'a> {
+        Box::pin(self.on_event(event))
+    }
+}
+
+/// A type-erased observability hook for use in [`AgentLoop`].
+///
+/// Wraps any [`ObservabilityHook`] into a dyn-compatible form.
+pub struct BoxedHook(Arc<dyn ErasedHook>);
+
+impl BoxedHook {
+    /// Wrap any [`ObservabilityHook`] into a type-erased `BoxedHook`.
+    pub fn new<H: ObservabilityHook + 'static>(hook: H) -> Self {
+        BoxedHook(Arc::new(hook))
+    }
+
+    /// Fire this hook with an event.
+    async fn fire(&self, event: HookEvent<'_>) -> Result<HookAction, HookError> {
+        self.0.erased_on_event(event).await
+    }
+}
+
+// --- AgentResult ---
 
 /// The result of a completed agent loop run.
 #[derive(Debug)]
@@ -21,6 +61,8 @@ pub struct AgentResult {
     pub turns: usize,
 }
 
+// --- AgentLoop ---
+
 /// The agentic while loop: drives provider + tool + context interactions.
 ///
 /// Generic over `P: Provider` (the LLM backend) and `C: ContextStrategy`
@@ -29,6 +71,7 @@ pub struct AgentLoop<P: Provider, C: ContextStrategy> {
     provider: P,
     tools: ToolRegistry,
     context: C,
+    hooks: Vec<BoxedHook>,
     config: LoopConfig,
     messages: Vec<Message>,
 }
@@ -41,9 +84,18 @@ impl<P: Provider, C: ContextStrategy> AgentLoop<P, C> {
             provider,
             tools,
             context,
+            hooks: Vec::new(),
             config,
             messages: Vec::new(),
         }
+    }
+
+    /// Add an observability hook to the loop.
+    ///
+    /// Hooks are called in order of registration at each event point.
+    pub fn add_hook<H: ObservabilityHook + 'static>(&mut self, hook: H) -> &mut Self {
+        self.hooks.push(BoxedHook::new(hook));
+        self
     }
 
     /// Returns a reference to the current configuration.
@@ -67,11 +119,16 @@ impl<P: Provider, C: ContextStrategy> AgentLoop<P, C> {
     /// needed, append results, repeat until the model returns a text-only
     /// response or the turn limit is reached.
     ///
+    /// Fires [`HookEvent`] at each step. If a hook returns
+    /// [`HookAction::Terminate`], the loop stops with
+    /// [`LoopError::HookTerminated`].
+    ///
     /// # Errors
     ///
     /// Returns `LoopError::MaxTurns` if the turn limit is exceeded,
-    /// `LoopError::Provider` on provider failures, or `LoopError::Tool`
-    /// on tool execution failures.
+    /// `LoopError::Provider` on provider failures, `LoopError::Tool`
+    /// on tool execution failures, or `LoopError::HookTerminated` if
+    /// a hook requests termination.
     #[must_use = "this returns a Result that should be handled"]
     pub async fn run(
         &mut self,
@@ -108,8 +165,22 @@ impl<P: Provider, C: ContextStrategy> AgentLoop<P, C> {
                 extra: None,
             };
 
+            // Fire PreLlmCall hooks
+            if let Some(action) = fire_pre_llm_hooks(&self.hooks, &request).await? {
+                if let HookAction::Terminate { reason } = action {
+                    return Err(LoopError::HookTerminated(reason));
+                }
+            }
+
             // Call provider
             let response = self.provider.complete(request).await?;
+
+            // Fire PostLlmCall hooks
+            if let Some(action) = fire_post_llm_hooks(&self.hooks, &response).await? {
+                if let HookAction::Terminate { reason } = action {
+                    return Err(LoopError::HookTerminated(reason));
+                }
+            }
 
             // Accumulate usage
             accumulate_usage(&mut total_usage, &response.usage);
@@ -146,7 +217,41 @@ impl<P: Provider, C: ContextStrategy> AgentLoop<P, C> {
             // Execute tool calls and collect results
             let mut tool_result_blocks = Vec::new();
             for (call_id, tool_name, input) in &tool_calls {
-                let result = self.tools.execute(tool_name, input.clone(), tool_ctx).await?;
+                // Fire PreToolExecution hooks
+                if let Some(action) =
+                    fire_pre_tool_hooks(&self.hooks, tool_name, input).await?
+                {
+                    match action {
+                        HookAction::Terminate { reason } => {
+                            return Err(LoopError::HookTerminated(reason));
+                        }
+                        HookAction::Skip { reason } => {
+                            // Skip the tool call and return a rejection message
+                            tool_result_blocks.push(ContentBlock::ToolResult {
+                                tool_use_id: call_id.clone(),
+                                content: vec![ContentItem::Text(format!(
+                                    "Tool call skipped: {reason}"
+                                ))],
+                                is_error: true,
+                            });
+                            continue;
+                        }
+                        HookAction::Continue => {}
+                    }
+                }
+
+                let result =
+                    self.tools.execute(tool_name, input.clone(), tool_ctx).await?;
+
+                // Fire PostToolExecution hooks
+                if let Some(action) =
+                    fire_post_tool_hooks(&self.hooks, tool_name, &result).await?
+                {
+                    if let HookAction::Terminate { reason } = action {
+                        return Err(LoopError::HookTerminated(reason));
+                    }
+                }
+
                 tool_result_blocks.push(ContentBlock::ToolResult {
                     tool_use_id: call_id.clone(),
                     content: result.content,
@@ -162,6 +267,101 @@ impl<P: Provider, C: ContextStrategy> AgentLoop<P, C> {
         }
     }
 }
+
+// --- Hook firing helpers ---
+
+/// Fire all hooks for a PreLlmCall event, returning the first non-Continue action.
+async fn fire_pre_llm_hooks(
+    hooks: &[BoxedHook],
+    request: &CompletionRequest,
+) -> Result<Option<HookAction>, LoopError> {
+    for hook in hooks {
+        let action = hook
+            .fire(HookEvent::PreLlmCall { request })
+            .await
+            .map_err(|e| LoopError::HookTerminated(e.to_string()))?;
+        if !matches!(action, HookAction::Continue) {
+            return Ok(Some(action));
+        }
+    }
+    Ok(None)
+}
+
+/// Fire all hooks for a PostLlmCall event, returning the first non-Continue action.
+async fn fire_post_llm_hooks(
+    hooks: &[BoxedHook],
+    response: &CompletionResponse,
+) -> Result<Option<HookAction>, LoopError> {
+    for hook in hooks {
+        let action = hook
+            .fire(HookEvent::PostLlmCall { response })
+            .await
+            .map_err(|e| LoopError::HookTerminated(e.to_string()))?;
+        if !matches!(action, HookAction::Continue) {
+            return Ok(Some(action));
+        }
+    }
+    Ok(None)
+}
+
+/// Fire all hooks for a PreToolExecution event, returning the first non-Continue action.
+async fn fire_pre_tool_hooks(
+    hooks: &[BoxedHook],
+    tool_name: &str,
+    input: &serde_json::Value,
+) -> Result<Option<HookAction>, LoopError> {
+    for hook in hooks {
+        let action = hook
+            .fire(HookEvent::PreToolExecution { tool_name, input })
+            .await
+            .map_err(|e| LoopError::HookTerminated(e.to_string()))?;
+        if !matches!(action, HookAction::Continue) {
+            return Ok(Some(action));
+        }
+    }
+    Ok(None)
+}
+
+/// Fire all hooks for a PostToolExecution event, returning the first non-Continue action.
+async fn fire_post_tool_hooks(
+    hooks: &[BoxedHook],
+    tool_name: &str,
+    output: &ToolOutput,
+) -> Result<Option<HookAction>, LoopError> {
+    for hook in hooks {
+        let action = hook
+            .fire(HookEvent::PostToolExecution { tool_name, output })
+            .await
+            .map_err(|e| LoopError::HookTerminated(e.to_string()))?;
+        if !matches!(action, HookAction::Continue) {
+            return Ok(Some(action));
+        }
+    }
+    Ok(None)
+}
+
+/// Fire all hooks for a ContextCompaction event, returning the first non-Continue action.
+async fn fire_compaction_hooks(
+    hooks: &[BoxedHook],
+    old_tokens: usize,
+    new_tokens: usize,
+) -> Result<Option<HookAction>, LoopError> {
+    for hook in hooks {
+        let action = hook
+            .fire(HookEvent::ContextCompaction {
+                old_tokens,
+                new_tokens,
+            })
+            .await
+            .map_err(|e| LoopError::HookTerminated(e.to_string()))?;
+        if !matches!(action, HookAction::Continue) {
+            return Ok(Some(action));
+        }
+    }
+    Ok(None)
+}
+
+// --- Utility functions ---
 
 /// Extract text content from a message.
 fn extract_text(message: &Message) -> String {
