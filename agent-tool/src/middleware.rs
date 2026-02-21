@@ -112,6 +112,7 @@ where
 ///     })
 /// });
 /// ```
+#[must_use]
 pub fn tool_middleware_fn<F>(f: F) -> impl ToolMiddleware
 where
     F: for<'a> Fn(

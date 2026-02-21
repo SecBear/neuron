@@ -13,6 +13,7 @@ use agent_types::{
 /// Convert a [`CompletionRequest`] into the OpenAI Chat Completions API JSON body.
 ///
 /// The returned value does **not** include `"stream"` — callers add that key.
+#[must_use]
 pub fn to_api_request(req: &CompletionRequest, default_model: &str) -> serde_json::Value {
     let model = if req.model.is_empty() {
         default_model.to_string()

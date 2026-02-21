@@ -126,11 +126,13 @@ impl McpClient {
     }
 
     /// Get a reference to the underlying rmcp peer for advanced operations.
+    #[must_use]
     pub fn peer(&self) -> &Peer<RoleClient> {
         &self.peer
     }
 
     /// Check whether the transport connection has been closed.
+    #[must_use]
     pub fn is_closed(&self) -> bool {
         self.peer.is_transport_closed()
     }

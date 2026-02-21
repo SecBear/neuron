@@ -28,16 +28,19 @@ impl Default for TokenCounter {
 
 impl TokenCounter {
     /// Creates a new `TokenCounter` with the default ratio of 4.0 chars/token.
+    #[must_use]
     pub fn new() -> Self {
         Self { chars_per_token: 4.0 }
     }
 
     /// Creates a new `TokenCounter` with a custom chars-per-token ratio.
+    #[must_use]
     pub fn with_ratio(chars_per_token: f32) -> Self {
         Self { chars_per_token }
     }
 
     /// Estimates the number of tokens in a text string.
+    #[must_use]
     pub fn estimate_text(&self, text: &str) -> usize {
         (text.len() as f32 / self.chars_per_token).ceil() as usize
     }
@@ -45,11 +48,13 @@ impl TokenCounter {
     /// Estimates the total token count for a slice of messages.
     ///
     /// Iterates all content blocks and sums their estimated token counts.
+    #[must_use]
     pub fn estimate_messages(&self, messages: &[Message]) -> usize {
         messages.iter().map(|m| self.estimate_message(m)).sum()
     }
 
     /// Estimates the total token count for a slice of tool definitions.
+    #[must_use]
     pub fn estimate_tools(&self, tools: &[ToolDefinition]) -> usize {
         tools
             .iter()

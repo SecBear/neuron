@@ -50,6 +50,7 @@ pub enum ProviderError {
 
 impl ProviderError {
     /// Whether this error is likely transient and the request can be retried.
+    #[must_use]
     pub fn is_retryable(&self) -> bool {
         matches!(
             self,

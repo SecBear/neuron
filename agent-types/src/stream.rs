@@ -18,6 +18,7 @@ pub struct StreamError {
 
 impl StreamError {
     /// Create a non-retryable error from a message string.
+    #[must_use]
     pub fn non_retryable(message: impl Into<String>) -> Self {
         Self {
             message: message.into(),
@@ -26,6 +27,7 @@ impl StreamError {
     }
 
     /// Create a retryable error from a message string.
+    #[must_use]
     pub fn retryable(message: impl Into<String>) -> Self {
         Self {
             message: message.into(),

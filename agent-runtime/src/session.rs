@@ -28,6 +28,7 @@ pub struct Session {
 
 impl Session {
     /// Create a new session with the given ID and working directory.
+    #[must_use]
     pub fn new(id: impl Into<String>, cwd: PathBuf) -> Self {
         let now = Utc::now();
         Self {
@@ -45,6 +46,7 @@ impl Session {
     }
 
     /// Create a summary of this session (without messages).
+    #[must_use]
     pub fn summary(&self) -> SessionSummary {
         SessionSummary {
             id: self.id.clone(),
@@ -129,6 +131,7 @@ pub struct InMemorySessionStorage {
 
 impl InMemorySessionStorage {
     /// Create a new empty in-memory storage.
+    #[must_use]
     pub fn new() -> Self {
         Self {
             sessions: Arc::new(RwLock::new(HashMap::new())),
@@ -181,6 +184,7 @@ impl FileSessionStorage {
     /// Create a new file-based storage at the given directory.
     ///
     /// The directory will be created if it does not exist on the first `save()`.
+    #[must_use]
     pub fn new(directory: PathBuf) -> Self {
         Self { directory }
     }

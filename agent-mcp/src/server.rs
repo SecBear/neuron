@@ -48,6 +48,7 @@ pub struct McpServer {
 
 impl McpServer {
     /// Create a new MCP server wrapping the given tool registry.
+    #[must_use]
     pub fn new(registry: ToolRegistry) -> Self {
         Self {
             registry: Arc::new(registry),
@@ -58,18 +59,21 @@ impl McpServer {
     }
 
     /// Set the server name.
+    #[must_use]
     pub fn with_name(mut self, name: impl Into<String>) -> Self {
         self.name = name.into();
         self
     }
 
     /// Set the server version.
+    #[must_use]
     pub fn with_version(mut self, version: impl Into<String>) -> Self {
         self.version = version.into();
         self
     }
 
     /// Set instructions for clients.
+    #[must_use]
     pub fn with_instructions(mut self, instructions: impl Into<String>) -> Self {
         self.instructions = Some(instructions.into());
         self
@@ -101,6 +105,7 @@ impl McpServer {
     }
 
     /// Get a reference to the underlying tool registry.
+    #[must_use]
     pub fn registry(&self) -> &ToolRegistry {
         &self.registry
     }

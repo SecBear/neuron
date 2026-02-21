@@ -19,6 +19,7 @@ pub struct ToolRegistry {
 
 impl ToolRegistry {
     /// Create an empty registry.
+    #[must_use]
     pub fn new() -> Self {
         Self {
             tools: HashMap::new(),
@@ -40,11 +41,13 @@ impl ToolRegistry {
     }
 
     /// Look up a tool by name.
+    #[must_use]
     pub fn get(&self, name: &str) -> Option<Arc<dyn ToolDyn>> {
         self.tools.get(name).cloned()
     }
 
     /// Get definitions for all registered tools.
+    #[must_use]
     pub fn definitions(&self) -> Vec<ToolDefinition> {
         self.tools.values().map(|t| t.definition()).collect()
     }

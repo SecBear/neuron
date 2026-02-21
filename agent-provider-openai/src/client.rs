@@ -44,6 +44,7 @@ impl OpenAi {
     ///
     /// Default model: `gpt-4o`.
     /// Default base URL: `https://api.openai.com`.
+    #[must_use]
     pub fn new(api_key: impl Into<String>) -> Self {
         Self {
             api_key: api_key.into(),
@@ -57,6 +58,7 @@ impl OpenAi {
     /// Override the default model.
     ///
     /// This is used when [`CompletionRequest::model`] is empty.
+    #[must_use]
     pub fn model(mut self, model: impl Into<String>) -> Self {
         self.model = model.into();
         self
@@ -65,6 +67,7 @@ impl OpenAi {
     /// Override the API base URL.
     ///
     /// Useful for testing with a local mock server, an API proxy, or Azure OpenAI.
+    #[must_use]
     pub fn base_url(mut self, url: impl Into<String>) -> Self {
         self.base_url = url.into();
         self
@@ -73,6 +76,7 @@ impl OpenAi {
     /// Set the OpenAI organization ID.
     ///
     /// Sent as the `OpenAI-Organization` header on every request.
+    #[must_use]
     pub fn organization(mut self, org: impl Into<String>) -> Self {
         self.organization = Some(org.into());
         self

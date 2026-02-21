@@ -38,6 +38,7 @@ pub struct BoxedHook(Arc<dyn ErasedHook>);
 
 impl BoxedHook {
     /// Wrap any [`ObservabilityHook`] into a type-erased `BoxedHook`.
+    #[must_use]
     pub fn new<H: ObservabilityHook + 'static>(hook: H) -> Self {
         BoxedHook(Arc::new(hook))
     }
@@ -102,6 +103,7 @@ pub struct BoxedDurable(pub(crate) Arc<dyn ErasedDurable>);
 
 impl BoxedDurable {
     /// Wrap any [`DurableContext`] into a type-erased `BoxedDurable`.
+    #[must_use]
     pub fn new<D: DurableContext + 'static>(durable: D) -> Self {
         BoxedDurable(Arc::new(durable))
     }
@@ -144,6 +146,7 @@ pub struct AgentLoop<P: Provider, C: ContextStrategy> {
 impl<P: Provider, C: ContextStrategy> AgentLoop<P, C> {
     /// Create a new `AgentLoop` with the given provider, tools, context strategy,
     /// and configuration.
+    #[must_use]
     pub fn new(provider: P, tools: ToolRegistry, context: C, config: LoopConfig) -> Self {
         Self {
             provider,
@@ -175,16 +178,19 @@ impl<P: Provider, C: ContextStrategy> AgentLoop<P, C> {
     }
 
     /// Returns a reference to the current configuration.
+    #[must_use]
     pub fn config(&self) -> &LoopConfig {
         &self.config
     }
 
     /// Returns a reference to the current messages.
+    #[must_use]
     pub fn messages(&self) -> &[Message] {
         &self.messages
     }
 
     /// Returns a mutable reference to the tool registry.
+    #[must_use]
     pub fn tools_mut(&mut self) -> &mut ToolRegistry {
         &mut self.tools
     }

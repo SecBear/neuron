@@ -337,6 +337,7 @@ impl<'a, P: Provider, C: ContextStrategy> StepIterator<'a, P, C> {
     }
 
     /// Returns a reference to the current messages.
+    #[must_use]
     pub fn messages(&self) -> &[Message] {
         &self.loop_ref.messages
     }
@@ -347,6 +348,7 @@ impl<'a, P: Provider, C: ContextStrategy> StepIterator<'a, P, C> {
     }
 
     /// Returns a mutable reference to the tool registry.
+    #[must_use]
     pub fn tools_mut(&mut self) -> &mut ToolRegistry {
         &mut self.loop_ref.tools
     }
@@ -361,6 +363,7 @@ impl<P: Provider, C: ContextStrategy> AgentLoop<P, C> {
     ///
     /// The user message is appended immediately. Call
     /// [`StepIterator::next`] to advance.
+    #[must_use]
     pub fn run_step<'a>(
         &'a mut self,
         user_message: Message,
@@ -540,13 +543,10 @@ impl<P: Provider, C: ContextStrategy> AgentLoop<P, C> {
 
                 // Synthesize stream events from the durable response
                 for block in &response.message.content {
-                    match block {
-                        ContentBlock::Text(text) => {
-                            if tx.send(StreamEvent::TextDelta(text.clone())).await.is_err() {
-                                return rx;
-                            }
-                        }
-                        _ => {}
+                    if let ContentBlock::Text(text) = block
+                        && tx.send(StreamEvent::TextDelta(text.clone())).await.is_err()
+                    {
+                        return rx;
                     }
                 }
                 if tx.send(StreamEvent::Usage(response.usage.clone())).await.is_err() {

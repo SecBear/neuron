@@ -43,6 +43,7 @@ pub struct SystemInjector {
 
 impl SystemInjector {
     /// Creates a new `SystemInjector` with no rules.
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
@@ -61,6 +62,7 @@ impl SystemInjector {
     /// # Arguments
     /// * `turn` — the current turn number (1-indexed for "every N" checks)
     /// * `token_count` — the current estimated token count
+    #[must_use]
     pub fn check(&self, turn: usize, token_count: usize) -> Vec<String> {
         self.rules
             .iter()

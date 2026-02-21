@@ -12,6 +12,7 @@ use agent_types::{
 /// Convert a [`CompletionRequest`] into the Ollama Chat API JSON body.
 ///
 /// The returned value does **not** include `"stream"` — callers add that key.
+#[must_use]
 pub fn to_api_request(
     req: &CompletionRequest,
     default_model: &str,

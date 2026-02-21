@@ -38,6 +38,7 @@ pub struct PersistentContext {
 
 impl PersistentContext {
     /// Creates an empty `PersistentContext`.
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
@@ -54,6 +55,7 @@ impl PersistentContext {
     /// ## <label>
     /// <content>
     /// ```
+    #[must_use]
     pub fn render(&self) -> String {
         let mut sorted = self.sections.clone();
         sorted.sort_by_key(|s| s.priority);

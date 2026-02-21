@@ -30,6 +30,7 @@ pub struct LocalDurableContext<P: Provider> {
 
 impl<P: Provider> LocalDurableContext<P> {
     /// Create a new local durable context.
+    #[must_use]
     pub fn new(provider: Arc<P>, tools: Arc<ToolRegistry>) -> Self {
         Self { provider, tools }
     }

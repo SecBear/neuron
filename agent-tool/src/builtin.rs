@@ -21,6 +21,7 @@ pub struct PermissionChecker {
 
 impl PermissionChecker {
     /// Create a new permission checker with the given policy.
+    #[must_use]
     pub fn new(policy: impl PermissionPolicy + 'static) -> Self {
         Self {
             policy: Arc::new(policy),
@@ -61,6 +62,7 @@ pub struct OutputFormatter {
 
 impl OutputFormatter {
     /// Create a new output formatter with the given character limit.
+    #[must_use]
     pub fn new(max_chars: usize) -> Self {
         Self { max_chars }
     }
@@ -84,6 +86,7 @@ impl ToolMiddleware for OutputFormatter {
                     ContentItem::Text(text) if text.len() > self.max_chars => {
                         // Use floor_char_boundary to avoid slicing in the
                         // middle of a multi-byte UTF-8 character.
+                        #[allow(clippy::incompatible_msrv)]
                         let boundary = text.floor_char_boundary(self.max_chars);
                         ContentItem::Text(format!(
                             "{}... [truncated, {} chars total]",
@@ -116,6 +119,7 @@ impl SchemaValidator {
     ///
     /// Snapshots all tool definitions at construction time. Tools registered
     /// after this call will not be validated.
+    #[must_use]
     pub fn new(registry: &ToolRegistry) -> Self {
         let schemas = registry
             .definitions()
@@ -158,14 +162,13 @@ fn validate_input(
     };
 
     // Check that the input is an object if schema declares type: "object"
-    if let Some(serde_json::Value::String(ty)) = schema_obj.get("type") {
-        if ty == "object" {
-            if !input.is_object() {
-                return Err(ToolError::InvalidInput(
-                    "expected object input".to_string(),
-                ));
-            }
-        }
+    if let Some(serde_json::Value::String(ty)) = schema_obj.get("type")
+        && ty == "object"
+        && !input.is_object()
+    {
+        return Err(ToolError::InvalidInput(
+            "expected object input".to_string(),
+        ));
     }
 
     let input_obj = match input.as_object() {
@@ -176,12 +179,12 @@ fn validate_input(
     // Check required fields
     if let Some(serde_json::Value::Array(required)) = schema_obj.get("required") {
         for field in required {
-            if let Some(field_name) = field.as_str() {
-                if !input_obj.contains_key(field_name) {
-                    return Err(ToolError::InvalidInput(format!(
-                        "missing required field: {field_name}"
-                    )));
-                }
+            if let Some(field_name) = field.as_str()
+                && !input_obj.contains_key(field_name)
+            {
+                return Err(ToolError::InvalidInput(format!(
+                    "missing required field: {field_name}"
+                )));
             }
         }
     }
@@ -189,18 +192,16 @@ fn validate_input(
     // Check property types
     if let Some(serde_json::Value::Object(properties)) = schema_obj.get("properties") {
         for (field_name, prop_schema) in properties {
-            if let Some(value) = input_obj.get(field_name) {
-                if let Some(serde_json::Value::String(expected_type)) =
+            if let Some(value) = input_obj.get(field_name)
+                && let Some(serde_json::Value::String(expected_type)) =
                     prop_schema.get("type")
-                {
-                    if !json_type_matches(value, expected_type) {
-                        return Err(ToolError::InvalidInput(format!(
-                            "field '{field_name}' expected type '{expected_type}', \
-                             got {}",
-                            json_type_name(value)
-                        )));
-                    }
-                }
+                && !json_type_matches(value, expected_type)
+            {
+                return Err(ToolError::InvalidInput(format!(
+                    "field '{field_name}' expected type '{expected_type}', \
+                     got {}",
+                    json_type_name(value)
+                )));
             }
         }
     }

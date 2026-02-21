@@ -28,6 +28,7 @@ pub struct SubAgentConfig {
 
 impl SubAgentConfig {
     /// Create a new sub-agent configuration.
+    #[must_use]
     pub fn new(system_prompt: SystemPrompt) -> Self {
         Self {
             system_prompt,
@@ -39,18 +40,21 @@ impl SubAgentConfig {
     }
 
     /// Set the allowed tools for this sub-agent.
+    #[must_use]
     pub fn with_tools(mut self, tools: Vec<String>) -> Self {
         self.tools = tools;
         self
     }
 
     /// Set the maximum nesting depth.
+    #[must_use]
     pub fn with_max_depth(mut self, max_depth: usize) -> Self {
         self.max_depth = max_depth;
         self
     }
 
     /// Set the maximum turns for the sub-agent's loop.
+    #[must_use]
     pub fn with_max_turns(mut self, max_turns: usize) -> Self {
         self.max_turns = Some(max_turns);
         self
@@ -67,6 +71,7 @@ pub struct SubAgentManager {
 
 impl SubAgentManager {
     /// Create a new empty manager.
+    #[must_use]
     pub fn new() -> Self {
         Self {
             configs: HashMap::new(),
@@ -79,6 +84,7 @@ impl SubAgentManager {
     }
 
     /// Get a registered sub-agent configuration by name.
+    #[must_use]
     pub fn get(&self, name: &str) -> Option<&SubAgentConfig> {
         self.configs.get(name)
     }

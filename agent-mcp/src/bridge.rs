@@ -35,6 +35,7 @@ pub struct McpToolBridge {
 
 impl McpToolBridge {
     /// Create a new bridge for a specific tool.
+    #[must_use]
     pub fn new(client: Arc<McpClient>, definition: ToolDefinition) -> Self {
         Self { client, definition }
     }

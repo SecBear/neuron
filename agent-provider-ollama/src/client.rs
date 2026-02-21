@@ -44,6 +44,7 @@ impl Ollama {
     /// Default model: `llama3.2`.
     /// Default base URL: `http://localhost:11434`.
     /// No authentication required (Ollama is local).
+    #[must_use]
     pub fn new() -> Self {
         Self {
             model: DEFAULT_MODEL.into(),
@@ -56,6 +57,7 @@ impl Ollama {
     /// Override the default model.
     ///
     /// This is used when [`CompletionRequest::model`] is empty.
+    #[must_use]
     pub fn model(mut self, model: impl Into<String>) -> Self {
         self.model = model.into();
         self
@@ -64,6 +66,7 @@ impl Ollama {
     /// Override the API base URL.
     ///
     /// Useful for testing with a local mock server or a remote Ollama instance.
+    #[must_use]
     pub fn base_url(mut self, url: impl Into<String>) -> Self {
         self.base_url = url.into();
         self
@@ -73,6 +76,7 @@ impl Ollama {
     ///
     /// Examples: `"5m"` (keep for 5 minutes), `"0"` (unload immediately after request).
     /// When not set, Ollama uses its server default.
+    #[must_use]
     pub fn keep_alive(mut self, duration: impl Into<String>) -> Self {
         self.keep_alive = Some(duration.into());
         self

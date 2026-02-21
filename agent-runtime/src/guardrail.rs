@@ -22,16 +22,19 @@ pub enum GuardrailResult {
 
 impl GuardrailResult {
     /// Returns `true` if the result is [`GuardrailResult::Pass`].
+    #[must_use]
     pub fn is_pass(&self) -> bool {
         matches!(self, Self::Pass)
     }
 
     /// Returns `true` if the result is [`GuardrailResult::Tripwire`].
+    #[must_use]
     pub fn is_tripwire(&self) -> bool {
         matches!(self, Self::Tripwire(_))
     }
 
     /// Returns `true` if the result is [`GuardrailResult::Warn`].
+    #[must_use]
     pub fn is_warn(&self) -> bool {
         matches!(self, Self::Warn(_))
     }

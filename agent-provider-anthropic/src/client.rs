@@ -42,8 +42,9 @@ pub struct Anthropic {
 impl Anthropic {
     /// Create a new client with the given API key and sensible defaults.
     ///
-    /// Default model: `claude-sonnet-4-20250514`.  
+    /// Default model: `claude-sonnet-4-20250514`.
     /// Default base URL: `https://api.anthropic.com`.
+    #[must_use]
     pub fn new(api_key: impl Into<String>) -> Self {
         Self {
             api_key: api_key.into(),
@@ -56,6 +57,7 @@ impl Anthropic {
     /// Override the default model.
     ///
     /// This is used when [`CompletionRequest::model`] is empty.
+    #[must_use]
     pub fn model(mut self, model: impl Into<String>) -> Self {
         self.model = model.into();
         self
@@ -64,6 +66,7 @@ impl Anthropic {
     /// Override the API base URL.
     ///
     /// Useful for testing with a local mock server or an API proxy.
+    #[must_use]
     pub fn base_url(mut self, url: impl Into<String>) -> Self {
         self.base_url = url.into();
         self
