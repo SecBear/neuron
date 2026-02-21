@@ -9,9 +9,10 @@ use agent_context::SlidingWindowStrategy;
 use agent_loop::{AgentLoop, LoopConfig};
 use agent_tool::ToolRegistry;
 use agent_types::{
-    CompletionRequest, CompletionResponse, ContentBlock, ContentItem, HookAction, HookError,
-    HookEvent, LoopError, Message, ObservabilityHook, ProviderError, Role, StopReason,
-    StreamHandle, SystemPrompt, TokenUsage, Tool, ToolContext, ToolDefinition, ToolOutput,
+    ActivityOptions, CompletionRequest, CompletionResponse, ContentBlock, ContentItem,
+    DurableContext, DurableError, HookAction, HookError, HookEvent, LoopError, Message,
+    ObservabilityHook, ProviderError, Role, StopReason, StreamHandle, SystemPrompt, TokenUsage,
+    Tool, ToolContext, ToolDefinition, ToolOutput,
 };
 use tokio_util::sync::CancellationToken;
 
@@ -522,4 +523,187 @@ async fn test_context_compaction_triggered_by_token_threshold() {
         recorded.contains(&"ContextCompaction".to_string()),
         "expected ContextCompaction event, got: {recorded:?}"
     );
+}
+
+// --- Task 5.6 tests ---
+
+/// A mock DurableContext that records calls and delegates to provider/tool.
+struct MockDurable {
+    llm_calls: Arc<Mutex<Vec<String>>>,
+    tool_calls: Arc<Mutex<Vec<String>>>,
+    /// Pre-configured LLM responses (same as MockProvider).
+    llm_responses: Mutex<Vec<CompletionResponse>>,
+}
+
+impl MockDurable {
+    fn new(
+        llm_responses: Vec<CompletionResponse>,
+    ) -> (Self, Arc<Mutex<Vec<String>>>, Arc<Mutex<Vec<String>>>) {
+        let llm_calls = Arc::new(Mutex::new(Vec::new()));
+        let tool_calls = Arc::new(Mutex::new(Vec::new()));
+        (
+            Self {
+                llm_calls: llm_calls.clone(),
+                tool_calls: tool_calls.clone(),
+                llm_responses: Mutex::new(llm_responses),
+            },
+            llm_calls,
+            tool_calls,
+        )
+    }
+}
+
+impl DurableContext for MockDurable {
+    fn execute_llm_call(
+        &self,
+        _request: CompletionRequest,
+        _options: ActivityOptions,
+    ) -> impl Future<Output = Result<CompletionResponse, DurableError>> + Send {
+        self.llm_calls
+            .lock()
+            .expect("lock")
+            .push("execute_llm_call".to_string());
+        let response = {
+            let mut responses = self.llm_responses.lock().expect("lock");
+            if responses.is_empty() {
+                return std::future::ready(Err(DurableError::ActivityFailed(
+                    "no more responses".into(),
+                )));
+            }
+            responses.remove(0)
+        };
+        std::future::ready(Ok(response))
+    }
+
+    fn execute_tool(
+        &self,
+        tool_name: &str,
+        _input: serde_json::Value,
+        _ctx: &ToolContext,
+        _options: ActivityOptions,
+    ) -> impl Future<Output = Result<ToolOutput, DurableError>> + Send {
+        let name = tool_name.to_string();
+        self.tool_calls
+            .lock()
+            .expect("lock")
+            .push(format!("execute_tool:{name}"));
+        std::future::ready(Ok(ToolOutput {
+            content: vec![ContentItem::Text(format!("durable result for {name}"))],
+            structured_content: None,
+            is_error: false,
+        }))
+    }
+
+    fn wait_for_signal<T: serde::de::DeserializeOwned + Send>(
+        &self,
+        _signal_name: &str,
+        _timeout: std::time::Duration,
+    ) -> impl Future<Output = Result<Option<T>, DurableError>> + Send {
+        std::future::ready(Ok(None))
+    }
+
+    fn should_continue_as_new(&self) -> bool {
+        false
+    }
+
+    fn continue_as_new(
+        &self,
+        _state: serde_json::Value,
+    ) -> impl Future<Output = Result<(), DurableError>> + Send {
+        std::future::ready(Ok(()))
+    }
+
+    fn sleep(&self, _duration: std::time::Duration) -> impl Future<Output = ()> + Send {
+        std::future::ready(())
+    }
+
+    fn now(&self) -> chrono::DateTime<chrono::Utc> {
+        chrono::Utc::now()
+    }
+}
+
+#[tokio::test]
+async fn test_durable_context_routes_llm_calls() {
+    // Provider should NOT be called when durability is set
+    let provider = MockProvider::new(vec![]);  // Empty — would panic if called
+
+    let (durable, llm_calls, tool_calls) = MockDurable::new(vec![
+        text_response("Durable response"),
+    ]);
+
+    let tools = ToolRegistry::new();
+    let context = SlidingWindowStrategy::new(10, 100_000);
+    let config = LoopConfig::default();
+
+    let mut agent = AgentLoop::new(provider, tools, context, config);
+    agent.set_durability(durable);
+
+    let user_msg = Message {
+        role: Role::User,
+        content: vec![ContentBlock::Text("Hello".to_string())],
+    };
+
+    let result = agent.run(user_msg, &test_tool_context()).await.expect("run should succeed");
+    assert_eq!(result.response, "Durable response");
+
+    let llm = llm_calls.lock().expect("lock");
+    assert_eq!(llm.len(), 1);
+    assert_eq!(llm[0], "execute_llm_call");
+
+    let tools = tool_calls.lock().expect("lock");
+    assert!(tools.is_empty());
+}
+
+#[tokio::test]
+async fn test_durable_context_routes_tool_calls() {
+    let provider = MockProvider::new(vec![]); // Empty — would panic if called
+
+    let (durable, llm_calls, tool_calls) = MockDurable::new(vec![
+        tool_use_response("call-1", "echo", serde_json::json!({"text": "hello"})),
+        text_response("Done via durable"),
+    ]);
+
+    let mut tools = ToolRegistry::new();
+    tools.register(EchoTool);
+
+    let context = SlidingWindowStrategy::new(10, 100_000);
+    let config = LoopConfig::default();
+
+    let mut agent = AgentLoop::new(provider, tools, context, config);
+    agent.set_durability(durable);
+
+    let user_msg = Message {
+        role: Role::User,
+        content: vec![ContentBlock::Text("Echo".to_string())],
+    };
+
+    let result = agent.run(user_msg, &test_tool_context()).await.expect("run should succeed");
+    assert_eq!(result.response, "Done via durable");
+
+    let llm = llm_calls.lock().expect("lock");
+    assert_eq!(llm.len(), 2); // Two LLM calls through durable
+
+    let tools = tool_calls.lock().expect("lock");
+    assert_eq!(tools.len(), 1);
+    assert_eq!(tools[0], "execute_tool:echo");
+}
+
+#[tokio::test]
+async fn test_without_durability_calls_provider_directly() {
+    // Without durability, provider is called directly
+    let provider = MockProvider::new(vec![text_response("Direct response")]);
+    let tools = ToolRegistry::new();
+    let context = SlidingWindowStrategy::new(10, 100_000);
+    let config = LoopConfig::default();
+
+    let mut agent = AgentLoop::new(provider, tools, context, config);
+    // No durability set
+
+    let user_msg = Message {
+        role: Role::User,
+        content: vec![ContentBlock::Text("Hello".to_string())],
+    };
+
+    let result = agent.run(user_msg, &test_tool_context()).await.expect("run should succeed");
+    assert_eq!(result.response, "Direct response");
 }

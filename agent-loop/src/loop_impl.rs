@@ -3,12 +3,14 @@
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::time::Duration;
 
 use agent_tool::ToolRegistry;
 use agent_types::{
-    CompletionRequest, CompletionResponse, ContentBlock, ContentItem, ContextStrategy, HookAction,
-    HookError, HookEvent, LoopError, Message, ObservabilityHook, Provider, Role, StopReason,
-    TokenUsage, ToolContext, ToolOutput,
+    ActivityOptions, CompletionRequest, CompletionResponse, ContentBlock, ContentItem,
+    ContextStrategy, DurableContext, DurableError, HookAction, HookError, HookEvent, LoopError,
+    Message, ObservabilityHook, Provider, ProviderError, Role, StopReason, TokenUsage, ToolContext,
+    ToolError, ToolOutput,
 };
 
 use crate::config::LoopConfig;
@@ -46,6 +48,71 @@ impl BoxedHook {
     }
 }
 
+// --- Type erasure for DurableContext (RPITIT is not dyn-compatible) ---
+
+/// Type alias for durable LLM call future.
+type DurableLlmFuture<'a> =
+    Pin<Box<dyn Future<Output = Result<CompletionResponse, DurableError>> + Send + 'a>>;
+
+/// Type alias for durable tool call future.
+type DurableToolFuture<'a> =
+    Pin<Box<dyn Future<Output = Result<ToolOutput, DurableError>> + Send + 'a>>;
+
+/// Dyn-compatible wrapper for [`DurableContext`].
+trait ErasedDurable: Send + Sync {
+    fn erased_execute_llm_call(
+        &self,
+        request: CompletionRequest,
+        options: ActivityOptions,
+    ) -> DurableLlmFuture<'_>;
+
+    fn erased_execute_tool<'a>(
+        &'a self,
+        tool_name: &'a str,
+        input: serde_json::Value,
+        ctx: &'a ToolContext,
+        options: ActivityOptions,
+    ) -> DurableToolFuture<'a>;
+
+    fn erased_should_continue_as_new(&self) -> bool;
+}
+
+impl<D: DurableContext> ErasedDurable for D {
+    fn erased_execute_llm_call(
+        &self,
+        request: CompletionRequest,
+        options: ActivityOptions,
+    ) -> DurableLlmFuture<'_> {
+        Box::pin(self.execute_llm_call(request, options))
+    }
+
+    fn erased_execute_tool<'a>(
+        &'a self,
+        tool_name: &'a str,
+        input: serde_json::Value,
+        ctx: &'a ToolContext,
+        options: ActivityOptions,
+    ) -> DurableToolFuture<'a> {
+        Box::pin(self.execute_tool(tool_name, input, ctx, options))
+    }
+
+    fn erased_should_continue_as_new(&self) -> bool {
+        self.should_continue_as_new()
+    }
+}
+
+/// A type-erased durable context for use in [`AgentLoop`].
+///
+/// Wraps any [`DurableContext`] into a dyn-compatible form.
+pub struct BoxedDurable(Arc<dyn ErasedDurable>);
+
+impl BoxedDurable {
+    /// Wrap any [`DurableContext`] into a type-erased `BoxedDurable`.
+    pub fn new<D: DurableContext + 'static>(durable: D) -> Self {
+        BoxedDurable(Arc::new(durable))
+    }
+}
+
 // --- AgentResult ---
 
 /// The result of a completed agent loop run.
@@ -63,6 +130,9 @@ pub struct AgentResult {
 
 // --- AgentLoop ---
 
+/// Default activity timeout for durable execution.
+const DEFAULT_ACTIVITY_TIMEOUT: Duration = Duration::from_secs(120);
+
 /// The agentic while loop: drives provider + tool + context interactions.
 ///
 /// Generic over `P: Provider` (the LLM backend) and `C: ContextStrategy`
@@ -72,6 +142,7 @@ pub struct AgentLoop<P: Provider, C: ContextStrategy> {
     tools: ToolRegistry,
     context: C,
     hooks: Vec<BoxedHook>,
+    durability: Option<BoxedDurable>,
     config: LoopConfig,
     messages: Vec<Message>,
 }
@@ -85,6 +156,7 @@ impl<P: Provider, C: ContextStrategy> AgentLoop<P, C> {
             tools,
             context,
             hooks: Vec::new(),
+            durability: None,
             config,
             messages: Vec::new(),
         }
@@ -95,6 +167,16 @@ impl<P: Provider, C: ContextStrategy> AgentLoop<P, C> {
     /// Hooks are called in order of registration at each event point.
     pub fn add_hook<H: ObservabilityHook + 'static>(&mut self, hook: H) -> &mut Self {
         self.hooks.push(BoxedHook::new(hook));
+        self
+    }
+
+    /// Set the durable context for crash-recoverable execution.
+    ///
+    /// When set, LLM calls and tool executions go through the durable context
+    /// so they can be journaled, replayed, and recovered by engines like
+    /// Temporal, Restate, or Inngest.
+    pub fn set_durability<D: DurableContext + 'static>(&mut self, durable: D) -> &mut Self {
+        self.durability = Some(BoxedDurable::new(durable));
         self
     }
 
@@ -118,6 +200,10 @@ impl<P: Provider, C: ContextStrategy> AgentLoop<P, C> {
     /// Appends the user message, then loops: call provider, execute tools if
     /// needed, append results, repeat until the model returns a text-only
     /// response or the turn limit is reached.
+    ///
+    /// When durability is set, LLM calls go through
+    /// [`DurableContext::execute_llm_call`] and tool calls go through
+    /// [`DurableContext::execute_tool`].
     ///
     /// Fires [`HookEvent`] at each step. If a hook returns
     /// [`HookAction::Terminate`], the loop stops with
@@ -189,8 +275,21 @@ impl<P: Provider, C: ContextStrategy> AgentLoop<P, C> {
                 }
             }
 
-            // Call provider
-            let response = self.provider.complete(request).await?;
+            // Call provider (via durability wrapper if present)
+            let response = if let Some(ref durable) = self.durability {
+                let options = ActivityOptions {
+                    start_to_close_timeout: DEFAULT_ACTIVITY_TIMEOUT,
+                    heartbeat_timeout: None,
+                    retry_policy: None,
+                };
+                durable
+                    .0
+                    .erased_execute_llm_call(request, options)
+                    .await
+                    .map_err(|e| ProviderError::Other(Box::new(e)))?
+            } else {
+                self.provider.complete(request).await?
+            };
 
             // Fire PostLlmCall hooks
             if let Some(action) = fire_post_llm_hooks(&self.hooks, &response).await? {
@@ -257,8 +356,21 @@ impl<P: Provider, C: ContextStrategy> AgentLoop<P, C> {
                     }
                 }
 
-                let result =
-                    self.tools.execute(tool_name, input.clone(), tool_ctx).await?;
+                // Execute tool (via durability wrapper if present)
+                let result = if let Some(ref durable) = self.durability {
+                    let options = ActivityOptions {
+                        start_to_close_timeout: DEFAULT_ACTIVITY_TIMEOUT,
+                        heartbeat_timeout: None,
+                        retry_policy: None,
+                    };
+                    durable
+                        .0
+                        .erased_execute_tool(tool_name, input.clone(), tool_ctx, options)
+                        .await
+                        .map_err(|e| ToolError::ExecutionFailed(Box::new(e)))?
+                } else {
+                    self.tools.execute(tool_name, input.clone(), tool_ctx).await?
+                };
 
                 // Fire PostToolExecution hooks
                 if let Some(action) =
