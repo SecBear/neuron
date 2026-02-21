@@ -419,3 +419,40 @@ async fn smoke_full_agent_loop() {
         result.response
     );
 }
+
+// ===========================================================================
+// Test 5: Builder + run_text — ergonomic API smoke test
+// ===========================================================================
+
+#[tokio::test]
+#[ignore = "requires ANTHROPIC_API_KEY"]
+async fn smoke_builder_and_run_text() {
+    let provider = anthropic();
+    let context = agent_blocks::context::SlidingWindowStrategy::new(10, 100_000);
+
+    let mut tools = ToolRegistry::new();
+    tools.register(CalculateTool);
+
+    let mut agent = AgentLoop::builder(provider, context)
+        .system_prompt("You are a math assistant. Use the calculate tool for arithmetic. After getting the result, respond with just the number.")
+        .max_turns(5)
+        .tools(tools)
+        .build();
+
+    let ctx = tool_ctx();
+    let result = agent.run_text("What is 25 * 16?", &ctx).await.unwrap();
+
+    println!("  response: {}", result.response);
+    println!("  turns: {}", result.turns);
+
+    assert!(
+        result.turns >= 2,
+        "expected at least 2 turns, got {}",
+        result.turns
+    );
+    assert!(
+        result.response.contains("400"),
+        "expected 400 in: {}",
+        result.response
+    );
+}

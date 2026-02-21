@@ -106,5 +106,5 @@ pub mod prelude {
     pub use agent_context::SlidingWindowStrategy;
 
     // The loop
-    pub use agent_loop::{AgentLoop, AgentResult, LoopConfig};
+    pub use agent_loop::{AgentLoop, AgentLoopBuilder, AgentResult, LoopConfig};
 }
