@@ -8,3 +8,7 @@
 pub mod middleware;
 pub mod registry;
 pub mod builtin;
+
+pub use middleware::*;
+pub use registry::*;
+pub use builtin::*;
