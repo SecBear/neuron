@@ -213,6 +213,34 @@ impl McpClient {
             .map_err(from_service_error)
     }
 
+    /// Call a tool with a JSON value as arguments.
+    ///
+    /// Convenience wrapper that accepts any `serde_json::Value`.
+    /// If the value is an Object, its fields become the tool arguments.
+    /// If it is Null, no arguments are sent.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`McpError::ToolCall`] if the value is not an object or null,
+    /// or if the server returns an error.
+    pub async fn call_tool_json(
+        &self,
+        name: &str,
+        arguments: serde_json::Value,
+    ) -> Result<CallToolResult, McpError> {
+        let map = match arguments {
+            serde_json::Value::Object(m) => Some(m),
+            serde_json::Value::Null => None,
+            other => {
+                return Err(McpError::ToolCall(format!(
+                    "expected object or null arguments, got {}",
+                    other
+                )));
+            }
+        };
+        self.call_tool(name, map).await
+    }
+
     /// List resources available on the MCP server.
     ///
     /// # Errors
@@ -393,7 +421,7 @@ pub struct HttpConfig {
 }
 
 /// Convert an rmcp `Tool` to our `ToolDefinition`.
-fn mcp_tool_to_definition(tool: rmcp::model::Tool) -> ToolDefinition {
+pub(crate) fn mcp_tool_to_definition(tool: rmcp::model::Tool) -> ToolDefinition {
     // Convert the rmcp JsonObject (Arc<Map<String, Value>>) to serde_json::Value
     let input_schema = serde_json::Value::Object(
         tool.input_schema.as_ref().clone(),
@@ -418,6 +446,38 @@ fn mcp_tool_to_definition(tool: rmcp::model::Tool) -> ToolDefinition {
         output_schema,
         annotations,
         cache_control: None,
+    }
+}
+
+/// Convert an rmcp `CallToolResult` to our `ToolOutput`.
+pub(crate) fn call_tool_result_to_output(result: CallToolResult) -> agent_types::ToolOutput {
+    let content = result
+        .content
+        .into_iter()
+        .filter_map(|c| {
+            // Annotated<RawContent> -- access raw via deref
+            match &*c {
+                rmcp::model::RawContent::Text(t) => {
+                    Some(agent_types::ContentItem::Text(t.text.clone()))
+                }
+                rmcp::model::RawContent::Image(img) => {
+                    Some(agent_types::ContentItem::Image {
+                        source: agent_types::ImageSource::Base64 {
+                            media_type: img.mime_type.clone(),
+                            data: img.data.clone(),
+                        },
+                    })
+                }
+                // Audio, Resource, ResourceLink content types don't map to our ContentItem
+                _ => None,
+            }
+        })
+        .collect();
+
+    agent_types::ToolOutput {
+        content,
+        structured_content: result.structured_content,
+        is_error: result.is_error.unwrap_or(false),
     }
 }
 
@@ -452,7 +512,10 @@ mod tests {
     fn mcp_tool_conversion() {
         use std::sync::Arc;
         let mut schema = serde_json::Map::new();
-        schema.insert("type".to_string(), serde_json::Value::String("object".to_string()));
+        schema.insert(
+            "type".to_string(),
+            serde_json::Value::String("object".to_string()),
+        );
 
         let tool = rmcp::model::Tool {
             name: Cow::Borrowed("test_tool"),
@@ -470,5 +533,94 @@ mod tests {
         assert_eq!(def.name, "test_tool");
         assert_eq!(def.title, Some("Test Tool".to_string()));
         assert_eq!(def.description, "A test tool");
+    }
+
+    #[test]
+    fn mcp_tool_conversion_with_annotations() {
+        use std::sync::Arc;
+        let schema = serde_json::Map::new();
+
+        let annotations = rmcp::model::ToolAnnotations {
+            title: None,
+            read_only_hint: Some(true),
+            destructive_hint: Some(false),
+            idempotent_hint: Some(true),
+            open_world_hint: Some(false),
+        };
+
+        let tool = rmcp::model::Tool {
+            name: Cow::Borrowed("annotated_tool"),
+            title: None,
+            description: Some(Cow::Borrowed("A tool with annotations")),
+            input_schema: Arc::new(schema),
+            output_schema: None,
+            annotations: Some(annotations),
+            execution: None,
+            icons: None,
+            meta: None,
+        };
+
+        let def = mcp_tool_to_definition(tool);
+        assert_eq!(def.name, "annotated_tool");
+        let ann = def.annotations.expect("should have annotations");
+        assert_eq!(ann.read_only_hint, Some(true));
+        assert_eq!(ann.destructive_hint, Some(false));
+        assert_eq!(ann.idempotent_hint, Some(true));
+        assert_eq!(ann.open_world_hint, Some(false));
+    }
+
+    #[test]
+    fn mcp_tool_conversion_no_description() {
+        use std::sync::Arc;
+        let schema = serde_json::Map::new();
+
+        let tool = rmcp::model::Tool {
+            name: Cow::Borrowed("no_desc"),
+            title: None,
+            description: None,
+            input_schema: Arc::new(schema),
+            output_schema: None,
+            annotations: None,
+            execution: None,
+            icons: None,
+            meta: None,
+        };
+
+        let def = mcp_tool_to_definition(tool);
+        assert_eq!(def.name, "no_desc");
+        assert_eq!(def.description, "");
+    }
+
+    #[test]
+    fn call_tool_result_to_output_text() {
+        use rmcp::model::Content;
+
+        let result = CallToolResult {
+            content: vec![Content::text("hello world")],
+            structured_content: None,
+            is_error: None,
+            meta: None,
+        };
+
+        let output = call_tool_result_to_output(result);
+        assert!(!output.is_error);
+        assert_eq!(output.content.len(), 1);
+        match &output.content[0] {
+            agent_types::ContentItem::Text(t) => assert_eq!(t, "hello world"),
+            _ => panic!("expected text content"),
+        }
+    }
+
+    #[test]
+    fn call_tool_result_to_output_error() {
+        let result = CallToolResult {
+            content: vec![],
+            structured_content: None,
+            is_error: Some(true),
+            meta: None,
+        };
+
+        let output = call_tool_result_to_output(result);
+        assert!(output.is_error);
     }
 }
