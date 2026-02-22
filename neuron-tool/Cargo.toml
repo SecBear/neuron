@@ -9,7 +9,7 @@ repository.workspace = true
 homepage.workspace = true
 documentation = "https://docs.rs/neuron-tool"
 keywords = ["ai", "llm", "tools", "middleware", "function-calling"]
-categories = ["artificial-intelligence"]
+categories = ["science", "asynchronous"]
 
 [features]
 default = ["macros"]

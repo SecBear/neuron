@@ -9,7 +9,7 @@ repository.workspace = true
 homepage.workspace = true
 documentation = "https://docs.rs/neuron-types"
 keywords = ["ai", "agent", "llm", "traits", "provider"]
-categories = ["artificial-intelligence"]
+categories = ["science", "asynchronous"]
 exclude = ["CLAUDE.md"]
 
 [dependencies]

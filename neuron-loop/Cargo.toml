@@ -9,7 +9,7 @@ repository.workspace = true
 homepage.workspace = true
 documentation = "https://docs.rs/neuron-loop"
 keywords = ["ai", "llm", "agent", "agentic", "streaming"]
-categories = ["artificial-intelligence", "asynchronous"]
+categories = ["science", "asynchronous"]
 exclude = ["CLAUDE.md"]
 
 [dependencies]

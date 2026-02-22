@@ -9,7 +9,7 @@ repository.workspace = true
 homepage.workspace = true
 documentation = "https://docs.rs/neuron"
 keywords = ["ai", "agent", "llm", "tools", "mcp"]
-categories = ["artificial-intelligence"]
+categories = ["science", "asynchronous"]
 exclude = ["tests/HUMAN.md"]
 
 [features]

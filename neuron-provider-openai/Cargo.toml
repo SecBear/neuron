@@ -9,7 +9,7 @@ repository.workspace = true
 homepage.workspace = true
 documentation = "https://docs.rs/neuron-provider-openai"
 keywords = ["ai", "llm", "openai", "gpt", "streaming"]
-categories = ["artificial-intelligence", "api-bindings"]
+categories = ["science", "api-bindings"]
 exclude = ["CLAUDE.md"]
 
 [dependencies]

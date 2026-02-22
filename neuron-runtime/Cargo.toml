@@ -9,7 +9,7 @@ repository.workspace = true
 homepage.workspace = true
 documentation = "https://docs.rs/neuron-runtime"
 keywords = ["ai", "llm", "agent", "guardrails", "sessions"]
-categories = ["artificial-intelligence", "asynchronous"]
+categories = ["science", "asynchronous"]
 exclude = ["CLAUDE.md"]
 
 [dependencies]

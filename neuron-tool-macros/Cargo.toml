@@ -9,7 +9,7 @@ repository.workspace = true
 homepage.workspace = true
 documentation = "https://docs.rs/neuron-tool-macros"
 keywords = ["ai", "llm", "tools", "proc-macro", "derive"]
-categories = ["artificial-intelligence", "development-tools::procedural-macro-helpers"]
+categories = ["science", "development-tools::procedural-macro-helpers"]
 
 [lib]
 proc-macro = true

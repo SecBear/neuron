@@ -9,7 +9,7 @@ repository.workspace = true
 homepage.workspace = true
 documentation = "https://docs.rs/neuron-context"
 keywords = ["ai", "agent", "llm", "context", "tokens"]
-categories = ["artificial-intelligence"]
+categories = ["science", "asynchronous"]
 
 [dependencies]
 neuron-types.workspace = true
