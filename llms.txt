@@ -1,0 +1,65 @@
+# neuron
+
+> Composable building blocks for AI agents in Rust. Independent crates, not a framework — pull one block without buying the whole stack.
+
+neuron is a workspace of 11 independent Rust crates that provide the foundation layer for building AI agent applications. Each crate is versioned and published separately. Blocks compose through traits defined in neuron-types; no block knows about any other block — only the traits it depends on.
+
+Key traits (all in neuron-types):
+- `Provider` — LLM provider abstraction (Anthropic, OpenAI, Ollama, or custom). RPITIT, not object-safe; use generics.
+- `Tool` / `ToolDyn` — Strongly-typed tool interface with type-erased registry storage. Derive with `#[neuron_tool]`.
+- `ContextStrategy` — Context compaction (sliding window, tool result clearing, summarization, composite).
+- `ObservabilityHook` — Logging/metrics/telemetry with Continue/Skip/Terminate control flow.
+- `DurableContext` — Wraps side effects for crash recovery via Temporal, Restate, or Inngest.
+- `PermissionPolicy` — Tool call authorization at runtime.
+
+Architecture (dependency flows upward):
+- neuron-types: shared types and traits (zero internal deps)
+- neuron-tool + neuron-tool-macros: tool registry, middleware pipeline, `#[neuron_tool]` proc-macro
+- neuron-context: token counting, 4 compaction strategies, persistent context, system injection
+- neuron-provider-anthropic, neuron-provider-openai, neuron-provider-ollama: one crate per LLM provider
+- neuron-mcp: MCP integration wrapping rmcp (Streamable HTTP, stdio, tool bridge)
+- neuron-loop: the agentic while loop composing provider + tools + context
+- neuron-runtime: sessions, sub-agents, guardrails, durable execution, sandboxing
+- neuron: umbrella re-export with feature flags
+
+Requires Rust 1.90+ (edition 2024, native async traits). WASM-compatible via WasmCompatSend/Sync bounds. Licensed MIT OR Apache-2.0.
+
+## Crates
+
+- [neuron-types](https://docs.rs/neuron-types): Shared types and traits — Message, ContentBlock, Provider, Tool, ContextStrategy, error types
+- [neuron-tool](https://docs.rs/neuron-tool): Tool registry with middleware pipeline (validate, permissions, hooks, format)
+- [neuron-tool-macros](https://docs.rs/neuron-tool-macros): `#[neuron_tool]` proc-macro for deriving Tool implementations
+- [neuron-context](https://docs.rs/neuron-context): Context engine — SlidingWindowStrategy, ToolResultClearingStrategy, SummarizationStrategy, CompositeStrategy, TokenCounter, SystemInjector
+- [neuron-loop](https://docs.rs/neuron-loop): Agentic while loop — AgentLoop, AgentLoopBuilder, run/run_step/run_stream
+- [neuron-provider-anthropic](https://docs.rs/neuron-provider-anthropic): Anthropic Messages API — Claude models, streaming, prompt caching, thinking
+- [neuron-provider-openai](https://docs.rs/neuron-provider-openai): OpenAI Chat Completions API — GPT models, streaming, structured output
+- [neuron-provider-ollama](https://docs.rs/neuron-provider-ollama): Ollama local inference — any GGUF model, NDJSON streaming
+- [neuron-mcp](https://docs.rs/neuron-mcp): MCP integration — McpClient, McpToolBridge, McpServer (wraps rmcp)
+- [neuron-runtime](https://docs.rs/neuron-runtime): Production runtime — SessionStorage, SubAgentManager, InputGuardrail/OutputGuardrail, LocalDurableContext, Sandbox
+- [neuron](https://docs.rs/neuron): Umbrella crate with feature flags (anthropic, openai, ollama, mcp, runtime, full)
+
+## Key Traits
+
+- [Provider](https://docs.rs/neuron-types/latest/neuron_types/trait.Provider.html): `complete(CompletionRequest) -> CompletionResponse` and `complete_stream(CompletionRequest) -> StreamHandle`
+- [Tool](https://docs.rs/neuron-types/latest/neuron_types/trait.Tool.html): `definition() -> ToolDefinition`, `call(Args, ToolContext) -> Result<Output, Error>`
+- [ToolDyn](https://docs.rs/neuron-types/latest/neuron_types/trait.ToolDyn.html): Type-erased version for `ToolRegistry` storage
+- [ContextStrategy](https://docs.rs/neuron-types/latest/neuron_types/trait.ContextStrategy.html): `should_compact(messages, token_limit) -> bool`, `compact(messages) -> messages`, `token_estimate(messages) -> usize`
+- [ObservabilityHook](https://docs.rs/neuron-types/latest/neuron_types/trait.ObservabilityHook.html): `on_event(HookEvent) -> HookAction` (Continue, Skip, Terminate)
+- [DurableContext](https://docs.rs/neuron-types/latest/neuron_types/trait.DurableContext.html): `execute_provider(request) -> response`, `execute_tool(name, input) -> output`
+
+## Examples
+
+- [Full agent with Anthropic](https://github.com/secbear/neuron/blob/main/neuron/examples/full_agent.rs): End-to-end agent loop with tools and context
+- [Custom tool](https://github.com/secbear/neuron/blob/main/neuron-tool/examples/custom_tool.rs): Define, register, and execute tools with middleware
+- [Context compaction](https://github.com/secbear/neuron/blob/main/neuron-context/examples/compaction.rs): Sliding window strategy on a growing conversation
+- [Agent loop](https://github.com/secbear/neuron/blob/main/neuron-loop/examples/agent_loop.rs): Step-by-step loop execution with mock provider
+- [MCP client](https://github.com/secbear/neuron/blob/main/neuron-mcp/examples/mcp_client.rs): Connect to MCP server, discover and bridge tools
+- [Session management](https://github.com/secbear/neuron/blob/main/neuron-runtime/examples/sessions.rs): Create, save, load sessions with FileSessionStorage
+- [Anthropic provider](https://github.com/secbear/neuron/blob/main/neuron-provider-anthropic/examples/basic.rs): Direct provider usage
+- [OpenAI provider](https://github.com/secbear/neuron/blob/main/neuron-provider-openai/examples/basic.rs): Direct provider usage
+- [Ollama provider](https://github.com/secbear/neuron/blob/main/neuron-provider-ollama/examples/basic.rs): Direct provider usage
+
+## Optional
+
+- [Architecture & design decisions](https://github.com/secbear/neuron/blob/main/CLAUDE.md): Full design document with landscape analysis, validated decisions, dependency graph
+- [Source code](https://github.com/secbear/neuron): GitHub repository

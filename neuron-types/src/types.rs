@@ -223,7 +223,7 @@ pub enum ReasoningEffort {
 }
 
 /// A completion request to an LLM provider.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct CompletionRequest {
     /// The model identifier.
     pub model: String,
