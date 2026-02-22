@@ -4,9 +4,13 @@ MCP (Model Context Protocol) integration for neuron.
 
 ## Key types
 - `McpClient` — connects to MCP servers via stdio or HTTP transport
+- `StdioConfig` — configuration for stdio-based MCP connections
+- `HttpConfig` — configuration for HTTP-based MCP connections
 - `McpToolBridge` — bridges MCP tools to `ToolDyn` for use in `ToolRegistry`
 - `McpServer` — exposes a `ToolRegistry` as an MCP server
 - `PaginatedList<T>` — paginated response wrapper
+- `McpResource`, `McpResourceContents` — MCP resource types
+- `McpPrompt`, `McpPromptArgument`, `McpPromptMessage`, `McpPromptContent`, `McpPromptResult` — MCP prompt types
 
 ## Key patterns
 - Wraps `rmcp` (official Rust MCP SDK), does not reimplement the protocol

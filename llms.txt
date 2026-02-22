@@ -12,21 +12,20 @@ neuron is **serde, not serde_json**. It defines traits, provides foundational im
 
 ## Architecture
 
-Dependencies flow upward. Each block depends only on neuron-types and the blocks directly below it.
+Dependencies flow upward. Each block depends only on neuron-types and the blocks it directly needs.
 
 ```
 neuron-types                    (zero deps, the foundation)
     ^
     |-- neuron-provider-*       (each implements Provider trait)
-    |-- neuron-tool             (implements Tool trait, registry, middleware)
-    |-- neuron-mcp              (wraps rmcp, bridges to Tool trait)
-    +-- neuron-context          (+ optional Provider for summarization)
+    |-- neuron-context          (compaction strategies, token counting)
+    +-- neuron-tool             (Tool trait, registry, middleware)
             ^
-        neuron-loop             (composes provider + tool + context)
-            ^
-        neuron-runtime          (sessions, DurableContext, guardrails, sandbox)
-            ^
-        neuron                  (umbrella re-export, build LAST)
+            |-- neuron-mcp      (wraps rmcp, bridges to Tool trait)
+            |-- neuron-loop     (provider loop with tool dispatch)
+            +-- neuron-runtime  (sessions, DurableContext, guardrails, sandbox)
+                    ^
+                neuron          (umbrella re-export, build LAST)
 ```
 
 ## Key Traits (all in neuron-types)

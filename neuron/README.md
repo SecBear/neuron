@@ -157,18 +157,29 @@ Run examples in this order to learn neuron incrementally:
 
 1. `neuron-provider-anthropic/examples/basic.rs` — single completion
 2. `neuron-provider-anthropic/examples/streaming.rs` — real-time token streaming
-3. `neuron-tool/examples/custom_tool.rs` — define and register tools
-4. `neuron-tool/examples/middleware.rs` — composable tool middleware
-5. `neuron-loop/examples/agent_loop.rs` — multi-turn agent with tools (no API key)
-6. `neuron-loop/examples/multi_turn.rs` — conversation accumulation (no API key)
-7. `neuron-context/examples/compaction.rs` — token counting and compaction
-8. `neuron/examples/full_agent.rs` — end-to-end production agent
-9. `neuron/examples/structured_output.rs` — JSON Schema output
-10. `neuron/examples/multi_provider.rs` — swap providers at runtime
-11. `neuron-runtime/examples/guardrails.rs` — input/output safety checks
-12. `neuron-runtime/examples/sub_agents.rs` — spawn isolated sub-agents
-13. `neuron-runtime/examples/sessions.rs` — conversation persistence
-14. `neuron-mcp/examples/mcp_client.rs` — MCP server integration
+3. `neuron-provider-anthropic/examples/context_management.rs` — server-side compaction
+4. `neuron-provider-openai/examples/basic.rs` — OpenAI provider usage
+5. `neuron-provider-openai/examples/embeddings.rs` — EmbeddingProvider with cosine similarity
+6. `neuron-provider-ollama/examples/basic.rs` — local model inference
+7. `neuron-tool/examples/custom_tool.rs` — define and register tools
+8. `neuron-tool/examples/derive_tool.rs` — `#[neuron_tool]` proc-macro
+9. `neuron-tool/examples/middleware.rs` — composable tool middleware
+10. `neuron-tool/examples/model_retry.rs` — ToolError::ModelRetry self-correction
+11. `neuron-loop/examples/agent_loop.rs` — multi-turn agent with tools (no API key)
+12. `neuron-loop/examples/multi_turn.rs` — conversation accumulation (no API key)
+13. `neuron-loop/examples/cancellation.rs` — CancellationToken stops loop cooperatively
+14. `neuron-loop/examples/parallel_tools.rs` — concurrent tool execution via join_all
+15. `neuron-context/examples/compaction.rs` — token counting and compaction
+16. `neuron/examples/full_agent.rs` — end-to-end production agent
+17. `neuron/examples/structured_output.rs` — JSON Schema output
+18. `neuron/examples/multi_provider.rs` — swap providers at runtime
+19. `neuron/examples/testing_agents.rs` — mock provider patterns for unit testing
+20. `neuron-runtime/examples/guardrails.rs` — input/output safety checks
+21. `neuron-runtime/examples/sessions.rs` — conversation persistence
+22. `neuron-runtime/examples/tracing_hook.rs` — structured tracing from hook events
+23. `neuron-runtime/examples/local_durable.rs` — passthrough durable context
+24. `neuron-runtime/examples/full_production.rs` — sessions + guardrails + tracing composed
+25. `neuron-mcp/examples/mcp_client.rs` — MCP server integration
 
 ## Part of neuron
 

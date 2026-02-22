@@ -10,6 +10,7 @@ sandboxing.
 - `FileSessionStorage` -- one JSON file per session
 - `InputGuardrail`, `OutputGuardrail` -- safety checks with Pass/Tripwire/Warn
 - `GuardrailResult` -- Pass, Tripwire(reason), Warn(reason)
+- `ErasedInputGuardrail`, `ErasedOutputGuardrail` -- type-erased guardrails for dyn dispatch
 - `GuardrailHook` -- ObservabilityHook adapter that runs guardrails on PreLlmCall/PostLlmCall
 - `LocalDurableContext<P>` -- passthrough DurableContext for local dev
 - `Sandbox` trait, `NoOpSandbox` -- tool execution isolation

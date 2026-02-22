@@ -11,7 +11,17 @@ Foundation crate for neuron. Zero logic — pure types, traits, serde.
 - `ToolDefinition`, `ToolOutput`, `ToolContext` — tool system types.
   `ToolContext` implements `Default` (cwd from env, empty session/environment, fresh cancellation token).
 - `EmbeddingRequest`, `EmbeddingResponse`, `EmbeddingUsage` — embedding API types
-- `StreamEvent`, `StreamHandle` — streaming types
+- `StreamEvent`, `StreamHandle`, `StreamError` — streaming types
+- `SystemPrompt`, `SystemBlock` — system prompt configuration
+- `CacheControl`, `CacheTtl` — prompt caching configuration
+- `ToolChoice` — tool selection mode (auto, any, specific, none)
+- `ResponseFormat` — structured output format (json_schema)
+- `ThinkingConfig`, `ReasoningEffort` — extended thinking configuration
+- `ImageSource`, `DocumentSource` — multi-modal content sources
+- `ProgressReporter` — tool execution progress callback
+- `HookEvent`, `HookAction` — observability hook event and action types
+- `ActivityOptions`, `RetryPolicy` — durable execution configuration
+- `PermissionDecision` — permission check result (Allow, Deny, Ask)
 
 ## Error types
 - `ProviderError` — LLM provider errors with `is_retryable()` classification
@@ -22,6 +32,8 @@ Foundation crate for neuron. Zero logic — pure types, traits, serde.
 - `HookError` — observability hook errors
 - `McpError` — MCP protocol errors
 - `StorageError` — session storage errors
+- `EmbeddingError` — embedding provider errors
+- `SandboxError` — sandbox execution errors
 
 ## Key traits
 - `Provider` — LLM provider (RPITIT, not object-safe, use generics)

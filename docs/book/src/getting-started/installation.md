@@ -19,7 +19,7 @@ cargo add neuron --features anthropic
 
 | Feature | Enables | Default |
 |---------|---------|---------|
-| `anthropic` | `neuron-provider-anthropic` | No |
+| `anthropic` | `neuron-provider-anthropic` | Yes |
 | `openai` | `neuron-provider-openai` | No |
 | `ollama` | `neuron-provider-ollama` | No |
 | `mcp` | `neuron-mcp` (Model Context Protocol) | No |

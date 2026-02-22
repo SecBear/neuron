@@ -9,18 +9,17 @@ circular dependencies.
 ```text
 neuron-types                    (zero deps, the foundation)
     ^
-    |-- neuron-provider-*       (each implements Provider)
-    |-- neuron-tool             (implements Tool, registry, middleware)
-    |-- neuron-mcp              (wraps rmcp, bridges to Tool)
-    +-- neuron-context          (+ optional Provider for summarization)
+    |-- neuron-provider-*       (each implements Provider trait)
+    |-- neuron-context          (compaction strategies, token counting)
+    +-- neuron-tool             (Tool trait, registry, middleware)
             ^
-        neuron-loop             (composes provider + tool + context)
-            ^
-        neuron-runtime          (sessions, DurableContext, guardrails)
-            ^
-        neuron                  (umbrella re-export)
-            ^
-        YOUR PROJECT            (SDK, CLI, TUI, GUI)
+            |-- neuron-mcp      (wraps rmcp, bridges to Tool trait)
+            |-- neuron-loop     (provider loop with tool dispatch)
+            +-- neuron-runtime  (sessions, DurableContext, guardrails, sandbox)
+                    ^
+                neuron          (umbrella re-export)
+                    ^
+                YOUR PROJECT    (SDK, CLI, TUI, GUI)
 ```
 
 ## Layer by layer
@@ -67,10 +66,10 @@ Implements the tool system:
 
 Depends only on `neuron-types`.
 
-### neuron-mcp (leaf node)
+### neuron-mcp
 
 Wraps the `rmcp` crate (the official Rust MCP SDK) and bridges MCP tools into
-neuron's `ToolDyn` trait. Depends only on `neuron-types` and `rmcp`.
+neuron's `ToolDyn` trait. Depends on `neuron-types`, `neuron-tool`, and `rmcp`.
 
 ### neuron-context (leaf node)
 
@@ -78,20 +77,20 @@ Implements `ContextStrategy` for client-side context compaction. Some strategies
 (like summarization) optionally use a `Provider` for LLM calls, but the
 dependency is on the trait, not on any concrete provider crate.
 
-### neuron-loop (composition layer)
+### neuron-loop
 
-The agentic while-loop that composes a provider, tool registry, and context
-strategy. This is the ~300-line commodity loop that every agent framework
-converges on. It depends on:
+The agentic while-loop that composes a provider and tool registry. This is the
+~300-line commodity loop that every agent framework converges on. It depends on:
 
-- `neuron-types` (for all trait definitions)
+- `neuron-types` (for trait definitions)
+- `neuron-tool` (for `ToolRegistry`)
 
-The loop is generic over `<P: Provider>` and accepts a `ToolRegistry` and
-optional `ContextStrategy` implementation.
+The loop is generic over `<P: Provider, C: ContextStrategy>` and accepts a
+`ToolRegistry`. `neuron-context` is a dev-dependency only (for tests).
 
-### neuron-runtime (runtime layer)
+### neuron-runtime
 
-Adds cross-cutting runtime concerns on top of the loop:
+Adds cross-cutting runtime concerns:
 
 - **Sessions** -- persistent conversation state via `StorageError`-aware backends
 - **DurableContext** -- wraps side effects for Temporal/Restate replay
@@ -100,7 +99,8 @@ Adds cross-cutting runtime concerns on top of the loop:
 - **PermissionPolicy** -- tool call authorization
 - **Sandbox** -- isolated tool execution environments
 
-Depends on `neuron-types` and `neuron-loop`.
+Depends on `neuron-types` and `neuron-tool`. `neuron-loop` and `neuron-context`
+are dev-dependencies only (for tests).
 
 ### neuron (umbrella)
 
@@ -118,14 +118,15 @@ neuron = { version = "0.2", features = ["anthropic", "openai"] }
 or below, never at layer N or above. This is enforced by `Cargo.toml`
 dependencies -- circular dependencies are a compile error in Rust.
 
-**Each block knows only about `neuron-types` and the blocks directly below it.**
+**Each block knows only about `neuron-types` and the blocks it directly depends on.**
 `neuron-tool` has no idea that `neuron-loop` exists. `neuron-provider-anthropic`
 has no idea that `neuron-runtime` exists. This means you can use any block
 independently.
 
-**No cross-leaf dependencies.** Provider crates do not depend on the tool crate.
-The MCP crate does not depend on any provider crate. Leaf nodes are fully
-independent of each other.
+**Provider crates are fully independent.** Provider crates do not depend on the
+tool crate, the MCP crate, or each other. `neuron-mcp`, `neuron-loop`, and
+`neuron-runtime` share a dependency on `neuron-tool` but are independent of
+each other.
 
 ## Practical implications
 

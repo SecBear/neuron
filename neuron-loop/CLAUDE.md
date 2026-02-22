@@ -4,6 +4,7 @@ Agentic while loop for neuron. Composes Provider + Tool + Context.
 
 ## Key types
 - `AgentLoop<P, C>` — the core loop, generic over Provider and ContextStrategy
+- `AgentLoopBuilder<P, C>` — builder pattern for constructing AgentLoop
 - `LoopConfig` — system prompt, max turns, parallel tool execution
 - `AgentResult` — final response, messages, usage, turn count
 - `TurnResult` — per-turn result enum for step-by-step iteration

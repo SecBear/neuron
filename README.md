@@ -78,15 +78,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 neuron-types                    (zero deps, the foundation)
     ^
     |-- neuron-provider-*       (each implements Provider trait)
-    |-- neuron-tool             (Tool trait, registry, middleware)
-    |-- neuron-mcp              (wraps rmcp, bridges to Tool trait)
-    +-- neuron-context          (+ optional Provider for summarization)
+    |-- neuron-context          (compaction strategies, token counting)
+    +-- neuron-tool             (Tool trait, registry, middleware)
             ^
-        neuron-loop             (composes provider + tool + context)
-            ^
-        neuron-runtime          (sub-agents, sessions, durability)
-            ^
-        neuron                  (umbrella re-export)
+            |-- neuron-mcp      (wraps rmcp, bridges to Tool trait)
+            |-- neuron-loop     (provider loop with tool dispatch)
+            +-- neuron-runtime  (sessions, DurableContext, guardrails, sandbox)
+                    ^
+                neuron          (umbrella re-export)
 ```
 
 Arrows point up. No circular dependencies.

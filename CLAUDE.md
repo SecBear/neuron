@@ -162,21 +162,20 @@ When making design decisions, apply these filters in order:
 neuron-types                    (zero deps, the foundation)
     ^
     |-- neuron-provider-*       (each implements Provider trait)
-    |-- neuron-tool             (implements Tool trait, registry, middleware)
-    |-- neuron-mcp              (wraps rmcp, bridges to Tool trait)
-    +-- neuron-context          (+ optional Provider for summarization)
+    |-- neuron-context          (compaction strategies, token counting)
+    +-- neuron-tool             (Tool trait, registry, middleware)
             ^
-        neuron-loop             (composes provider + tool + context)
-            ^
-        neuron-runtime          (sessions, DurableContext, guardrails, sandbox)
-            ^
-        neuron                  (umbrella re-export, build LAST)
-            ^
-        YOUR PROJECTS           (sdk, cli, tui, gui)
+            |-- neuron-mcp      (wraps rmcp, bridges to Tool trait)
+            |-- neuron-loop     (provider loop with tool dispatch)
+            +-- neuron-runtime  (sessions, DurableContext, guardrails, sandbox)
+                    ^
+                neuron          (umbrella re-export, build LAST)
+                    ^
+                YOUR PROJECTS   (sdk, cli, tui, gui)
 ```
 
 Arrows only point up. No circular dependencies. Each block knows only about
-`neuron-types` and the blocks directly below it.
+`neuron-types` and the blocks it directly depends on.
 
 **This graph must match actual Cargo.toml dependencies.** When adding or removing
 a dependency between crates, update this graph in the same commit.
