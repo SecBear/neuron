@@ -20,3 +20,8 @@ tracing.workspace = true
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 proptest.workspace = true
+criterion.workspace = true
+
+[[bench]]
+name = "compaction"
+harness = false

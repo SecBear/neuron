@@ -28,3 +28,8 @@ neuron-context.workspace = true
 schemars.workspace = true
 thiserror.workspace = true
 chrono.workspace = true
+criterion.workspace = true
+
+[[bench]]
+name = "turn_latency"
+harness = false
