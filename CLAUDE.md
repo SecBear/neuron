@@ -274,13 +274,15 @@ public surface must include corresponding doc updates in the same commit.
 
 | Code change | Update these docs |
 |-------------|-------------------|
-| New public type/trait/function | Doc comment; crate `lib.rs` re-exports; crate README; crate CLAUDE.md |
-| Renamed or removed public item | All references in README, examples, doc comments, llms.txt |
-| New feature flag | Crate Cargo.toml; crate README; `neuron/README.md` feature table |
-| New example file | `Cargo.toml` `[[example]]` if needed; `neuron/README.md` Learning Path; llms.txt |
-| New or removed crate dependency | Root CLAUDE.md dependency graph; crate CLAUDE.md |
-| New provider or major feature | Root README feature matrix; `neuron/README.md`; llms.txt |
-| Changed trait signature | All examples using that trait; trait doc example; README snippets |
+| New public type/trait/function | Doc comment; crate `lib.rs` re-exports; crate README; crate CLAUDE.md; relevant mdBook guide page in `docs/book/src/` |
+| Renamed or removed public item | All references in README, examples, doc comments, llms.txt, mdBook pages |
+| New feature flag | Crate Cargo.toml; crate README; `neuron/README.md` feature table; `docs/book/src/getting-started/installation.md` |
+| New example file | `Cargo.toml` `[[example]]` if needed; `neuron/README.md` Learning Path; llms.txt; relevant mdBook guide page |
+| New or removed crate dependency | Root CLAUDE.md dependency graph; crate CLAUDE.md; `docs/book/src/architecture/dependency-graph.md` |
+| New provider or major feature | Root README feature matrix; `neuron/README.md`; llms.txt; `docs/book/src/architecture/comparison.md` |
+| Changed trait signature | All examples using that trait; trait doc example; README snippets; relevant mdBook guide page |
+| New error type or variant | `docs/book/src/reference/error-handling.md`; crate CLAUDE.md |
+| New benchmark | Ensure `cargo bench` still passes; update `docs/book/src/architecture/comparison.md` if performance claims change |
 
 ### Key files that must stay in sync
 
@@ -290,7 +292,12 @@ public surface must include corresponding doc updates in the same commit.
 | Root `CLAUDE.md` scope boundary table | Actual crate contents | Moving features in/out of neuron |
 | `ROADMAP.md` "Now" section | Shipped code | Shipping a feature listed under Next/Later |
 | `llms.txt` crate list + trait list | Actual public API | Adding/removing crates or traits |
+| `llms.txt` examples list | `examples/` directories in all crates | Adding/removing/renaming examples |
 | `neuron/README.md` feature flags table | `neuron/Cargo.toml` `[features]` | Changing feature flags |
+| `docs/book/src/` guide pages | Source code in corresponding crate | Changing public API, adding features |
+| `docs/book/src/SUMMARY.md` | `docs/book/src/` directory structure | Adding/removing/renaming pages |
+| `docs/book/src/reference/error-handling.md` | Error enums in `neuron-types/src/error.rs` | Adding/removing error types or variants |
+| `docs/book/src/architecture/comparison.md` | Feature matrix reality | Adding features, new benchmarks |
 
 ### Verification checklist
 
@@ -299,6 +306,8 @@ Before completing any PR or commit that touches public API or docs:
 1. `cargo doc --workspace --no-deps` — zero warnings
 2. `cargo build --workspace --examples` — all examples compile
 3. `cargo test --workspace` — doc tests pass (they test README snippets)
-4. Every example file has a doc-comment header with `cargo run` command
-5. Every public item has a doc comment
-6. README code snippets compile (tested via doc tests or manual verification)
+4. `mdbook build docs/book/` — docs site builds without errors
+5. Every example file has a doc-comment header with `cargo run` command
+6. Every public item has a doc comment
+7. README code snippets compile (tested via doc tests or manual verification)
+8. mdBook guide pages reflect current API (spot-check changed features)
