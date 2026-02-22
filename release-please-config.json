@@ -2,6 +2,23 @@
   "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
   "release-type": "rust",
   "separate-pull-requests": true,
+  "exclude-paths": [
+    ".github",
+    ".claude",
+    "docs",
+    "flake.nix",
+    "flake.lock",
+    ".pre-commit-config.yaml",
+    "treefmt.nix",
+    "deny.toml",
+    "lychee.toml",
+    "llms.txt",
+    "CLAUDE.md",
+    "CONTRIBUTING.md",
+    "ROADMAP.md",
+    "SECURITY.md",
+    "README.md"
+  ],
   "packages": {
     "neuron-types": { "package-name": "neuron-types", "changelog-path": "neuron-types/CHANGELOG.md" },
     "neuron-tool-macros": { "package-name": "neuron-tool-macros", "changelog-path": "neuron-tool-macros/CHANGELOG.md" },

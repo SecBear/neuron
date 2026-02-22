@@ -192,6 +192,38 @@ a dependency between crates, update this graph in the same commit.
 - **`ToolDyn`** type erasure for tool registry (strongly typed impl, erased storage)
 - **`IntoFuture`** on builders so `.await` sends the request
 
+## Commit conventions
+
+This project uses [Conventional Commits](https://www.conventionalcommits.org/)
+and `release-please` for automated versioning and changelogs.
+
+### Prefixes
+
+| Prefix | Meaning | Version bump |
+|--------|---------|--------------|
+| `feat:` | New feature | minor (0.2 → 0.3) |
+| `fix:` | Bug fix | patch (0.2.0 → 0.2.1) |
+| `docs:` | Documentation only | none |
+| `ci:` | CI/workflow changes | none |
+| `chore:` | Maintenance, deps | none |
+| `refactor:` | Code restructuring | none |
+| `test:` | Test changes | none |
+| `perf:` | Performance | patch |
+
+### Scopes
+
+Use the crate name as scope when the change is crate-specific:
+`feat(neuron-types): add FooBar type`
+
+### Release-please
+
+- `release-please` watches `main` and opens release PRs automatically
+- Only commits touching Rust source code trigger releases — CI, docs, flake,
+  and config files are excluded via `exclude-paths` in `release-please-config.json`
+- Only `feat:` and `fix:` (and `perf:`) bump versions; other prefixes appear
+  in changelogs but don't trigger a release on their own
+- Merging a release PR creates a GitHub release + git tag
+
 ## Per-block conventions
 
 Every block follows the same layout:
