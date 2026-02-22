@@ -1,0 +1,13 @@
+[book]
+title = "neuron — Building Blocks for AI Agents in Rust"
+authors = ["SecBear"]
+language = "en"
+src = "src"
+
+[build]
+build-dir = "../../target/book"
+
+[output.html]
+git-repository-url = "https://github.com/secbear/neuron"
+edit-url-template = "https://github.com/secbear/neuron/edit/main/docs/book/{path}"
+additional-css = []
