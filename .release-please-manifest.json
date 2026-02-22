@@ -1,6 +1,6 @@
 {
   "neuron-types": "0.1.0",
-  "neuron-tool-macros": "0.1.0",
+  "neuron-tool-macros": "0.1.1",
   "neuron-tool": "0.1.0",
   "neuron-context": "0.1.0",
   "neuron-loop": "0.1.0",
