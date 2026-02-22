@@ -7,7 +7,7 @@
   "neuron-provider-anthropic": "0.1.0",
   "neuron-provider-openai": "0.1.0",
   "neuron-provider-ollama": "0.1.0",
-  "neuron-mcp": "0.1.0",
+  "neuron-mcp": "0.2.0",
   "neuron-runtime": "0.1.0",
   "neuron": "0.1.0"
 }
