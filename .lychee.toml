@@ -8,4 +8,9 @@ exclude = [
   "https://api\\.openai\\.com",
   # docs.rs links may 404/429 until crate is published and indexed
   "https://docs\\.rs/neuron",
+  # External sites that are intermittently unreachable from CI
+  "https://www\\.conventionalcommits\\.org",
 ]
+
+# Retry transient failures
+max_retries = 3
