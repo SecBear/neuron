@@ -66,7 +66,7 @@ impl InputGuardrail for NoSecrets {
 
 ## Part of neuron
 
-This crate is one block in the [neuron](https://github.com/axiston/neuron)
+This crate is one block in the [neuron](https://github.com/secbear/neuron)
 composable agent toolkit. It depends on `neuron-types`, `neuron-tool`, and
 `neuron-loop`.
 

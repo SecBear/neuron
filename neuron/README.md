@@ -85,7 +85,7 @@ The `neuron::prelude` module re-exports the most commonly used types:
 
 ## Part of neuron
 
-This is the root crate of [neuron](https://github.com/axiston/neuron). For
+This is the root crate of [neuron](https://github.com/secbear/neuron). For
 maximum independence, depend on individual block crates (`neuron-types`,
 `neuron-provider-anthropic`, etc.) directly.
 

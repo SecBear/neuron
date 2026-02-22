@@ -62,4 +62,5 @@ Requires Rust 1.90+ (edition 2024, native async traits). WASM-compatible via Was
 ## Optional
 
 - [Architecture & design decisions](https://github.com/secbear/neuron/blob/main/CLAUDE.md): Full design document with landscape analysis, validated decisions, dependency graph
+- [Roadmap](https://github.com/secbear/neuron/blob/main/ROADMAP.md): Now (v0.1), Next (v0.2), Later, and explicit non-goals
 - [Source code](https://github.com/secbear/neuron): GitHub repository

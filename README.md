@@ -88,6 +88,34 @@ neuron-types                    (zero deps, the foundation)
 
 Arrows point up. No circular dependencies.
 
+## Comparison
+
+How neuron compares to the two most established Rust alternatives, based on
+[source-level analysis](docs/competitive-analysis.md) of 6 frameworks:
+
+| Capability | neuron | Rig | genai |
+|---|---|---|---|
+| Crate independence | One crate per provider | All providers in `rig-core` | Single crate |
+| LLM providers | 3 | 18+ | 16 |
+| Tool middleware | Composable chain | None | None |
+| Context compaction | 4 strategies, token-aware | None | None |
+| MCP (full spec) | Client + server + bridge | Client (rmcp) | None |
+| Durable execution | `DurableContext` trait | None | None |
+| Guardrails / sandbox | `InputGuardrail`, `OutputGuardrail`, `PermissionPolicy`, `Sandbox` | None | None |
+| Sessions | `SessionStorage` trait + impls | None | None |
+| Vector stores / RAG | None | 13 integrations | None |
+| Embeddings | None | `EmbeddingModel` trait | Yes |
+| OpenTelemetry | Trait only | Full integration | None |
+
+**Where others lead today:** Rig ships 18+ providers, 13 vector store
+integrations, and 80+ examples. genai covers 16 providers in one ergonomic
+crate. neuron ships 3 providers and zero vector stores -- the architecture is
+ahead, the ecosystem is behind. See the [roadmap](ROADMAP.md) for what comes
+next.
+
+See [docs/competitive-analysis.md](docs/competitive-analysis.md) for the
+full unbiased comparison of 6 frameworks with code-level evidence.
+
 ## License
 
 MIT OR Apache-2.0
