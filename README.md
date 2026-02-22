@@ -1,7 +1,10 @@
 # neuron
 
+[![CI](https://github.com/secbear/neuron/actions/workflows/ci.yml/badge.svg)](https://github.com/secbear/neuron/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/secbear/neuron/graph/badge.svg)](https://codecov.io/gh/secbear/neuron)
 [![crates.io](https://img.shields.io/crates/v/neuron.svg)](https://crates.io/crates/neuron)
 [![docs.rs](https://docs.rs/neuron/badge.svg)](https://docs.rs/neuron)
+[![MSRV](https://img.shields.io/badge/MSRV-1.90-blue.svg)](https://blog.rust-lang.org/)
 [![license](https://img.shields.io/crates/l/neuron.svg)](LICENSE-MIT)
 
 Composable building blocks for AI agents in Rust.
