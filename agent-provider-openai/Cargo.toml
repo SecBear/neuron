@@ -5,6 +5,9 @@ edition.workspace = true
 rust-version.workspace = true
 description = "OpenAI provider for rust-agent-blocks"
 license.workspace = true
+repository = "https://github.com/anthropics/rust-agent-blocks"
+keywords = ["ai", "agent", "openai", "gpt"]
+categories = ["development-tools"]
 
 [dependencies]
 agent-types.workspace = true

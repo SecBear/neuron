@@ -5,6 +5,9 @@ edition.workspace = true
 rust-version.workspace = true
 description = "Anthropic Messages API provider for rust-agent-blocks"
 license.workspace = true
+repository = "https://github.com/anthropics/rust-agent-blocks"
+keywords = ["ai", "agent", "anthropic", "claude"]
+categories = ["development-tools"]
 
 [dependencies]
 agent-types.workspace = true

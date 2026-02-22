@@ -5,6 +5,9 @@ edition.workspace = true
 rust-version.workspace = true
 description = "Umbrella crate for rust-agent-blocks — composable building blocks for AI agents"
 license.workspace = true
+repository = "https://github.com/anthropics/rust-agent-blocks"
+keywords = ["ai", "agent", "blocks", "composable"]
+categories = ["development-tools"]
 
 [features]
 default = ["anthropic"]

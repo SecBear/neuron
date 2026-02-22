@@ -5,6 +5,9 @@ edition.workspace = true
 rust-version.workspace = true
 description = "MCP integration for rust-agent-blocks"
 license.workspace = true
+repository = "https://github.com/anthropics/rust-agent-blocks"
+keywords = ["ai", "agent", "mcp", "model-context-protocol"]
+categories = ["development-tools"]
 
 [dependencies]
 agent-types.workspace = true

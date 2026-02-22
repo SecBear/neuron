@@ -5,6 +5,9 @@ edition.workspace = true
 rust-version.workspace = true
 description = "Tool registry and middleware pipeline for rust-agent-blocks"
 license.workspace = true
+repository = "https://github.com/anthropics/rust-agent-blocks"
+keywords = ["ai", "agent", "tools", "middleware"]
+categories = ["development-tools"]
 
 [features]
 default = ["macros"]

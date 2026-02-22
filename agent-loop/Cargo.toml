@@ -5,6 +5,9 @@ edition.workspace = true
 rust-version.workspace = true
 description = "Agentic while loop for rust-agent-blocks"
 license.workspace = true
+repository = "https://github.com/anthropics/rust-agent-blocks"
+keywords = ["ai", "agent", "loop", "llm"]
+categories = ["development-tools"]
 
 [dependencies]
 agent-types.workspace = true
