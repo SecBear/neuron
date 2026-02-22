@@ -3,7 +3,7 @@
 pub mod client;
 pub mod embeddings;
 pub(crate) mod error;
-pub(crate) mod mapping;
+pub mod mapping;
 pub(crate) mod streaming;
 
 pub use client::OpenAi;

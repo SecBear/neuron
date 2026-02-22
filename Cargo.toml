@@ -13,6 +13,11 @@ members = [
     "neuron-runtime",
     "neuron",
 ]
+exclude = [
+    "neuron-provider-openai/fuzz",
+    "neuron-provider-anthropic/fuzz",
+    "neuron-provider-ollama/fuzz",
+]
 
 [workspace.package]
 edition = "2024"
