@@ -2,7 +2,10 @@
 
 use std::future::Future;
 
-use neuron_types::{CompletionRequest, CompletionResponse, Provider, ProviderError, StreamHandle};
+#[allow(unused_imports)] // StreamEvent used in doc links
+use neuron_types::{
+    CompletionRequest, CompletionResponse, Provider, ProviderError, StreamEvent, StreamHandle,
+};
 
 use crate::error::{map_http_status, map_reqwest_error};
 use crate::mapping::{from_api_response, to_api_request};

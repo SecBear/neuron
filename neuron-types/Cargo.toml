@@ -5,9 +5,11 @@ edition.workspace = true
 rust-version.workspace = true
 description = "Shared types and traits for neuron"
 license.workspace = true
-repository = "https://github.com/secbear/neuron"
+repository.workspace = true
+homepage.workspace = true
 keywords = ["ai", "agent", "types", "llm"]
 categories = ["development-tools"]
+exclude = ["CLAUDE.md"]
 
 [dependencies]
 serde.workspace = true

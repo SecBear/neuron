@@ -5,7 +5,8 @@ edition.workspace = true
 rust-version.workspace = true
 description = "Proc-macro for deriving Tool implementations"
 license.workspace = true
-repository = "https://github.com/secbear/neuron"
+repository.workspace = true
+homepage.workspace = true
 keywords = ["ai", "agent", "tools", "proc-macro"]
 categories = ["development-tools"]
 

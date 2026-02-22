@@ -2,8 +2,20 @@
 
 Composable building blocks for AI agents in Rust.
 
-Building blocks, not a framework. Each block is an independent Rust crate —
-pull one without buying the whole stack.
+Building blocks, not a framework. Each block is an independent Rust crate — pull
+one without buying the whole stack.
+
+## Why neuron?
+
+Most AI agent libraries are Python-first, framework-shaped, and opinionated.
+neuron is none of those.
+
+- **Rust-native** — no Python interop, no runtime overhead
+- **Composable** — use one crate or all of them, no buy-in required
+- **Model-agnostic** — Anthropic, OpenAI, Ollama, or bring your own
+- **Context-aware** — sliding window, compaction, and token counting built in
+- **MCP-native** — first-class Model Context Protocol support
+- **No magic** — it's a while loop with tools attached, not a framework
 
 ## Quick Start
 
@@ -32,30 +44,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ## Crates
 
-| Crate | Description |
-|-------|-------------|
-| `neuron-types` | Shared types and traits — the lingua franca of all blocks |
-| `neuron-tool` | Tool registry, middleware pipeline, and built-in middleware |
-| `neuron-tool-macros` | `#[neuron_tool]` proc macro for deriving Tool implementations |
-| `neuron-context` | Context management — token counting, compaction strategies |
-| `neuron-loop` | The agentic while loop — composes provider + tools + context |
-| `neuron-provider-anthropic` | Anthropic Claude provider (Messages API, streaming) |
-| `neuron-provider-openai` | OpenAI provider (Chat Completions API, streaming) |
-| `neuron-provider-ollama` | Ollama local provider (Chat API, NDJSON streaming) |
-| `neuron-mcp` | MCP (Model Context Protocol) integration via rmcp |
-| `neuron-runtime` | Sessions, sub-agents, guardrails, durability, sandboxing |
-| `neuron` | Umbrella crate with feature flags |
+| Crate                       | Description                                                   |
+| --------------------------- | ------------------------------------------------------------- |
+| `neuron-types`              | Shared types and traits — the lingua franca of all blocks     |
+| `neuron-tool`               | Tool registry, middleware pipeline, and built-in middleware   |
+| `neuron-tool-macros`        | `#[neuron_tool]` proc macro for deriving Tool implementations |
+| `neuron-context`            | Context management — token counting, compaction strategies    |
+| `neuron-loop`               | The agentic while loop — composes provider + tools + context  |
+| `neuron-provider-anthropic` | Anthropic Claude provider (Messages API, streaming)           |
+| `neuron-provider-openai`    | OpenAI provider (Chat Completions API, streaming)             |
+| `neuron-provider-ollama`    | Ollama local provider (Chat API, NDJSON streaming)            |
+| `neuron-mcp`                | MCP (Model Context Protocol) integration via rmcp             |
+| `neuron-runtime`            | Sessions, sub-agents, guardrails, durability, sandboxing      |
+| `neuron`                    | Umbrella crate with feature flags                             |
 
 ## Feature Flags (neuron)
 
-| Feature | Description | Default |
-|---------|-------------|---------|
-| `anthropic` | Anthropic Claude provider | yes |
-| `openai` | OpenAI provider | no |
-| `ollama` | Ollama local provider | no |
-| `mcp` | Model Context Protocol integration | no |
-| `runtime` | Sessions, sub-agents, guardrails | no |
-| `full` | All of the above | no |
+| Feature     | Description                        | Default |
+| ----------- | ---------------------------------- | ------- |
+| `anthropic` | Anthropic Claude provider          | yes     |
+| `openai`    | OpenAI provider                    | no      |
+| `ollama`    | Ollama local provider              | no      |
+| `mcp`       | Model Context Protocol integration | no      |
+| `runtime`   | Sessions, sub-agents, guardrails   | no      |
+| `full`      | All of the above                   | no      |
 
 ## Architecture
 

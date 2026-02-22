@@ -1,9 +1,9 @@
 #![doc = include_str!("../README.md")]
 
 pub mod client;
-pub mod error;
-pub mod mapping;
-pub mod streaming;
+pub(crate) mod error;
+pub(crate) mod mapping;
+pub(crate) mod streaming;
 
 pub use client::Ollama;
 

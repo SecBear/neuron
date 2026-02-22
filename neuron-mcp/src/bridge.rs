@@ -6,6 +6,8 @@
 
 use std::sync::Arc;
 
+#[allow(unused_imports)] // ToolRegistry used in doc links
+use neuron_tool::ToolRegistry;
 use neuron_types::{McpError, ToolContext, ToolDefinition, ToolDyn, ToolError, ToolOutput, WasmBoxedFuture};
 
 use crate::client::{call_tool_result_to_output, McpClient};

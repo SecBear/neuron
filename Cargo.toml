@@ -18,20 +18,22 @@ members = [
 edition = "2024"
 rust-version = "1.90"
 license = "MIT OR Apache-2.0"
+repository = "https://github.com/secbear/neuron"
+homepage = "https://github.com/secbear/neuron"
 
 [workspace.dependencies]
 # Internal
-neuron-types = { path = "neuron-types" }
-neuron-tool = { path = "neuron-tool" }
-neuron-tool-macros = { path = "neuron-tool-macros" }
-neuron-context = { path = "neuron-context" }
-neuron-loop = { path = "neuron-loop" }
-neuron-runtime = { path = "neuron-runtime" }
-neuron-mcp = { path = "neuron-mcp" }
-neuron-provider-anthropic = { path = "neuron-provider-anthropic" }
-neuron-provider-openai = { path = "neuron-provider-openai" }
-neuron-provider-ollama = { path = "neuron-provider-ollama" }
-neuron = { path = "neuron" }
+neuron-types = { version = "0.1.0", path = "neuron-types" }
+neuron-tool = { version = "0.1.0", path = "neuron-tool" }
+neuron-tool-macros = { version = "0.1.0", path = "neuron-tool-macros" }
+neuron-context = { version = "0.1.0", path = "neuron-context" }
+neuron-loop = { version = "0.1.0", path = "neuron-loop" }
+neuron-runtime = { version = "0.1.0", path = "neuron-runtime" }
+neuron-mcp = { version = "0.1.0", path = "neuron-mcp" }
+neuron-provider-anthropic = { version = "0.1.0", path = "neuron-provider-anthropic" }
+neuron-provider-openai = { version = "0.1.0", path = "neuron-provider-openai" }
+neuron-provider-ollama = { version = "0.1.0", path = "neuron-provider-ollama" }
+neuron = { version = "0.1.0", path = "neuron" }
 
 # External
 serde = { version = "1", features = ["derive"] }

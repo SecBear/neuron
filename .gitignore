@@ -6,3 +6,6 @@ target/
 
 # direnv
 .direnv/
+
+# MCP server config (user-specific)
+.mcp.json

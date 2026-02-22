@@ -5,9 +5,11 @@ edition.workspace = true
 rust-version.workspace = true
 description = "Umbrella crate for neuron — composable building blocks for AI agents"
 license.workspace = true
-repository = "https://github.com/secbear/neuron"
+repository.workspace = true
+homepage.workspace = true
 keywords = ["ai", "agent", "blocks", "composable"]
 categories = ["development-tools"]
+exclude = ["tests/HUMAN.md"]
 
 [features]
 default = ["anthropic"]
