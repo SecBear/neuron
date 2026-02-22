@@ -1,6 +1,6 @@
 [package]
 name = "neuron-loop"
-version = "0.1.0"
+version = "0.2.0"
 edition.workspace = true
 rust-version.workspace = true
 description = "Agentic loop for Rust — multi-turn tool dispatch, streaming, and conversation management over any LLM provider"

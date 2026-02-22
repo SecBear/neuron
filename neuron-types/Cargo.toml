@@ -1,6 +1,6 @@
 [package]
 name = "neuron-types"
-version = "0.1.0"
+version = "0.2.0"
 edition.workspace = true
 rust-version.workspace = true
 description = "Core traits for AI agents in Rust — Provider, Tool, and ContextStrategy without the framework buy-in"

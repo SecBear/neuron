@@ -1,6 +1,6 @@
 [package]
 name = "neuron-provider-anthropic"
-version = "0.1.0"
+version = "0.2.0"
 edition.workspace = true
 rust-version.workspace = true
 description = "Anthropic Claude API client for Rust — Messages API, streaming, prompt caching, and tool use. Part of the neuron agent blocks ecosystem."

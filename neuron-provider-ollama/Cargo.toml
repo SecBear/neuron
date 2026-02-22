@@ -1,6 +1,6 @@
 [package]
 name = "neuron-provider-ollama"
-version = "0.1.0"
+version = "0.2.0"
 edition.workspace = true
 rust-version.workspace = true
 description = "Ollama API client for Rust — local LLM inference with NDJSON streaming and tool use. Part of the neuron agent blocks ecosystem."

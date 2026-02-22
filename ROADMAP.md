@@ -18,7 +18,7 @@ regardless of framework (sessions, guardrails, durability, tools, context, MCP).
 patterns, retry/resilience (use tower or durable engines), or framework-level DX
 (`Agent<Deps, Output>` generics, handoff protocols, testing overrides).
 
-## Now (v0.1)
+## Now (v0.2)
 
 What ships today -- 11 independent crates:
 
