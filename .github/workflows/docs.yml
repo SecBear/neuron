@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'docs/book/**'
+  workflow_dispatch:
 
 permissions:
   pages: write
@@ -19,10 +20,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install mdBook
-        run: |
-          curl -sSL https://github.com/rust-lang/mdBook/releases/latest/download/mdbook-v0.4.44-x86_64-unknown-linux-gnu.tar.gz | tar xz
-          chmod +x mdbook
-          sudo mv mdbook /usr/local/bin/
+        uses: taiki-e/install-action@mdbook
       - name: Build book
         run: mdbook build docs/book/
       - name: Setup Pages
