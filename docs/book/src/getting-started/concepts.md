@@ -84,8 +84,11 @@ Temporal or Restate.
 
 ```rust,ignore
 pub trait DurableContext: Send + Sync {
-    async fn wrap_llm_call(&self, f: BoxedFuture<'_, CompletionResponse>) -> Result<CompletionResponse, DurableError>;
-    async fn wrap_tool_call(&self, name: &str, f: BoxedFuture<'_, ToolOutput>) -> Result<ToolOutput, DurableError>;
+    fn execute_llm_call(&self, request: CompletionRequest, options: ActivityOptions)
+        -> impl Future<Output = Result<CompletionResponse, DurableError>> + Send;
+
+    fn execute_tool(&self, tool_name: &str, input: Value, ctx: &ToolContext, options: ActivityOptions)
+        -> impl Future<Output = Result<ToolOutput, DurableError>> + Send;
 }
 ```
 
