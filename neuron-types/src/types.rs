@@ -65,6 +65,11 @@ pub enum ContentBlock {
         /// The document source.
         source: DocumentSource,
     },
+    /// Server-side context compaction summary.
+    Compaction {
+        /// The compacted context summary.
+        content: String,
+    },
 }
 
 /// A content item within a tool result.
@@ -123,6 +128,56 @@ pub struct Message {
     pub role: Role,
     /// The content blocks of this message.
     pub content: Vec<ContentBlock>,
+}
+
+impl Message {
+    /// Create a user message with a single text content block.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use neuron_types::Message;
+    /// let msg = Message::user("What is Rust?");
+    /// ```
+    #[must_use]
+    pub fn user(text: impl Into<String>) -> Self {
+        Self {
+            role: Role::User,
+            content: vec![ContentBlock::Text(text.into())],
+        }
+    }
+
+    /// Create an assistant message with a single text content block.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use neuron_types::Message;
+    /// let msg = Message::assistant("Rust is a systems programming language.");
+    /// ```
+    #[must_use]
+    pub fn assistant(text: impl Into<String>) -> Self {
+        Self {
+            role: Role::Assistant,
+            content: vec![ContentBlock::Text(text.into())],
+        }
+    }
+
+    /// Create a system message with a single text content block.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use neuron_types::Message;
+    /// let msg = Message::system("You are a helpful assistant.");
+    /// ```
+    #[must_use]
+    pub fn system(text: impl Into<String>) -> Self {
+        Self {
+            role: Role::System,
+            content: vec![ContentBlock::Text(text.into())],
+        }
+    }
 }
 
 // --- Completion request/response types ---
@@ -222,6 +277,74 @@ pub enum ReasoningEffort {
     High,
 }
 
+/// Server-side context management configuration.
+///
+/// Instructs the provider to manage context window size automatically,
+/// e.g. by compacting conversation history when it grows too large.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct ContextManagement {
+    /// The context edits to apply.
+    pub edits: Vec<ContextEdit>,
+}
+
+/// A context editing operation.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum ContextEdit {
+    /// Compact conversation history using the named strategy.
+    Compact {
+        /// Strategy identifier (e.g. `"compact_20260112"`).
+        strategy: String,
+    },
+}
+
+/// Per-iteration token usage breakdown (returned during server-side compaction).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct UsageIteration {
+    /// Tokens in the input for this iteration.
+    pub input_tokens: usize,
+    /// Tokens in the output for this iteration.
+    pub output_tokens: usize,
+    /// Tokens read from cache in this iteration.
+    pub cache_read_tokens: Option<usize>,
+    /// Tokens written to cache in this iteration.
+    pub cache_creation_tokens: Option<usize>,
+}
+
+// --- Embedding types ---
+
+/// A request to an embedding model.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct EmbeddingRequest {
+    /// The embedding model to use (e.g. `"text-embedding-3-small"`).
+    pub model: String,
+    /// The text inputs to embed.
+    pub input: Vec<String>,
+    /// Optional number of dimensions for the output embeddings.
+    pub dimensions: Option<usize>,
+    /// Provider-specific extra fields forwarded verbatim.
+    pub extra: HashMap<String, serde_json::Value>,
+}
+
+/// Response from an embedding request.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EmbeddingResponse {
+    /// The embedding vectors, one per input string.
+    pub embeddings: Vec<Vec<f32>>,
+    /// The model that generated the embeddings.
+    pub model: String,
+    /// Token usage statistics.
+    pub usage: EmbeddingUsage,
+}
+
+/// Token usage statistics for an embedding request.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct EmbeddingUsage {
+    /// Number of tokens in the input.
+    pub prompt_tokens: usize,
+    /// Total tokens consumed.
+    pub total_tokens: usize,
+}
+
 /// A completion request to an LLM provider.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct CompletionRequest {
@@ -251,6 +374,8 @@ pub struct CompletionRequest {
     pub reasoning_effort: Option<ReasoningEffort>,
     /// Provider-specific extra fields forwarded verbatim.
     pub extra: Option<serde_json::Value>,
+    /// Server-side context management configuration.
+    pub context_management: Option<ContextManagement>,
 }
 
 /// A completion response from an LLM provider.
@@ -281,6 +406,8 @@ pub enum StopReason {
     StopSequence,
     /// Content was filtered.
     ContentFilter,
+    /// Server paused to compact context.
+    Compaction,
 }
 
 /// Token usage statistics for a completion.
@@ -296,6 +423,8 @@ pub struct TokenUsage {
     pub cache_creation_tokens: Option<usize>,
     /// Tokens used for reasoning/thinking.
     pub reasoning_tokens: Option<usize>,
+    /// Per-iteration token breakdown (for server-side compaction).
+    pub iterations: Option<Vec<UsageIteration>>,
 }
 
 // --- Tool definition types (needed by CompletionRequest) ---
@@ -357,6 +486,24 @@ pub struct ToolContext {
     pub progress_reporter: Option<Arc<dyn ProgressReporter>>,
 }
 
+impl Default for ToolContext {
+    /// Creates a ToolContext with sensible defaults:
+    /// - `cwd`: current directory (falls back to `/tmp` if unavailable)
+    /// - `session_id`: empty string
+    /// - `environment`: empty
+    /// - `cancellation_token`: new token
+    /// - `progress_reporter`: None
+    fn default() -> Self {
+        Self {
+            cwd: std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/tmp")),
+            session_id: String::new(),
+            environment: HashMap::new(),
+            cancellation_token: CancellationToken::new(),
+            progress_reporter: None,
+        }
+    }
+}
+
 /// Reports progress for long-running tool operations.
 pub trait ProgressReporter: WasmCompatSend + WasmCompatSync {
     /// Report progress.
@@ -379,3 +526,4 @@ impl From<&str> for SystemPrompt {
         SystemPrompt::Text(s.to_string())
     }
 }
+

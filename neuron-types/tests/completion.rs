@@ -19,6 +19,7 @@ fn completion_request_minimal() {
         thinking: None,
         reasoning_effort: None,
         extra: None,
+        context_management: None,
     };
     let json = serde_json::to_string(&req).unwrap();
     assert!(json.contains("claude-sonnet"));
@@ -59,6 +60,7 @@ fn completion_response_serde() {
             cache_read_tokens: None,
             cache_creation_tokens: None,
             reasoning_tokens: None,
+            iterations: None,
         },
         stop_reason: StopReason::EndTurn,
     };
@@ -84,4 +86,36 @@ fn system_prompt_from_str() {
 fn system_prompt_from_string() {
     let prompt: SystemPrompt = String::from("You are helpful.").into();
     assert!(matches!(prompt, SystemPrompt::Text(s) if s == "You are helpful."));
+}
+
+#[test]
+fn message_user_constructor() {
+    let msg = Message::user("Hello!");
+    assert_eq!(msg.role, Role::User);
+    assert_eq!(msg.content.len(), 1);
+    assert!(matches!(&msg.content[0], ContentBlock::Text(t) if t == "Hello!"));
+}
+
+#[test]
+fn message_assistant_constructor() {
+    let msg = Message::assistant("Hi there");
+    assert_eq!(msg.role, Role::Assistant);
+    assert_eq!(msg.content.len(), 1);
+    assert!(matches!(&msg.content[0], ContentBlock::Text(t) if t == "Hi there"));
+}
+
+#[test]
+fn message_system_constructor() {
+    let msg = Message::system("You are helpful");
+    assert_eq!(msg.role, Role::System);
+    assert_eq!(msg.content.len(), 1);
+    assert!(matches!(&msg.content[0], ContentBlock::Text(t) if t == "You are helpful"));
+}
+
+#[test]
+fn tool_context_default() {
+    let ctx = ToolContext::default();
+    assert_eq!(ctx.session_id, "");
+    assert!(ctx.environment.is_empty());
+    assert!(ctx.progress_reporter.is_none());
 }

@@ -95,6 +95,7 @@ fn hook_event_variants() {
         thinking: None,
         reasoning_effort: None,
         extra: None,
+        context_management: None,
     };
     let _ = HookEvent::PreLlmCall { request: &req };
     let resp = CompletionResponse {

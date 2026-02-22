@@ -145,6 +145,7 @@ async fn smoke_basic_completion() {
         thinking: None,
         reasoning_effort: None,
         extra: None,
+        context_management: None,
     };
 
     let response = provider.complete(request).await.unwrap();
@@ -199,6 +200,7 @@ async fn smoke_streaming() {
         thinking: None,
         reasoning_effort: None,
         extra: None,
+        context_management: None,
     };
 
     let stream_handle = provider.complete_stream(request).await.unwrap();
@@ -269,6 +271,7 @@ async fn smoke_tool_use() {
         thinking: None,
         reasoning_effort: None,
         extra: None,
+        context_management: None,
     };
 
     let response = provider.complete(request).await.unwrap();
@@ -343,6 +346,7 @@ async fn smoke_tool_use() {
         thinking: None,
         reasoning_effort: None,
         extra: None,
+        context_management: None,
     };
 
     let final_response = provider.complete(followup).await.unwrap();

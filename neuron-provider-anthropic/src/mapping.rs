@@ -71,6 +71,21 @@ pub fn to_api_request(req: &CompletionRequest, default_model: &str) -> serde_jso
         body["thinking"] = thinking_val;
     }
 
+    // Context management (server-side compaction)
+    if let Some(ctx_mgmt) = &req.context_management {
+        let edits: Vec<serde_json::Value> = ctx_mgmt
+            .edits
+            .iter()
+            .map(|edit| match edit {
+                neuron_types::ContextEdit::Compact { strategy } => serde_json::json!({
+                    "type": "auto",
+                    "trigger": strategy,
+                }),
+            })
+            .collect();
+        body["context_management"] = serde_json::json!({ "edits": edits });
+    }
+
     // Merge extra provider-specific fields last (they can override anything above)
     if let Some(serde_json::Value::Object(extra_map)) = &req.extra
         && let serde_json::Value::Object(body_map) = &mut body
@@ -152,6 +167,10 @@ pub(crate) fn map_content_block(block: &ContentBlock) -> serde_json::Value {
         ContentBlock::Document { source } => serde_json::json!({
             "type": "document",
             "source": map_document_source(source),
+        }),
+        ContentBlock::Compaction { content } => serde_json::json!({
+            "type": "compaction",
+            "content": content,
         }),
     }
 }
@@ -360,6 +379,13 @@ fn parse_content_block(block: &serde_json::Value) -> Result<ContentBlock, Provid
             let input = block["input"].clone();
             Ok(ContentBlock::ToolUse { id, name, input })
         }
+        "compaction" => {
+            let content = block["content"]
+                .as_str()
+                .unwrap_or_default()
+                .to_string();
+            Ok(ContentBlock::Compaction { content })
+        }
         other => Err(ProviderError::InvalidRequest(format!(
             "unknown content block type: {other}"
         ))),
@@ -368,6 +394,21 @@ fn parse_content_block(block: &serde_json::Value) -> Result<ContentBlock, Provid
 
 /// Parse [`TokenUsage`] from the Anthropic response `usage` field.
 fn parse_usage(usage: &serde_json::Value) -> TokenUsage {
+    let iterations = usage["iterations"].as_array().map(|arr| {
+        arr.iter()
+            .map(|iter_val| neuron_types::UsageIteration {
+                input_tokens: iter_val["input_tokens"].as_u64().unwrap_or(0) as usize,
+                output_tokens: iter_val["output_tokens"].as_u64().unwrap_or(0) as usize,
+                cache_read_tokens: iter_val["cache_read_input_tokens"]
+                    .as_u64()
+                    .map(|n| n as usize),
+                cache_creation_tokens: iter_val["cache_creation_input_tokens"]
+                    .as_u64()
+                    .map(|n| n as usize),
+            })
+            .collect()
+    });
+
     TokenUsage {
         input_tokens: usage["input_tokens"].as_u64().unwrap_or(0) as usize,
         output_tokens: usage["output_tokens"].as_u64().unwrap_or(0) as usize,
@@ -376,6 +417,7 @@ fn parse_usage(usage: &serde_json::Value) -> TokenUsage {
             .as_u64()
             .map(|n| n as usize),
         reasoning_tokens: None,
+        iterations,
     }
 }
 
@@ -386,6 +428,7 @@ fn parse_stop_reason(reason: &str) -> StopReason {
         "tool_use" => StopReason::ToolUse,
         "max_tokens" => StopReason::MaxTokens,
         "stop_sequence" => StopReason::StopSequence,
+        "compaction" => StopReason::Compaction,
         _ => StopReason::EndTurn,
     }
 }
@@ -418,6 +461,7 @@ mod tests {
             thinking: None,
             reasoning_effort: None,
             extra: None,
+            context_management: None,
         }
     }
 

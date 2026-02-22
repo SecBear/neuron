@@ -101,6 +101,7 @@ impl TokenCounter {
                 // Documents are expensive; use a fixed estimate
                 500
             }
+            ContentBlock::Compaction { content } => self.estimate_text(content),
         }
     }
 

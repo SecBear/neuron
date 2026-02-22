@@ -57,6 +57,27 @@ impl Anthropic {
         }
     }
 
+    /// Create a client from the `ANTHROPIC_API_KEY` environment variable.
+    ///
+    /// Returns `ProviderError::Authentication` if the variable is not set.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use neuron_provider_anthropic::Anthropic;
+    ///
+    /// let client = Anthropic::from_env()
+    ///     .expect("ANTHROPIC_API_KEY must be set");
+    /// ```
+    pub fn from_env() -> Result<Self, ProviderError> {
+        let api_key = std::env::var("ANTHROPIC_API_KEY").map_err(|_| {
+            ProviderError::Authentication(
+                "ANTHROPIC_API_KEY environment variable not set".into(),
+            )
+        })?;
+        Ok(Self::new(api_key))
+    }
+
     /// Override the default model.
     ///
     /// This is used when [`CompletionRequest::model`] is empty.

@@ -276,6 +276,7 @@ fn parse_usage(body: &serde_json::Value) -> TokenUsage {
         cache_read_tokens: None,
         cache_creation_tokens: None,
         reasoning_tokens: None,
+        iterations: None,
     }
 }
 
@@ -328,6 +329,7 @@ mod tests {
             thinking: None,
             reasoning_effort: None,
             extra: None,
+            context_management: None,
         }
     }
 
@@ -622,6 +624,7 @@ mod tests {
             thinking: None,
             reasoning_effort: None,
             extra: None,
+            context_management: None,
         };
         let body = to_api_request(&req, "m", None);
         let messages = body["messages"].as_array().expect("should be array");

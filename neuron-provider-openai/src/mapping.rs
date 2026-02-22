@@ -416,6 +416,7 @@ fn parse_usage(usage: &serde_json::Value) -> TokenUsage {
         reasoning_tokens: usage["completion_tokens_details"]["reasoning_tokens"]
             .as_u64()
             .map(|n| n as usize),
+        iterations: None,
     }
 }
 
@@ -459,6 +460,7 @@ mod tests {
             thinking: None,
             reasoning_effort: None,
             extra: None,
+            context_management: None,
         }
     }
 

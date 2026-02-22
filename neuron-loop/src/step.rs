@@ -68,6 +68,12 @@ impl<'a, P: Provider, C: ContextStrategy> StepIterator<'a, P, C> {
             return None;
         }
 
+        // Check cancellation
+        if self.tool_ctx.cancellation_token.is_cancelled() {
+            self.finished = true;
+            return Some(TurnResult::Error(LoopError::Cancelled));
+        }
+
         // Check max turns
         if let Some(max) = self.loop_ref.config.max_turns
             && self.turns >= max
@@ -140,15 +146,7 @@ impl<'a, P: Provider, C: ContextStrategy> StepIterator<'a, P, C> {
             messages: self.loop_ref.messages.clone(),
             system: Some(self.loop_ref.config.system_prompt.clone()),
             tools: self.loop_ref.tools.definitions(),
-            max_tokens: None,
-            temperature: None,
-            top_p: None,
-            stop_sequences: vec![],
-            tool_choice: None,
-            response_format: None,
-            thinking: None,
-            reasoning_effort: None,
-            extra: None,
+            ..Default::default()
         };
 
         // Fire PreLlmCall hooks
@@ -224,6 +222,15 @@ impl<'a, P: Provider, C: ContextStrategy> StepIterator<'a, P, C> {
         // Append assistant message
         self.loop_ref.messages.push(response.message.clone());
 
+        // Server-side compaction: the provider paused to compact context.
+        // Report as a compaction event so the caller can continue stepping.
+        if response.stop_reason == StopReason::Compaction {
+            return Some(TurnResult::CompactionOccurred {
+                old_tokens: 0,
+                new_tokens: 0,
+            });
+        }
+
         if tool_calls.is_empty() || response.stop_reason == StopReason::EndTurn {
             self.finished = true;
             let response_text = extract_text(&response.message);
@@ -235,93 +242,59 @@ impl<'a, P: Provider, C: ContextStrategy> StepIterator<'a, P, C> {
             }));
         }
 
-        // Execute tool calls
+        // Check cancellation before tool execution
+        if self.tool_ctx.cancellation_token.is_cancelled() {
+            self.finished = true;
+            return Some(TurnResult::Error(LoopError::Cancelled));
+        }
+
+        // Execute tool calls (parallel or sequential)
         let mut tool_result_blocks = Vec::new();
         let mut tool_outputs = Vec::new();
-        for (call_id, tool_name, input) in &tool_calls {
-            // Fire PreToolExecution hooks
-            match fire_pre_tool_hooks(&self.loop_ref.hooks, tool_name, input).await {
-                Ok(Some(HookAction::Terminate { reason })) => {
-                    self.finished = true;
-                    return Some(TurnResult::Error(LoopError::HookTerminated(reason)));
-                }
-                Ok(Some(HookAction::Skip { reason })) => {
-                    let output = ToolOutput {
-                        content: vec![ContentItem::Text(format!(
-                            "Tool call skipped: {reason}"
-                        ))],
-                        structured_content: None,
-                        is_error: true,
-                    };
-                    tool_result_blocks.push(ContentBlock::ToolResult {
-                        tool_use_id: call_id.clone(),
-                        content: output.content.clone(),
-                        is_error: true,
-                    });
-                    tool_outputs.push(output);
-                    continue;
-                }
-                Err(e) => {
-                    self.finished = true;
-                    return Some(TurnResult::Error(e));
-                }
-                _ => {}
-            }
 
-            // Execute tool (via durability if set)
-            let result = if let Some(ref durable) = self.loop_ref.durability {
-                let options = neuron_types::ActivityOptions {
-                    start_to_close_timeout: DEFAULT_ACTIVITY_TIMEOUT,
-                    heartbeat_timeout: None,
-                    retry_policy: None,
-                };
-                match durable
-                    .0
-                    .erased_execute_tool(tool_name, input.clone(), self.tool_ctx, options)
-                    .await
-                {
-                    Ok(r) => r,
-                    Err(e) => {
-                        self.finished = true;
-                        return Some(TurnResult::Error(
-                            neuron_types::ToolError::ExecutionFailed(Box::new(e)).into(),
-                        ));
-                    }
-                }
-            } else {
-                match self
-                    .loop_ref
-                    .tools
-                    .execute(tool_name, input.clone(), self.tool_ctx)
-                    .await
-                {
-                    Ok(r) => r,
-                    Err(e) => {
-                        self.finished = true;
-                        return Some(TurnResult::Error(e.into()));
-                    }
-                }
-            };
-
-            // Fire PostToolExecution hooks
-            match fire_post_tool_hooks(&self.loop_ref.hooks, tool_name, &result).await {
-                Ok(Some(HookAction::Terminate { reason })) => {
-                    self.finished = true;
-                    return Some(TurnResult::Error(LoopError::HookTerminated(reason)));
-                }
-                Err(e) => {
-                    self.finished = true;
-                    return Some(TurnResult::Error(e));
-                }
-                _ => {}
-            }
-
-            tool_result_blocks.push(ContentBlock::ToolResult {
-                tool_use_id: call_id.clone(),
-                content: result.content.clone(),
-                is_error: result.is_error,
+        if self.loop_ref.config.parallel_tool_execution && tool_calls.len() > 1 {
+            let futs = tool_calls.iter().map(|(call_id, tool_name, input)| {
+                self.loop_ref.execute_single_tool(call_id, tool_name, input, self.tool_ctx)
             });
-            tool_outputs.push(result);
+            let results = futures::future::join_all(futs).await;
+            for result in results {
+                match result {
+                    Ok(block) => {
+                        // Extract ToolOutput from the ContentBlock for TurnResult
+                        if let ContentBlock::ToolResult { content, is_error, .. } = &block {
+                            tool_outputs.push(ToolOutput {
+                                content: content.clone(),
+                                structured_content: None,
+                                is_error: *is_error,
+                            });
+                        }
+                        tool_result_blocks.push(block);
+                    }
+                    Err(e) => {
+                        self.finished = true;
+                        return Some(TurnResult::Error(e));
+                    }
+                }
+            }
+        } else {
+            for (call_id, tool_name, input) in &tool_calls {
+                match self.loop_ref.execute_single_tool(call_id, tool_name, input, self.tool_ctx).await {
+                    Ok(block) => {
+                        if let ContentBlock::ToolResult { content, is_error, .. } = &block {
+                            tool_outputs.push(ToolOutput {
+                                content: content.clone(),
+                                structured_content: None,
+                                is_error: *is_error,
+                            });
+                        }
+                        tool_result_blocks.push(block);
+                    }
+                    Err(e) => {
+                        self.finished = true;
+                        return Some(TurnResult::Error(e));
+                    }
+                }
+            }
         }
 
         // Append tool results
@@ -408,6 +381,16 @@ impl<P: Provider, C: ContextStrategy> AgentLoop<P, C> {
         let mut turns: usize = 0;
 
         loop {
+            // Check cancellation
+            if tool_ctx.cancellation_token.is_cancelled() {
+                let _ = tx
+                    .send(StreamEvent::Error(StreamError::non_retryable(
+                        "cancelled",
+                    )))
+                    .await;
+                break;
+            }
+
             // Check max turns
             if let Some(max) = self.config.max_turns
                 && turns >= max
@@ -488,15 +471,7 @@ impl<P: Provider, C: ContextStrategy> AgentLoop<P, C> {
                 messages: self.messages.clone(),
                 system: Some(self.config.system_prompt.clone()),
                 tools: self.tools.definitions(),
-                max_tokens: None,
-                temperature: None,
-                top_p: None,
-                stop_sequences: vec![],
-                tool_choice: None,
-                response_format: None,
-                thinking: None,
-                reasoning_effort: None,
-                extra: None,
+                ..Default::default()
             };
 
             // Fire PreLlmCall hooks
@@ -713,8 +688,23 @@ impl<P: Provider, C: ContextStrategy> AgentLoop<P, C> {
 
             self.messages.push(message.clone());
 
+            // Server-side compaction: continue the loop for the next iteration.
+            // The compacted context is already in the message history.
+            // (In streaming mode we don't have a StopReason directly, but
+            // compaction blocks in the content signal this condition.)
+
             if tool_calls.is_empty() {
                 // Done — final response was already streamed
+                break;
+            }
+
+            // Check cancellation before tool execution
+            if tool_ctx.cancellation_token.is_cancelled() {
+                let _ = tx
+                    .send(StreamEvent::Error(StreamError::non_retryable(
+                        "cancelled",
+                    )))
+                    .await;
                 break;
             }
 
@@ -777,6 +767,15 @@ impl<P: Provider, C: ContextStrategy> AgentLoop<P, C> {
                 } else {
                     match self.tools.execute(tool_name, input.clone(), tool_ctx).await {
                         Ok(r) => r,
+                        Err(neuron_types::ToolError::ModelRetry(hint)) => {
+                            // Convert ModelRetry into an error tool result so the
+                            // model can self-correct on the next iteration.
+                            ToolOutput {
+                                content: vec![ContentItem::Text(hint)],
+                                structured_content: None,
+                                is_error: true,
+                            }
+                        }
                         Err(e) => {
                             let _ = tx
                                 .send(StreamEvent::Error(StreamError::non_retryable(format!(

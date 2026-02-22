@@ -23,6 +23,7 @@ fn minimal_request() -> CompletionRequest {
         thinking: None,
         reasoning_effort: None,
         extra: None,
+        context_management: None,
     }
 }
 
@@ -196,4 +197,12 @@ async fn complete_returns_model_not_found_on_404() {
         matches!(err, ProviderError::ModelNotFound(_)),
         "expected ModelNotFound, got: {err:?}"
     );
+}
+
+#[test]
+fn from_env_missing_key() {
+    // SAFETY: This test runs in isolation and no other thread reads ANTHROPIC_API_KEY.
+    unsafe { std::env::remove_var("ANTHROPIC_API_KEY") };
+    let result = Anthropic::from_env();
+    assert!(result.is_err());
 }

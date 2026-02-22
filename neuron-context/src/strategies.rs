@@ -332,6 +332,7 @@ impl<P: Provider> ContextStrategy for SummarizationStrategy<P> {
             thinking: None,
             reasoning_effort: None,
             extra: None,
+            context_management: None,
         };
 
         async move {

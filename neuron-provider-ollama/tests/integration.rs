@@ -24,6 +24,7 @@ fn minimal_request() -> CompletionRequest {
         thinking: None,
         reasoning_effort: None,
         extra: None,
+        context_management: None,
     }
 }
 
@@ -303,4 +304,10 @@ async fn complete_with_keep_alive() {
 
     let result = provider.complete(minimal_request()).await;
     assert!(result.is_ok(), "expected Ok, got: {:?}", result.err());
+}
+
+#[test]
+fn from_env_always_succeeds() {
+    let client = Ollama::from_env();
+    assert!(client.is_ok());
 }

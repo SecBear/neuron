@@ -1348,3 +1348,248 @@ async fn test_context_compaction_fires_during_streaming() {
         "expected ContextCompaction event during streaming, got: {recorded:?}"
     );
 }
+
+// --- Batch 1 tests: CancellationToken + Parallel Tool Execution ---
+
+/// Helper to create a CompletionResponse with multiple tool calls.
+fn multi_tool_use_response(
+    tools: &[(&str, &str, serde_json::Value)],
+) -> CompletionResponse {
+    let content = tools
+        .iter()
+        .map(|(id, name, input)| ContentBlock::ToolUse {
+            id: id.to_string(),
+            name: name.to_string(),
+            input: input.clone(),
+        })
+        .collect();
+    CompletionResponse {
+        id: "test-id".to_string(),
+        model: "mock-model".to_string(),
+        message: Message {
+            role: Role::Assistant,
+            content,
+        },
+        usage: TokenUsage {
+            input_tokens: 10,
+            output_tokens: 5,
+            ..Default::default()
+        },
+        stop_reason: StopReason::ToolUse,
+    }
+}
+
+
+#[tokio::test]
+async fn test_cancellation_stops_loop() {
+    let provider = MockProvider::new(vec![text_response("Should not reach this")]);
+    let tools = ToolRegistry::new();
+    let context = SlidingWindowStrategy::new(10, 100_000);
+    let config = LoopConfig::default();
+
+    let mut agent = AgentLoop::new(provider, tools, context, config);
+
+    // Create a pre-cancelled token
+    let token = CancellationToken::new();
+    token.cancel();
+
+    let tool_ctx = ToolContext {
+        cwd: PathBuf::from("/tmp"),
+        session_id: "test-session".to_string(),
+        environment: HashMap::new(),
+        cancellation_token: token,
+        progress_reporter: None,
+    };
+
+    let user_msg = Message {
+        role: Role::User,
+        content: vec![ContentBlock::Text("Hello".to_string())],
+    };
+
+    let err = agent.run(user_msg, &tool_ctx).await.unwrap_err();
+    assert!(
+        matches!(err, LoopError::Cancelled),
+        "expected Cancelled, got: {err:?}"
+    );
+}
+
+#[tokio::test]
+async fn test_cancellation_during_tool_execution() {
+    // Provider returns a tool call, but the token is already cancelled
+    // so the check before the tool for-loop catches it.
+    let provider = MockProvider::new(vec![
+        tool_use_response("call-1", "echo", serde_json::json!({"text": "hello"})),
+    ]);
+
+    let mut tools = ToolRegistry::new();
+    tools.register(EchoTool);
+
+    let context = SlidingWindowStrategy::new(10, 100_000);
+    let config = LoopConfig::default();
+
+    let mut agent = AgentLoop::new(provider, tools, context, config);
+
+    // Use a hook that cancels the token after the LLM call completes
+    // but before tool execution
+    let token = CancellationToken::new();
+    let token_clone = token.clone();
+
+    struct CancelOnPostLlmHook {
+        token: CancellationToken,
+    }
+
+    impl ObservabilityHook for CancelOnPostLlmHook {
+        fn on_event(
+            &self,
+            event: HookEvent<'_>,
+        ) -> impl Future<Output = Result<HookAction, HookError>> + Send {
+            if matches!(event, HookEvent::PostLlmCall { .. }) {
+                self.token.cancel();
+            }
+            std::future::ready(Ok(HookAction::Continue))
+        }
+    }
+
+    agent.add_hook(CancelOnPostLlmHook { token: token_clone });
+
+    let tool_ctx = ToolContext {
+        cwd: PathBuf::from("/tmp"),
+        session_id: "test-session".to_string(),
+        environment: HashMap::new(),
+        cancellation_token: token,
+        progress_reporter: None,
+    };
+
+    let user_msg = Message {
+        role: Role::User,
+        content: vec![ContentBlock::Text("Echo hello".to_string())],
+    };
+
+    let err = agent.run(user_msg, &tool_ctx).await.unwrap_err();
+    assert!(
+        matches!(err, LoopError::Cancelled),
+        "expected Cancelled, got: {err:?}"
+    );
+}
+
+#[tokio::test]
+async fn test_parallel_tool_execution_all_results() {
+    // Provider returns 2 tool calls in one response, then a final text.
+    let provider = MockProvider::new(vec![
+        multi_tool_use_response(&[
+            ("call-1", "echo", serde_json::json!({"text": "alpha"})),
+            ("call-2", "echo", serde_json::json!({"text": "beta"})),
+        ]),
+        text_response("Both tools executed"),
+    ]);
+
+    let mut tools = ToolRegistry::new();
+    tools.register(EchoTool);
+
+    let context = SlidingWindowStrategy::new(10, 100_000);
+    let config = LoopConfig {
+        parallel_tool_execution: true,
+        ..LoopConfig::default()
+    };
+
+    let mut agent = AgentLoop::new(provider, tools, context, config);
+
+    let user_msg = Message {
+        role: Role::User,
+        content: vec![ContentBlock::Text("Run both".to_string())],
+    };
+
+    let result = agent
+        .run(user_msg, &test_tool_context())
+        .await
+        .expect("run should succeed");
+
+    assert_eq!(result.response, "Both tools executed");
+    assert_eq!(result.turns, 2);
+
+    // Verify both tool results are in the messages
+    let tool_result_msg = result
+        .messages
+        .iter()
+        .find(|m| {
+            m.role == Role::User
+                && m.content.iter().any(|b| matches!(b, ContentBlock::ToolResult { .. }))
+        })
+        .expect("should have a tool result message");
+
+    let tool_result_count = tool_result_msg
+        .content
+        .iter()
+        .filter(|b| matches!(b, ContentBlock::ToolResult { .. }))
+        .count();
+    assert_eq!(tool_result_count, 2, "expected 2 tool results");
+}
+
+#[tokio::test]
+async fn test_sequential_tool_execution_order() {
+    // Verify that when parallel_tool_execution is false (default),
+    // tools are executed in the order they appear in the response.
+    // We use a recording hook to capture PreToolExecution events in order.
+    let provider = MockProvider::new(vec![
+        multi_tool_use_response(&[
+            ("call-1", "echo", serde_json::json!({"text": "first"})),
+            ("call-2", "echo", serde_json::json!({"text": "second"})),
+            ("call-3", "echo", serde_json::json!({"text": "third"})),
+        ]),
+        text_response("All done"),
+    ]);
+
+    let mut tools = ToolRegistry::new();
+    tools.register(EchoTool);
+
+    let context = SlidingWindowStrategy::new(10, 100_000);
+    let config = LoopConfig {
+        parallel_tool_execution: false,
+        ..LoopConfig::default()
+    };
+
+    let mut agent = AgentLoop::new(provider, tools, context, config);
+
+    // Use a hook that records the input value from each PreToolExecution event.
+    let call_order: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+    let call_order_clone = call_order.clone();
+
+    struct OrderTracker {
+        order: Arc<Mutex<Vec<String>>>,
+    }
+
+    impl ObservabilityHook for OrderTracker {
+        fn on_event(
+            &self,
+            event: HookEvent<'_>,
+        ) -> impl Future<Output = Result<HookAction, HookError>> + Send {
+            if let HookEvent::PreToolExecution { input, .. } = &event {
+                if let Some(text) = input.get("text").and_then(|v| v.as_str()) {
+                    self.order.lock().expect("lock").push(text.to_string());
+                }
+            }
+            std::future::ready(Ok(HookAction::Continue))
+        }
+    }
+
+    agent.add_hook(OrderTracker { order: call_order_clone });
+
+    let user_msg = Message {
+        role: Role::User,
+        content: vec![ContentBlock::Text("Run all".to_string())],
+    };
+
+    let result = agent
+        .run(user_msg, &test_tool_context())
+        .await
+        .expect("run should succeed");
+
+    assert_eq!(result.response, "All done");
+
+    let log = call_order.lock().expect("lock");
+    assert_eq!(
+        *log,
+        vec!["first".to_string(), "second".to_string(), "third".to_string()],
+        "tools should execute in order when parallel_tool_execution is false"
+    );
+}

@@ -187,6 +187,7 @@ impl NdjsonParserState {
                 cache_read_tokens: None,
                 cache_creation_tokens: None,
                 reasoning_tokens: None,
+                iterations: None,
             };
             self.usage = Some(usage.clone());
             events.push(StreamEvent::Usage(usage));

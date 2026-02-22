@@ -6,11 +6,11 @@ use std::time::Duration;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
-use crate::error::{ContextError, DurableError, HookError, ProviderError, ToolError};
+use crate::error::{ContextError, DurableError, EmbeddingError, HookError, ProviderError, ToolError};
 use crate::stream::StreamHandle;
 use crate::types::{
-    CompletionRequest, CompletionResponse, ContentItem, Message, ToolContext, ToolDefinition,
-    ToolOutput,
+    CompletionRequest, CompletionResponse, ContentItem, EmbeddingRequest, EmbeddingResponse,
+    Message, ToolContext, ToolDefinition, ToolOutput,
 };
 use crate::wasm::{WasmBoxedFuture, WasmCompatSend, WasmCompatSync};
 
@@ -21,7 +21,10 @@ use crate::wasm::{WasmBoxedFuture, WasmCompatSend, WasmCompatSync};
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```no_run
+/// use std::future::Future;
+/// use neuron_types::*;
+///
 /// struct MyProvider;
 ///
 /// impl Provider for MyProvider {
@@ -52,6 +55,42 @@ pub trait Provider: WasmCompatSend + WasmCompatSync {
     ) -> impl Future<Output = Result<StreamHandle, ProviderError>> + WasmCompatSend;
 }
 
+/// Embedding provider trait. Implement this for providers that support text embeddings.
+///
+/// Kept separate from [`Provider`] because not all embedding models support chat completion
+/// and not all chat providers support embeddings. Implement both traits on a struct when a
+/// provider supports both capabilities.
+///
+/// Uses RPITIT (return position impl trait in trait) — Rust 2024 native async.
+/// Not object-safe by design; use generics `<E: EmbeddingProvider>` to compose.
+///
+/// # Example
+///
+/// ```no_run
+/// use std::future::Future;
+/// use neuron_types::*;
+///
+/// struct MyEmbeddingProvider;
+///
+/// impl EmbeddingProvider for MyEmbeddingProvider {
+///     fn embed(&self, request: EmbeddingRequest)
+///         -> impl Future<Output = Result<EmbeddingResponse, EmbeddingError>> + Send
+///     {
+///         async { todo!() }
+///     }
+/// }
+/// ```
+pub trait EmbeddingProvider: WasmCompatSend + WasmCompatSync {
+    /// Send an embedding request and get vectors back.
+    ///
+    /// Multiple input strings are batched into a single request. The returned
+    /// `embeddings` vec is in the same order as `request.input`.
+    fn embed(
+        &self,
+        request: EmbeddingRequest,
+    ) -> impl Future<Output = Result<EmbeddingResponse, EmbeddingError>> + WasmCompatSend;
+}
+
 /// Strongly-typed tool trait. Implement this for your tools.
 ///
 /// The blanket impl of [`ToolDyn`] handles JSON deserialization/serialization
@@ -59,7 +98,7 @@ pub trait Provider: WasmCompatSend + WasmCompatSync {
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```no_run
 /// use neuron_types::*;
 /// use serde::Deserialize;
 ///
@@ -171,7 +210,10 @@ impl<T: Tool> ToolDyn for T {
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```no_run
+/// use std::future::Future;
+/// use neuron_types::*;
+///
 /// struct KeepLastN { n: usize }
 /// impl ContextStrategy for KeepLastN {
 ///     fn should_compact(&self, _messages: &[Message], token_count: usize) -> bool {
@@ -276,13 +318,16 @@ pub enum HookAction {
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```no_run
+/// use std::future::Future;
+/// use neuron_types::*;
+///
 /// struct LogHook;
 /// impl ObservabilityHook for LogHook {
 ///     fn on_event(&self, event: HookEvent<'_>)
 ///         -> impl Future<Output = Result<HookAction, HookError>> + Send
 ///     {
-///         async { println!("{event:?}"); Ok(HookAction::Continue) }
+///         async move { println!("{event:?}"); Ok(HookAction::Continue) }
 ///     }
 /// }
 /// ```
@@ -386,7 +431,9 @@ pub enum PermissionDecision {
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```no_run
+/// use neuron_types::*;
+///
 /// struct AllowAll;
 /// impl PermissionPolicy for AllowAll {
 ///     fn check(&self, _tool_name: &str, _input: &serde_json::Value) -> PermissionDecision {

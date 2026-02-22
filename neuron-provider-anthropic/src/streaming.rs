@@ -278,6 +278,7 @@ impl SseParserState {
                     .as_u64()
                     .map(|n| n as usize),
                 reasoning_tokens: None,
+                iterations: None,
             };
             self.usage = Some(usage.clone());
             return vec![StreamEvent::Usage(usage)];

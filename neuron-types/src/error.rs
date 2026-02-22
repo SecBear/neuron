@@ -81,6 +81,12 @@ pub enum ToolError {
     /// Tool execution was cancelled.
     #[error("cancelled")]
     Cancelled,
+    /// Tool requests the model to retry with the given hint.
+    ///
+    /// The hint is returned to the model as an error tool result so it can
+    /// self-correct and call the tool again with adjusted arguments.
+    #[error("model retry requested: {0}")]
+    ModelRetry(String),
 }
 
 /// Errors from context management operations.
@@ -112,6 +118,9 @@ pub enum LoopError {
     /// An observability hook terminated the loop.
     #[error("terminated by hook: {0}")]
     HookTerminated(String),
+    /// The loop was cancelled via the cancellation token.
+    #[error("cancelled")]
+    Cancelled,
 }
 
 /// Errors from durable execution operations.
@@ -165,6 +174,37 @@ pub enum HookError {
     Other(Box<dyn std::error::Error + Send + Sync>),
 }
 
+/// Errors from embedding provider operations.
+#[derive(Debug, thiserror::Error)]
+pub enum EmbeddingError {
+    /// Authentication/authorization failure.
+    #[error("authentication failed: {0}")]
+    Authentication(String),
+    /// Rate limited by the provider.
+    #[error("rate limited, retry after {retry_after:?}")]
+    RateLimit {
+        /// Suggested retry delay, if provided by the API.
+        retry_after: Option<std::time::Duration>,
+    },
+    /// Malformed or invalid request.
+    #[error("invalid request: {0}")]
+    InvalidRequest(String),
+    /// Network-level error (connection reset, DNS failure, etc.).
+    #[error("network error: {0}")]
+    Network(#[source] Box<dyn std::error::Error + Send + Sync>),
+    /// Any other embedding error.
+    #[error(transparent)]
+    Other(Box<dyn std::error::Error + Send + Sync>),
+}
+
+impl EmbeddingError {
+    /// Whether this error is likely transient and the request can be retried.
+    #[must_use]
+    pub fn is_retryable(&self) -> bool {
+        matches!(self, Self::RateLimit { .. } | Self::Network(_))
+    }
+}
+
 /// Errors from session storage operations.
 #[derive(Debug, thiserror::Error)]
 pub enum StorageError {
@@ -182,19 +222,6 @@ pub enum StorageError {
     Other(Box<dyn std::error::Error + Send + Sync>),
 }
 
-/// Errors from sub-agent operations.
-#[derive(Debug, thiserror::Error)]
-pub enum SubAgentError {
-    /// Sub-agent not found by name.
-    #[error("sub-agent not found: {0}")]
-    NotFound(String),
-    /// Maximum nesting depth exceeded.
-    #[error("max depth exceeded: {0}")]
-    MaxDepthExceeded(usize),
-    /// The sub-agent's loop failed.
-    #[error("loop error: {0}")]
-    Loop(#[from] LoopError),
-}
 
 /// Errors from sandbox operations.
 #[derive(Debug, thiserror::Error)]

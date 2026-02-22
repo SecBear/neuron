@@ -51,6 +51,7 @@ async fn mock_provider_complete() {
         thinking: None,
         reasoning_effort: None,
         extra: None,
+        context_management: None,
     };
     let response = provider.complete(request).await.unwrap();
     assert_eq!(response.id, "mock_1");
@@ -74,6 +75,7 @@ async fn mock_provider_stream_returns_error() {
         thinking: None,
         reasoning_effort: None,
         extra: None,
+        context_management: None,
     };
     let err = provider.complete_stream(request).await.unwrap_err();
     assert!(err.to_string().contains("streaming not implemented"));

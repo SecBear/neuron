@@ -227,6 +227,11 @@ impl<P: Provider, C: ContextStrategy> AgentLoop<P, C> {
         let mut turns: usize = 0;
 
         loop {
+            // Check cancellation
+            if tool_ctx.cancellation_token.is_cancelled() {
+                return Err(LoopError::Cancelled);
+            }
+
             // Check max turns
             if let Some(max) = self.config.max_turns
                 && turns >= max
@@ -262,15 +267,7 @@ impl<P: Provider, C: ContextStrategy> AgentLoop<P, C> {
                 messages: self.messages.clone(),
                 system: Some(self.config.system_prompt.clone()),
                 tools: self.tools.definitions(),
-                max_tokens: None,
-                temperature: None,
-                top_p: None,
-                stop_sequences: vec![],
-                tool_choice: None,
-                response_format: None,
-                thinking: None,
-                reasoning_effort: None,
-                extra: None,
+                ..Default::default()
             };
 
             // Fire PreLlmCall hooks
@@ -324,6 +321,12 @@ impl<P: Provider, C: ContextStrategy> AgentLoop<P, C> {
             // Append assistant message to conversation
             self.messages.push(response.message.clone());
 
+            // Server-side compaction: the provider paused to compact context.
+            // Continue the loop so the next iteration picks up the compacted state.
+            if response.stop_reason == StopReason::Compaction {
+                continue;
+            }
+
             if tool_calls.is_empty() || response.stop_reason == StopReason::EndTurn {
                 // No tool calls — extract text and return
                 let response_text = extract_text(&response.message);
@@ -335,61 +338,25 @@ impl<P: Provider, C: ContextStrategy> AgentLoop<P, C> {
                 });
             }
 
-            // Execute tool calls and collect results
-            let mut tool_result_blocks = Vec::new();
-            for (call_id, tool_name, input) in &tool_calls {
-                // Fire PreToolExecution hooks
-                if let Some(action) =
-                    fire_pre_tool_hooks(&self.hooks, tool_name, input).await?
-                {
-                    match action {
-                        HookAction::Terminate { reason } => {
-                            return Err(LoopError::HookTerminated(reason));
-                        }
-                        HookAction::Skip { reason } => {
-                            // Skip the tool call and return a rejection message
-                            tool_result_blocks.push(ContentBlock::ToolResult {
-                                tool_use_id: call_id.clone(),
-                                content: vec![ContentItem::Text(format!(
-                                    "Tool call skipped: {reason}"
-                                ))],
-                                is_error: true,
-                            });
-                            continue;
-                        }
-                        HookAction::Continue => {}
-                    }
-                }
-
-                // Execute tool (via durability wrapper if present)
-                let result = if let Some(ref durable) = self.durability {
-                    let options = ActivityOptions {
-                        start_to_close_timeout: DEFAULT_ACTIVITY_TIMEOUT,
-                        heartbeat_timeout: None,
-                        retry_policy: None,
-                    };
-                    durable
-                        .0
-                        .erased_execute_tool(tool_name, input.clone(), tool_ctx, options)
-                        .await
-                        .map_err(|e| ToolError::ExecutionFailed(Box::new(e)))?
-                } else {
-                    self.tools.execute(tool_name, input.clone(), tool_ctx).await?
-                };
-
-                // Fire PostToolExecution hooks
-                if let Some(HookAction::Terminate { reason }) =
-                    fire_post_tool_hooks(&self.hooks, tool_name, &result).await?
-                {
-                    return Err(LoopError::HookTerminated(reason));
-                }
-
-                tool_result_blocks.push(ContentBlock::ToolResult {
-                    tool_use_id: call_id.clone(),
-                    content: result.content,
-                    is_error: result.is_error,
-                });
+            // Check cancellation before tool execution
+            if tool_ctx.cancellation_token.is_cancelled() {
+                return Err(LoopError::Cancelled);
             }
+
+            // Execute tool calls and collect results
+            let tool_result_blocks = if self.config.parallel_tool_execution && tool_calls.len() > 1 {
+                let futs = tool_calls.iter().map(|(call_id, tool_name, input)| {
+                    self.execute_single_tool(call_id, tool_name, input, tool_ctx)
+                });
+                let results = futures::future::join_all(futs).await;
+                results.into_iter().collect::<Result<Vec<_>, _>>()?
+            } else {
+                let mut blocks = Vec::new();
+                for (call_id, tool_name, input) in &tool_calls {
+                    blocks.push(self.execute_single_tool(call_id, tool_name, input, tool_ctx).await?);
+                }
+                blocks
+            };
 
             // Append tool results as a user message
             self.messages.push(Message {
@@ -414,6 +381,63 @@ impl<P: Provider, C: ContextStrategy> AgentLoop<P, C> {
             content: vec![ContentBlock::Text(text.to_string())],
         };
         self.run(message, tool_ctx).await
+    }
+
+    /// Execute a single tool call, including pre/post hooks and durability routing.
+    ///
+    /// Returns the tool result as a [`ContentBlock::ToolResult`].
+    pub(crate) async fn execute_single_tool(
+        &self,
+        call_id: &str,
+        tool_name: &str,
+        input: &serde_json::Value,
+        tool_ctx: &ToolContext,
+    ) -> Result<ContentBlock, LoopError> {
+        // Fire PreToolExecution hooks
+        if let Some(action) = fire_pre_tool_hooks(&self.hooks, tool_name, input).await? {
+            match action {
+                HookAction::Terminate { reason } => {
+                    return Err(LoopError::HookTerminated(reason));
+                }
+                HookAction::Skip { reason } => {
+                    return Ok(ContentBlock::ToolResult {
+                        tool_use_id: call_id.to_string(),
+                        content: vec![ContentItem::Text(format!("Tool call skipped: {reason}"))],
+                        is_error: true,
+                    });
+                }
+                HookAction::Continue => {}
+            }
+        }
+
+        // Execute tool (via durability wrapper if present)
+        let result = if let Some(ref durable) = self.durability {
+            let options = ActivityOptions {
+                start_to_close_timeout: DEFAULT_ACTIVITY_TIMEOUT,
+                heartbeat_timeout: None,
+                retry_policy: None,
+            };
+            durable
+                .0
+                .erased_execute_tool(tool_name, input.clone(), tool_ctx, options)
+                .await
+                .map_err(|e| ToolError::ExecutionFailed(Box::new(e)))?
+        } else {
+            self.tools.execute(tool_name, input.clone(), tool_ctx).await?
+        };
+
+        // Fire PostToolExecution hooks
+        if let Some(HookAction::Terminate { reason }) =
+            fire_post_tool_hooks(&self.hooks, tool_name, &result).await?
+        {
+            return Err(LoopError::HookTerminated(reason));
+        }
+
+        Ok(ContentBlock::ToolResult {
+            tool_use_id: call_id.to_string(),
+            content: result.content,
+            is_error: result.is_error,
+        })
     }
 
     /// Create a builder with the required provider and context strategy.

@@ -38,6 +38,7 @@ impl MockProvider {
                 cache_read_tokens: None,
                 cache_creation_tokens: None,
                 reasoning_tokens: None,
+                iterations: None,
             },
             model: "mock".to_string(),
             id: "mock-1".to_string(),
@@ -65,6 +66,7 @@ impl MockProvider {
                 cache_read_tokens: None,
                 cache_creation_tokens: None,
                 reasoning_tokens: None,
+                iterations: None,
             },
             model: "mock".to_string(),
             id: "mock-2".to_string(),
@@ -290,6 +292,7 @@ fn prelude_types_accessible() {
         cache_read_tokens: None,
         cache_creation_tokens: None,
         reasoning_tokens: None,
+        iterations: None,
     };
 
     let _config = LoopConfig::default();

@@ -58,6 +58,32 @@ impl OpenAi {
         }
     }
 
+    /// Create a client from the `OPENAI_API_KEY` environment variable.
+    ///
+    /// Returns `ProviderError::Authentication` if the variable is not set.
+    /// Also reads `OPENAI_ORG_ID` if present.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use neuron_provider_openai::OpenAi;
+    ///
+    /// let client = OpenAi::from_env()
+    ///     .expect("OPENAI_API_KEY must be set");
+    /// ```
+    pub fn from_env() -> Result<Self, ProviderError> {
+        let api_key = std::env::var("OPENAI_API_KEY").map_err(|_| {
+            ProviderError::Authentication(
+                "OPENAI_API_KEY environment variable not set".into(),
+            )
+        })?;
+        let mut client = Self::new(api_key);
+        if let Ok(org) = std::env::var("OPENAI_ORG_ID") {
+            client = client.organization(org);
+        }
+        Ok(client)
+    }
+
     /// Override the default model.
     ///
     /// This is used when [`CompletionRequest::model`] is empty.

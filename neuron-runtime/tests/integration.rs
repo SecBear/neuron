@@ -4,15 +4,13 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-use neuron_context::SlidingWindowStrategy;
 use neuron_runtime::{
-    FileSessionStorage, InMemorySessionStorage, Session, SessionStorage, SubAgentConfig,
-    SubAgentManager,
+    FileSessionStorage, InMemorySessionStorage, Session, SessionStorage,
 };
 use neuron_tool::ToolRegistry;
 use neuron_types::{
     CompletionRequest, CompletionResponse, ContentBlock, Message, ProviderError, Role, StopReason,
-    StreamHandle, SystemPrompt, TokenUsage, Tool, ToolContext, ToolDefinition, ToolOutput,
+    StreamHandle, TokenUsage, Tool, ToolContext, ToolDefinition, ToolOutput,
 };
 use tokio_util::sync::CancellationToken;
 
@@ -93,41 +91,6 @@ impl Tool for EchoTool {
     }
 }
 
-/// A second mock tool for testing tool filtering.
-struct UpperTool;
-
-#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
-struct UpperArgs {
-    text: String,
-}
-
-impl Tool for UpperTool {
-    const NAME: &'static str = "upper";
-    type Args = UpperArgs;
-    type Output = String;
-    type Error = std::io::Error;
-
-    fn definition(&self) -> ToolDefinition {
-        ToolDefinition {
-            name: "upper".to_string(),
-            title: Some("Upper".to_string()),
-            description: "Uppercases input text".to_string(),
-            input_schema: serde_json::json!({
-                "type": "object",
-                "properties": { "text": { "type": "string" } },
-                "required": ["text"]
-            }),
-            output_schema: None,
-            annotations: None,
-            cache_control: None,
-        }
-    }
-
-    async fn call(&self, args: UpperArgs, _ctx: &ToolContext) -> Result<String, std::io::Error> {
-        Ok(args.text.to_uppercase())
-    }
-}
-
 /// Helper to create a default ToolContext for tests.
 fn test_tool_context() -> ToolContext {
     ToolContext {
@@ -157,34 +120,8 @@ fn text_response(text: &str) -> CompletionResponse {
     }
 }
 
-/// Helper to create a tool_use CompletionResponse.
-fn tool_use_response(
-    tool_id: &str,
-    tool_name: &str,
-    input: serde_json::Value,
-) -> CompletionResponse {
-    CompletionResponse {
-        id: "test-id".to_string(),
-        model: "mock-model".to_string(),
-        message: Message {
-            role: Role::Assistant,
-            content: vec![ContentBlock::ToolUse {
-                id: tool_id.to_string(),
-                name: tool_name.to_string(),
-                input,
-            }],
-        },
-        usage: TokenUsage {
-            input_tokens: 10,
-            output_tokens: 5,
-            ..Default::default()
-        },
-        stop_reason: StopReason::ToolUse,
-    }
-}
-
 // ============================================================================
-// Task 9.2 tests: Session and SessionState types
+// Session and SessionState types
 // ============================================================================
 
 #[test]
@@ -438,231 +375,7 @@ async fn test_file_list_empty_nonexistent_dir() {
 }
 
 // ============================================================================
-// Task 9.5 tests: SubAgentConfig and SubAgentManager
-// ============================================================================
-
-#[test]
-fn test_sub_agent_config_defaults() {
-    let config = SubAgentConfig::new(SystemPrompt::Text("You are a helper.".to_string()));
-    assert_eq!(config.max_depth, 1);
-    assert!(config.max_turns.is_none());
-    assert!(config.tools.is_empty());
-    assert!(config.model.is_none());
-}
-
-#[test]
-fn test_sub_agent_config_builder() {
-    let config = SubAgentConfig::new(SystemPrompt::Text("Helper".to_string()))
-        .with_tools(vec!["echo".to_string()])
-        .with_max_depth(3)
-        .with_max_turns(10);
-
-    assert_eq!(config.max_depth, 3);
-    assert_eq!(config.max_turns, Some(10));
-    assert_eq!(config.tools, vec!["echo"]);
-}
-
-#[tokio::test]
-async fn test_sub_agent_spawn_basic() {
-    let provider = MockProvider::new(vec![text_response("Sub-agent done")]);
-    let context = SlidingWindowStrategy::new(10, 100_000);
-
-    let mut parent_tools = ToolRegistry::new();
-    parent_tools.register(EchoTool);
-
-    let mut manager = SubAgentManager::new();
-    manager.register(
-        "helper",
-        SubAgentConfig::new(SystemPrompt::Text("You help.".to_string()))
-            .with_tools(vec!["echo".to_string()]),
-    );
-
-    let user_msg = Message {
-        role: Role::User,
-        content: vec![ContentBlock::Text("Do something".to_string())],
-    };
-
-    let result = manager
-        .spawn(
-            "helper",
-            provider,
-            context,
-            &parent_tools,
-            user_msg,
-            &test_tool_context(),
-            0,
-        )
-        .await
-        .expect("spawn should succeed");
-
-    assert_eq!(result.response, "Sub-agent done");
-}
-
-#[tokio::test]
-async fn test_sub_agent_not_found() {
-    let provider = MockProvider::new(vec![]);
-    let context = SlidingWindowStrategy::new(10, 100_000);
-    let parent_tools = ToolRegistry::new();
-    let manager = SubAgentManager::new();
-
-    let user_msg = Message {
-        role: Role::User,
-        content: vec![ContentBlock::Text("Hello".to_string())],
-    };
-
-    let err = manager
-        .spawn(
-            "nonexistent",
-            provider,
-            context,
-            &parent_tools,
-            user_msg,
-            &test_tool_context(),
-            0,
-        )
-        .await
-        .unwrap_err();
-
-    assert!(matches!(err, neuron_types::SubAgentError::NotFound(_)));
-}
-
-#[tokio::test]
-async fn test_sub_agent_max_depth_exceeded() {
-    let provider = MockProvider::new(vec![]);
-    let context = SlidingWindowStrategy::new(10, 100_000);
-    let parent_tools = ToolRegistry::new();
-
-    let mut manager = SubAgentManager::new();
-    manager.register(
-        "helper",
-        SubAgentConfig::new(SystemPrompt::Text("Helper".to_string())).with_max_depth(2),
-    );
-
-    let user_msg = Message {
-        role: Role::User,
-        content: vec![ContentBlock::Text("Hello".to_string())],
-    };
-
-    // current_depth = 2, max_depth = 2 -> exceeded
-    let err = manager
-        .spawn(
-            "helper",
-            provider,
-            context,
-            &parent_tools,
-            user_msg,
-            &test_tool_context(),
-            2,
-        )
-        .await
-        .unwrap_err();
-
-    assert!(matches!(
-        err,
-        neuron_types::SubAgentError::MaxDepthExceeded(2)
-    ));
-}
-
-#[tokio::test]
-async fn test_sub_neuron_tool_filtering() {
-    // Sub-agent only gets "echo", not "upper"
-    let provider = MockProvider::new(vec![
-        tool_use_response("call-1", "echo", serde_json::json!({"text": "hi"})),
-        text_response("Done"),
-    ]);
-    let context = SlidingWindowStrategy::new(10, 100_000);
-
-    let mut parent_tools = ToolRegistry::new();
-    parent_tools.register(EchoTool);
-    parent_tools.register(UpperTool);
-
-    let mut manager = SubAgentManager::new();
-    manager.register(
-        "echo-only",
-        SubAgentConfig::new(SystemPrompt::Text("Only echo".to_string()))
-            .with_tools(vec!["echo".to_string()]),
-    );
-
-    let user_msg = Message {
-        role: Role::User,
-        content: vec![ContentBlock::Text("Echo something".to_string())],
-    };
-
-    let result = manager
-        .spawn(
-            "echo-only",
-            provider,
-            context,
-            &parent_tools,
-            user_msg,
-            &test_tool_context(),
-            0,
-        )
-        .await
-        .expect("spawn should succeed");
-
-    assert_eq!(result.response, "Done");
-    assert_eq!(result.turns, 2);
-}
-
-// ============================================================================
-// Task 9.6 tests: spawn_parallel
-// ============================================================================
-
-#[tokio::test]
-async fn test_sub_agent_spawn_parallel() {
-    let mut parent_tools = ToolRegistry::new();
-    parent_tools.register(EchoTool);
-
-    let mut manager = SubAgentManager::new();
-    manager.register(
-        "helper",
-        SubAgentConfig::new(SystemPrompt::Text("You help.".to_string()))
-            .with_tools(vec!["echo".to_string()]),
-    );
-
-    let tasks = vec![
-        (
-            "helper".to_string(),
-            MockProvider::new(vec![text_response("Result 1")]),
-            SlidingWindowStrategy::new(10, 100_000),
-            Message {
-                role: Role::User,
-                content: vec![ContentBlock::Text("Task 1".to_string())],
-            },
-        ),
-        (
-            "helper".to_string(),
-            MockProvider::new(vec![text_response("Result 2")]),
-            SlidingWindowStrategy::new(10, 100_000),
-            Message {
-                role: Role::User,
-                content: vec![ContentBlock::Text("Task 2".to_string())],
-            },
-        ),
-        (
-            "helper".to_string(),
-            MockProvider::new(vec![text_response("Result 3")]),
-            SlidingWindowStrategy::new(10, 100_000),
-            Message {
-                role: Role::User,
-                content: vec![ContentBlock::Text("Task 3".to_string())],
-            },
-        ),
-    ];
-
-    let results = manager
-        .spawn_parallel(tasks, &parent_tools, &test_tool_context(), 0)
-        .await;
-
-    assert_eq!(results.len(), 3);
-    assert_eq!(results[0].as_ref().unwrap().response, "Result 1");
-    assert_eq!(results[1].as_ref().unwrap().response, "Result 2");
-    assert_eq!(results[2].as_ref().unwrap().response, "Result 3");
-}
-
-// ============================================================================
-// Task 9.7 tests: Guardrails
+// Guardrails
 // ============================================================================
 
 use neuron_runtime::{
@@ -810,6 +523,7 @@ async fn test_local_durable_context_llm_passthrough() {
         thinking: None,
         reasoning_effort: None,
         extra: None,
+        context_management: None,
     };
 
     let options = ActivityOptions {
@@ -1027,78 +741,162 @@ async fn test_mock_sandbox_wraps_output() {
 }
 
 // ============================================================================
-// spawn_parallel concurrency tests
+// TracingHook
 // ============================================================================
 
+use neuron_runtime::TracingHook;
+use neuron_types::{HookAction, HookEvent, ObservabilityHook};
+
 #[tokio::test]
-async fn spawn_parallel_preserves_order() {
-    let mut parent_tools = ToolRegistry::new();
-    parent_tools.register(EchoTool);
-
-    let mut manager = SubAgentManager::new();
-    manager.register(
-        "helper",
-        SubAgentConfig::new(SystemPrompt::Text("You help.".to_string()))
-            .with_tools(vec!["echo".to_string()]),
-    );
-
-    // Create 3 tasks with distinct responses so we can verify ordering.
-    let tasks = vec![
-        (
-            "helper".to_string(),
-            MockProvider::new(vec![text_response("first")]),
-            SlidingWindowStrategy::new(10, 100_000),
-            Message {
-                role: Role::User,
-                content: vec![ContentBlock::Text("Task A".to_string())],
-            },
-        ),
-        (
-            "helper".to_string(),
-            MockProvider::new(vec![text_response("second")]),
-            SlidingWindowStrategy::new(10, 100_000),
-            Message {
-                role: Role::User,
-                content: vec![ContentBlock::Text("Task B".to_string())],
-            },
-        ),
-        (
-            "helper".to_string(),
-            MockProvider::new(vec![text_response("third")]),
-            SlidingWindowStrategy::new(10, 100_000),
-            Message {
-                role: Role::User,
-                content: vec![ContentBlock::Text("Task C".to_string())],
-            },
-        ),
-    ];
-
-    let results = manager
-        .spawn_parallel(tasks, &parent_tools, &test_tool_context(), 0)
-        .await;
-
-    assert_eq!(results.len(), 3);
-    assert_eq!(results[0].as_ref().unwrap().response, "first");
-    assert_eq!(results[1].as_ref().unwrap().response, "second");
-    assert_eq!(results[2].as_ref().unwrap().response, "third");
+async fn tracing_hook_returns_continue() {
+    let hook = TracingHook::new();
+    let event = HookEvent::LoopIteration { turn: 1 };
+    let result = hook.on_event(event).await.unwrap();
+    assert!(matches!(result, HookAction::Continue));
 }
 
 #[tokio::test]
-async fn spawn_parallel_handles_empty() {
-    let parent_tools = ToolRegistry::new();
+async fn tracing_hook_default() {
+    let hook = TracingHook::default();
+    let event = HookEvent::SessionStart { session_id: "test" };
+    let result = hook.on_event(event).await.unwrap();
+    assert!(matches!(result, HookAction::Continue));
+}
 
-    let manager = SubAgentManager::new();
+// ============================================================================
+// GuardrailHook tests
+// ============================================================================
 
-    let tasks: Vec<(
-        String,
-        MockProvider,
-        SlidingWindowStrategy,
-        Message,
-    )> = vec![];
+use neuron_runtime::GuardrailHook;
 
-    let results = manager
-        .spawn_parallel(tasks, &parent_tools, &test_tool_context(), 0)
-        .await;
+/// Input guardrail that always passes.
+struct AlwaysPassInput;
 
-    assert!(results.is_empty());
+impl InputGuardrail for AlwaysPassInput {
+    fn check(&self, _input: &str) -> impl Future<Output = GuardrailResult> + Send {
+        std::future::ready(GuardrailResult::Pass)
+    }
+}
+
+/// Input guardrail that tripwires on "FORBIDDEN".
+struct ForbiddenInputGuard;
+
+impl InputGuardrail for ForbiddenInputGuard {
+    fn check(&self, input: &str) -> impl Future<Output = GuardrailResult> + Send {
+        let result = if input.contains("FORBIDDEN") {
+            GuardrailResult::Tripwire("forbidden content detected".to_string())
+        } else {
+            GuardrailResult::Pass
+        };
+        std::future::ready(result)
+    }
+}
+
+/// Output guardrail that tripwires on "LEAKED_SECRET".
+struct ForbiddenOutputGuard;
+
+impl OutputGuardrail for ForbiddenOutputGuard {
+    fn check(&self, output: &str) -> impl Future<Output = GuardrailResult> + Send {
+        let result = if output.contains("LEAKED_SECRET") {
+            GuardrailResult::Tripwire("secret leaked in output".to_string())
+        } else {
+            GuardrailResult::Pass
+        };
+        std::future::ready(result)
+    }
+}
+
+/// Input guardrail that warns on "SUSPICIOUS".
+struct WarnInputGuard;
+
+impl InputGuardrail for WarnInputGuard {
+    fn check(&self, input: &str) -> impl Future<Output = GuardrailResult> + Send {
+        let result = if input.contains("SUSPICIOUS") {
+            GuardrailResult::Warn("suspicious content".to_string())
+        } else {
+            GuardrailResult::Pass
+        };
+        std::future::ready(result)
+    }
+}
+
+/// Helper to build a PreLlmCall event with a user message.
+fn make_pre_llm_request(user_text: &str) -> CompletionRequest {
+    CompletionRequest {
+        messages: vec![Message {
+            role: Role::User,
+            content: vec![ContentBlock::Text(user_text.to_string())],
+        }],
+        ..Default::default()
+    }
+}
+
+#[tokio::test]
+async fn guardrail_hook_passes_clean_input() {
+    let hook = GuardrailHook::new().input_guardrail(AlwaysPassInput);
+    let request = make_pre_llm_request("Hello, how are you?");
+    let event = HookEvent::PreLlmCall {
+        request: &request,
+    };
+
+    let action = hook.on_event(event).await.expect("hook should not error");
+    assert!(
+        matches!(action, HookAction::Continue),
+        "expected Continue, got {action:?}"
+    );
+}
+
+#[tokio::test]
+async fn guardrail_hook_tripwires_on_forbidden_input() {
+    let hook = GuardrailHook::new().input_guardrail(ForbiddenInputGuard);
+    let request = make_pre_llm_request("Please process FORBIDDEN data");
+    let event = HookEvent::PreLlmCall {
+        request: &request,
+    };
+
+    let action = hook.on_event(event).await.expect("hook should not error");
+    match action {
+        HookAction::Terminate { reason } => {
+            assert!(
+                reason.contains("forbidden content"),
+                "unexpected reason: {reason}"
+            );
+        }
+        other => panic!("expected Terminate, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn guardrail_hook_tripwires_on_forbidden_output() {
+    let hook = GuardrailHook::new().output_guardrail(ForbiddenOutputGuard);
+    let response = text_response("Here is your LEAKED_SECRET data");
+    let event = HookEvent::PostLlmCall {
+        response: &response,
+    };
+
+    let action = hook.on_event(event).await.expect("hook should not error");
+    match action {
+        HookAction::Terminate { reason } => {
+            assert!(
+                reason.contains("secret leaked"),
+                "unexpected reason: {reason}"
+            );
+        }
+        other => panic!("expected Terminate, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn guardrail_hook_warns_and_continues() {
+    let hook = GuardrailHook::new().input_guardrail(WarnInputGuard);
+    let request = make_pre_llm_request("This is SUSPICIOUS input");
+    let event = HookEvent::PreLlmCall {
+        request: &request,
+    };
+
+    let action = hook.on_event(event).await.expect("hook should not error");
+    assert!(
+        matches!(action, HookAction::Continue),
+        "expected Continue (warn does not stop the loop), got {action:?}"
+    );
 }

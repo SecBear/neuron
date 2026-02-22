@@ -11,22 +11,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let provider = Ollama::new();
 
     let request = CompletionRequest {
-        model: String::new(), // use default (llama3.2)
         messages: vec![Message {
             role: Role::User,
             content: vec![ContentBlock::Text("Say hello in one sentence.".into())],
         }],
-        system: None,
-        tools: vec![],
         max_tokens: Some(128),
-        temperature: None,
-        top_p: None,
-        stop_sequences: vec![],
-        tool_choice: None,
-        response_format: None,
-        thinking: None,
-        reasoning_effort: None,
-        extra: None,
+        ..Default::default()
     };
 
     let response = provider.complete(request).await?;

@@ -249,6 +249,7 @@ impl SseParserState {
                 reasoning_tokens: usage_val["completion_tokens_details"]["reasoning_tokens"]
                     .as_u64()
                     .map(|n| n as usize),
+                iterations: None,
             };
             self.usage = Some(usage.clone());
             events.push(StreamEvent::Usage(usage));

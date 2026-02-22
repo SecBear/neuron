@@ -57,6 +57,27 @@ impl Ollama {
         }
     }
 
+    /// Create a client from environment variables.
+    ///
+    /// Reads `OLLAMA_HOST` for the base URL if set (e.g. `http://remote:11434`).
+    /// Always succeeds -- Ollama requires no authentication.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use neuron_provider_ollama::Ollama;
+    ///
+    /// let client = Ollama::from_env()
+    ///     .expect("always succeeds");
+    /// ```
+    pub fn from_env() -> Result<Self, ProviderError> {
+        let mut client = Self::new();
+        if let Ok(host) = std::env::var("OLLAMA_HOST") {
+            client = client.base_url(host);
+        }
+        Ok(client)
+    }
+
     /// Override the default model.
     ///
     /// This is used when [`CompletionRequest::model`] is empty.
