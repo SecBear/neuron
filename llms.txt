@@ -126,6 +126,12 @@ Most decomposed Rust agent framework (agent, model, tool, runner, graph, session
 - [Anthropic provider](https://github.com/secbear/neuron/blob/main/neuron-provider-anthropic/examples/basic.rs): Direct provider usage
 - [OpenAI provider](https://github.com/secbear/neuron/blob/main/neuron-provider-openai/examples/basic.rs): Direct provider usage
 - [Ollama provider](https://github.com/secbear/neuron/blob/main/neuron-provider-ollama/examples/basic.rs): Direct provider usage
+- [Derive tool macro](https://github.com/secbear/neuron/blob/main/neuron-tool/examples/derive_tool.rs): `#[neuron_tool]` proc-macro with custom types and registry
+- [Embeddings](https://github.com/secbear/neuron/blob/main/neuron-provider-openai/examples/embeddings.rs): EmbeddingProvider with OpenAI, cosine similarity
+- [Cancellation](https://github.com/secbear/neuron/blob/main/neuron-loop/examples/cancellation.rs): CancellationToken stops the agent loop cooperatively
+- [Parallel tools](https://github.com/secbear/neuron/blob/main/neuron-loop/examples/parallel_tools.rs): Concurrent tool execution via join_all
+- [Full production](https://github.com/secbear/neuron/blob/main/neuron-runtime/examples/full_production.rs): Sessions + guardrails + TracingHook composed
+- [Testing agents](https://github.com/secbear/neuron/blob/main/neuron/examples/testing_agents.rs): Mock provider patterns for unit testing agents
 
 ## Requirements
 
@@ -133,6 +139,8 @@ Rust 1.90+ (edition 2024, native async traits). WASM-compatible via WasmCompatSe
 
 ## Links
 
+- [Documentation](https://secbear.github.io/neuron/): Guides, architecture, and reference (mdBook)
 - [Source code](https://github.com/secbear/neuron)
+- [API reference](https://docs.rs/neuron): docs.rs auto-generated API docs
 - [Roadmap](https://github.com/secbear/neuron/blob/main/ROADMAP.md): Now (v0.1), Next (v0.2), Later, and explicit non-goals
 - [Architecture & design decisions](https://github.com/secbear/neuron/blob/main/CLAUDE.md): Internal design guide for contributors
