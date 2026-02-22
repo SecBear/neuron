@@ -6,7 +6,7 @@ The fastest way to get started is the `neuron` umbrella crate with feature flags
 
 ```toml
 [dependencies]
-neuron = { version = "0.1", features = ["anthropic"] }
+neuron = { features = ["anthropic"] }
 ```
 
 Or install via cargo:
@@ -33,10 +33,10 @@ control over dependencies:
 
 ```toml
 [dependencies]
-neuron-types = "0.1"
-neuron-provider-openai = "0.1"
-neuron-tool = "0.1"
-neuron-loop = "0.1"
+neuron-types = "*"
+neuron-provider-openai = "*"
+neuron-tool = "*"
+neuron-loop = "*"
 ```
 
 This pulls in only what you need — no transitive dependency on providers you

@@ -5,22 +5,9 @@ process for contributing and the standards we maintain.
 
 ## Project overview
 
-neuron is a Rust workspace of 11 independent crates that provide building blocks
+neuron is a Rust workspace of independent crates that provide building blocks
 for AI agent construction. Each crate is versioned and published separately.
-
-The crates are:
-
-- `neuron` -- umbrella re-export crate
-- `neuron-types` -- shared types and traits (zero deps foundation)
-- `neuron-tool` -- tool registry, middleware, type erasure
-- `neuron-tool-macros` -- procedural macros for tool derivation
-- `neuron-context` -- context management and compaction strategies
-- `neuron-loop` -- the commodity agent loop
-- `neuron-provider-anthropic` -- Anthropic Claude provider
-- `neuron-provider-openai` -- OpenAI provider
-- `neuron-provider-ollama` -- Ollama local model provider
-- `neuron-mcp` -- Model Context Protocol integration (wraps rmcp)
-- `neuron-runtime` -- sessions, durability, guardrails, observability
+See the root `Cargo.toml` for the full list of workspace members.
 
 ## Getting started
 

@@ -2,7 +2,7 @@
 
 > Composable building blocks for AI agents in Rust. Independent crates, not a framework — pull one block without buying the whole stack.
 
-neuron is a workspace of 11 independent Rust crates that provide the foundation layer for building AI agent applications. Each crate is versioned and published separately. Blocks compose through traits defined in neuron-types; no block knows about any other block — only the traits it depends on.
+neuron is a workspace of independent Rust crates that provide the foundation layer for building AI agent applications. Each crate is versioned and published separately. Blocks compose through traits defined in neuron-types; no block knows about any other block — only the traits it depends on.
 
 ## Why neuron?
 
@@ -56,7 +56,7 @@ neuron-types                    (zero deps, the foundation)
 
 ## Features
 
-- **3 LLM providers** — Anthropic, OpenAI, Ollama, each in its own crate with `from_env()` convenience constructors
+- **LLM providers** — Anthropic, OpenAI, Ollama, each in its own crate with `from_env()` convenience constructors
 - **Tool system** — `ToolRegistry`, `#[neuron_tool]` derive macro, composable middleware pipeline (axum's `from_fn` pattern)
 - **Context management** — 4 compaction strategies, token counting, persistent context, system prompt injection
 - **Agent loop** — configurable `AgentLoop` with streaming, max turns, tool dispatch, cancellation via `CancellationToken`, parallel tool execution
@@ -142,5 +142,5 @@ Rust 1.90+ (edition 2024, native async traits). WASM-compatible via WasmCompatSe
 - [Documentation](https://secbear.github.io/neuron/): Guides, architecture, and reference (mdBook)
 - [Source code](https://github.com/secbear/neuron)
 - [API reference](https://docs.rs/neuron): docs.rs auto-generated API docs
-- [Roadmap](https://github.com/secbear/neuron/blob/main/ROADMAP.md): Now (v0.1), Next (v0.2), Later, and explicit non-goals
+- [Roadmap](https://github.com/secbear/neuron/blob/main/ROADMAP.md): current work, planned features, and explicit non-goals
 - [Architecture & design decisions](https://github.com/secbear/neuron/blob/main/CLAUDE.md): Internal design guide for contributors

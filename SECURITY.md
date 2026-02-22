@@ -25,8 +25,4 @@ understand and address the issue before any public disclosure.
 
 ## Scope
 
-This policy covers all crates in the neuron workspace:
-
-- neuron-types, neuron-tool, neuron-tool-macros, neuron-context
-- neuron-loop, neuron-provider-anthropic, neuron-provider-openai
-- neuron-provider-ollama, neuron-mcp, neuron-runtime, neuron
+This policy covers all published crates in the neuron workspace.

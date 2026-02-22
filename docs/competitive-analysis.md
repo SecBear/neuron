@@ -1,6 +1,7 @@
 # Competitive Analysis: neuron vs. Rust AI Agent Ecosystem
 
-> Generated February 2026 from source-level analysis of 6 codebases via repomix.
+> Analysis performed February 2026. Competitor metrics are point-in-time snapshots.
+> Generated from source-level analysis of 6 codebases via repomix.
 > Zero bias policy: every claim is backed by grep results against actual code.
 
 ---

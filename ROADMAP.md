@@ -18,11 +18,11 @@ regardless of framework (sessions, guardrails, durability, tools, context, MCP).
 patterns, retry/resilience (use tower or durable engines), or framework-level DX
 (`Agent<Deps, Output>` generics, handoff protocols, testing overrides).
 
-## Now (v0.2)
+## Now
 
-What ships today -- 11 independent crates:
+What ships today:
 
-- **3 LLM providers** -- Anthropic, OpenAI, Ollama, each in its own crate
+- **LLM providers** -- Anthropic, OpenAI, Ollama, each in its own crate
 - **Tool system** -- `ToolRegistry`, `#[neuron_tool]` derive macro, composable middleware pipeline
 - **Context management** -- 4 compaction strategies (sliding window, tool result clearing, LLM-powered summarization, composite), token counting, persistent context, system prompt injection
 - **Agent loop** -- configurable `AgentLoop` with streaming, max turns, tool dispatch
@@ -44,15 +44,15 @@ What ships today -- 11 independent crates:
 - **crates.io categories** -- `categories` in all `Cargo.toml` manifests for better discoverability
 - **docs.rs links** -- `documentation` field in all `Cargo.toml` manifests pointing to docs.rs
 - **GitHub topics** -- repository topics for discoverability (rust, ai, llm, agent, ai-agent, tools, mcp, building-blocks, context-management)
-- **Expanded examples** -- streaming, multi-turn, structured output, multi-provider, context management, model retry, tool middleware, tracing hook, local durable context, derive tool, embeddings, cancellation, parallel tools, full production, testing agents (25 examples total)
-- **Documentation site** -- mdBook on GitHub Pages with getting-started guides, 8 in-depth guides, architecture pages, and error handling reference
+- **Expanded examples** -- streaming, multi-turn, structured output, multi-provider, context management, model retry, tool middleware, tracing hook, local durable context, derive tool, embeddings, cancellation, parallel tools, full production, testing agents
+- **Documentation site** -- mdBook on GitHub Pages with getting-started guides, in-depth guides, architecture pages, and error handling reference
 - **Community files** -- CONTRIBUTING.md, CODE_OF_CONDUCT.md, SECURITY.md, issue templates, PR template
 - **CI hardening** -- GitHub Actions with fmt, clippy, test, doc, MSRV matrix
 - **Property-based tests** -- proptest for serde roundtrips, error classification, token monotonicity, middleware ordering
 - **Criterion benchmarks** -- serialization throughput, token counting, agent loop latency
 - **Fuzz targets** -- cargo-fuzz for all 3 provider response parsers
 
-## Next (v0.2)
+## Next
 
 Near-term planned work:
 
@@ -66,7 +66,6 @@ Community-driven and longer-term:
 - **An SDK layer** -- higher-level composition on neuron building blocks: `Agent<Deps, Output>` typed generics (from Pydantic AI), handoff protocol (from OpenAI Agents SDK), parallel guardrails, sub-agent orchestration. neuron stays as building blocks; an SDK layer is the opinionated framework built on top.
 - **`VectorStore` trait** -- trait in `neuron-types` with reference implementations (in-memory, Qdrant) as separate crates
 - **Token pricing metadata** -- `ProviderPricing` data in `neuron-types` so cost estimation can be done by callers; cost estimation logic belongs in the SDK layer
-- **Dedicated docs site** -- ✅ shipped (mdBook on GitHub Pages)
 
 ## Not Planned
 

@@ -311,3 +311,42 @@ Before completing any PR or commit that touches public API or docs:
 6. Every public item has a doc comment
 7. README code snippets compile (tested via doc tests or manual verification)
 8. mdBook guide pages reflect current API (spot-check changed features)
+9. Run the `doc-audit` skill (`.claude/skills/doc-audit/SKILL.md`) to verify
+   documentation-code consistency
+
+---
+
+## Documentation writing rules
+
+Docs that mention concrete numbers become wrong the moment the project changes.
+Follow these rules to keep documentation accurate without constant maintenance.
+
+### Never hardcode volatile facts
+
+| Instead of | Write |
+|------------|-------|
+| "11 independent crates" | "each crate in the workspace" or "the workspace crates" |
+| "3 LLM providers" | "Anthropic, OpenAI, and Ollama providers" (name them, don't count) |
+| "25 examples total" | "extensive examples" or link to the examples directory |
+| "8 in-depth guides" | "in-depth guides" (the reader can see how many) |
+| "v0.2" in prose | omit the version, or say "the current release" |
+| "0.1" in `cargo add` examples | use the crate name only: `cargo add neuron` |
+| Competitor download counts | qualitative assessment: "well-established" not "280K downloads" |
+| Competitor example/provider counts | "large example set" not "80+ examples" |
+
+### What IS safe to hardcode
+
+- **Crate names** -- `neuron-types`, `neuron-loop`, etc. (renaming is rare and intentional)
+- **Trait names** -- `Provider`, `Tool`, `ContextStrategy` (same reason)
+- **Architecture patterns** -- "arrows point up", "one crate per provider"
+- **MSRV** -- "Rust 1.90+" (this changes rarely and intentionally)
+- **Dependency graph** -- the ASCII art (coupled to Cargo.toml, verified by doc-audit)
+
+### ROADMAP hygiene
+
+- Never mark items with checkboxes or completion markers in the "Later" section
+  -- move shipped items to "Now" instead
+- Section headers should NOT include version numbers ("Now", not "Now (v0.2)")
+  -- versions are in CHANGELOGs, not roadmaps
+- The "Now" section describes what exists today, not what shipped in a specific
+  release

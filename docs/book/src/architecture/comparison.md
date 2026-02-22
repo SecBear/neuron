@@ -20,7 +20,7 @@ its architecture with other popular options in the Rust and Python ecosystems.
 | **Async model** | RPITIT (native, no alloc) | `#[async_trait]` (boxed) | `#[async_trait]` (boxed) | Python async | Python async |
 | **MCP support** | Via `neuron-mcp` (wraps rmcp) | Community | Limited | Built-in | Limited |
 | **Graph/DAG** | Not included (SDK layer) | Not included | LangGraph port | Not included | Not included |
-| **Maturity** | Early (v0.2) | Established | Early | Established | Established |
+| **Maturity** | Early | Established | Early | Established | Established |
 
 ## Detailed comparisons
 

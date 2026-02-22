@@ -17,7 +17,7 @@ independently. That's the gap neuron fills.
 
 ## What's Included
 
-neuron ships 11 independent crates:
+neuron ships the following crates:
 
 | Crate | Purpose |
 |-------|---------|
