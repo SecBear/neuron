@@ -3,9 +3,9 @@
 
 # Exclude patterns
 exclude = [
-    # API endpoints (not documentation)
-    "https://api\\.anthropic\\.com",
-    "https://api\\.openai\\.com",
-    # docs.rs links may 404/429 until crate is published and indexed
-    "https://docs\\.rs/neuron",
+  # API endpoints (not documentation)
+  "https://api\\.anthropic\\.com",
+  "https://api\\.openai\\.com",
+  # docs.rs links may 404/429 until crate is published and indexed
+  "https://docs\\.rs/neuron",
 ]
