@@ -1,17 +1,27 @@
 # neuron-tool
 
+[![crates.io](https://img.shields.io/crates/v/neuron-tool.svg)](https://crates.io/crates/neuron-tool)
+[![docs.rs](https://docs.rs/neuron-tool/badge.svg)](https://docs.rs/neuron-tool)
+[![license](https://img.shields.io/crates/l/neuron-tool.svg)](LICENSE-MIT)
+
 Tool registry and middleware pipeline for the neuron ecosystem. Provides
 `ToolRegistry` for registering, looking up, and executing tools through a
 composable middleware chain. The middleware pattern is identical to axum's
 `from_fn` -- each middleware receives a `Next` that it calls to continue the
 chain or skips to short-circuit.
 
+## Installation
+
+```sh
+cargo add neuron-tool
+```
+
 ## Key Types
 
 - `ToolRegistry` -- stores type-erased `ToolDyn` trait objects, dispatches calls through middleware
 - `ToolMiddleware` -- trait for middleware that wraps tool execution (validate, log, permission check)
 - `ToolCall` -- a tool call in flight: `id`, `name`, and `input` JSON
-- `Next` -- the remaining middleware chain plus the underlying tool; consumed on call
+- `Next` -- the remaining middleware chain plus the underlying tool. Moved (consumed) when called — each middleware must call `next.run()` exactly once or skip it to short-circuit
 - `tool_middleware_fn()` -- creates middleware from a closure (like axum's `from_fn`)
 
 ## Usage
@@ -50,6 +60,20 @@ let output = registry.execute("my_tool", input, &tool_ctx).await?;
 let definitions = registry.definitions();
 ```
 
+### Self-correction with `ModelRetry`
+
+Tools can return `Err(ToolError::ModelRetry(hint))` when the model provides
+invalid input. The agent loop converts the hint into an error tool result so the
+model can retry with adjusted arguments — no hard failure, no manual reprompting:
+
+```rust,ignore
+if !is_valid_country_code(&code) {
+    return Err(ToolError::ModelRetry(format!(
+        "Expected 2-letter ISO code (e.g. \"US\"), got: \"{code}\""
+    )));
+}
+```
+
 Tools are registered as strongly-typed `Tool` impls and automatically erased
 to `ToolDyn` for storage. Pre-erased tools can also be registered via
 `register_dyn()` for tools that arrive as `Arc<dyn ToolDyn>` (e.g., from MCP).
@@ -61,7 +85,7 @@ feature is enabled.
 
 ## Part of neuron
 
-This crate is part of [neuron](https://github.com/empathic-ai/neuron), a
+This crate is part of [neuron](https://github.com/secbear/neuron), a
 composable building-blocks library for AI agents in Rust.
 
 ## License

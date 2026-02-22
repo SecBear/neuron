@@ -1,9 +1,19 @@
 # neuron-mcp
 
+[![crates.io](https://img.shields.io/crates/v/neuron-mcp.svg)](https://crates.io/crates/neuron-mcp)
+[![docs.rs](https://docs.rs/neuron-mcp/badge.svg)](https://docs.rs/neuron-mcp)
+[![license](https://img.shields.io/crates/l/neuron-mcp.svg)](LICENSE-MIT)
+
 Model Context Protocol (MCP) integration for the neuron agent blocks ecosystem.
 Wraps the official Rust MCP SDK (`rmcp`) and bridges MCP tools, resources, and
 prompts into neuron's type system. Provides both client and server
 functionality.
+
+## Installation
+
+```sh
+cargo add neuron-mcp
+```
 
 ## Key Types
 
@@ -63,6 +73,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     Ok(())
 }
+```
+
+### Exposing tools as an MCP server
+
+You can also expose any [`ToolRegistry`](https://docs.rs/neuron-tool/latest/neuron_tool/struct.ToolRegistry.html)
+as an MCP server, so external MCP clients can call your tools:
+
+```rust,ignore
+use neuron_tool::ToolRegistry;
+use neuron_mcp::McpServer;
+
+let mut registry = ToolRegistry::new();
+registry.register(MyTool);
+
+let server = McpServer::new(registry)
+    .with_name("my-agent-tools")
+    .with_instructions("Tools for interacting with the codebase.");
+
+// Blocks until the client disconnects
+server.serve_stdio().await?;
 ```
 
 ## Part of neuron

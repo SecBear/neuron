@@ -1,5 +1,23 @@
 # Roadmap
 
+## Scope Philosophy
+
+neuron is **serde, not serde_json**. It defines traits, provides foundational
+implementations, and gets out of the way. An SDK layer (your framework)
+composes these blocks into opinionated workflows.
+
+**The test:** If removing a feature forces every user to reimplement 200+ lines
+of non-trivial code, it belongs in neuron. If it's 20-50 lines of
+straightforward composition, it belongs in the SDK layer.
+
+**neuron provides:** trait definitions, reference implementations (one or two
+per trait), the commodity agent loop, and infrastructure any agent needs
+regardless of framework (sessions, guardrails, durability, tools, context, MCP).
+
+**neuron does NOT provide:** agent lifecycle management, opinionated composition
+patterns, retry/resilience (use tower or durable engines), or framework-level DX
+(`Agent<Deps, Output>` generics, handoff protocols, testing overrides).
+
 ## Now (v0.1)
 
 What ships today -- 11 independent crates:
@@ -9,28 +27,39 @@ What ships today -- 11 independent crates:
 - **Context management** -- 4 compaction strategies (sliding window, tool result clearing, LLM-powered summarization, composite), token counting, persistent context, system prompt injection
 - **Agent loop** -- configurable `AgentLoop` with streaming, max turns, tool dispatch
 - **MCP** -- full Model Context Protocol: client (stdio + Streamable HTTP), server, `McpToolBridge`
-- **Runtime** -- sessions (`InMemorySessionStorage`, `FileSessionStorage`), sub-agents, input/output guardrails, `PermissionPolicy`, `Sandbox` trait, `DurableContext`
+- **Runtime** -- sessions (`InMemorySessionStorage`, `FileSessionStorage`), input/output guardrails, `PermissionPolicy`, `Sandbox` trait, `DurableContext`
 - **Umbrella crate** -- `neuron` with feature flags for all of the above
+- **`Message::user()`, `::assistant()`, `::system()`** -- convenience constructors for the common case
+- **`impl Default for ToolContext`** -- zero-boilerplate tool context construction
+- **`from_env()` on all providers** -- Anthropic, OpenAI, and Ollama all load credentials from environment variables
+- **Compile-checked trait doc examples** -- `no_run` instead of `ignore` so doc examples are syntax-checked
+- **Server-side context management** -- `ContextManagement` request field, `ContentBlock::Compaction`, `StopReason::Compaction` for Anthropic's server-side compaction API; loop continues automatically on compaction
+- **`ToolError::ModelRetry`** -- self-correction pattern (from Pydantic AI); tools return a hint string converted to an error tool result, letting the model retry with guidance
+- **`EmbeddingProvider` trait** -- new trait in `neuron-types` for embedding models, separate from `Provider`; `EmbeddingRequest`, `EmbeddingResponse`, `EmbeddingUsage` types; OpenAI implementation in `neuron-provider-openai`
+- **`TracingHook`** -- concrete `ObservabilityHook` in `neuron-runtime` using the `tracing` crate; maps all 8 hook events to structured spans; use with `tracing-opentelemetry` for OTel export
+- **`GuardrailHook`** -- `ObservabilityHook` adapter in `neuron-runtime` that wires input/output guardrails into the hook system; builder pattern, Tripwire → Terminate, Warn → log + continue
+- **Cancellation support** -- `CancellationToken` checked at loop top and before each tool execution; `LoopError::Cancelled` variant
+- **Parallel tool execution** -- `parallel_tool_execution` flag on `LoopConfig`; uses `futures::future::join_all` when enabled with multiple tool calls
+- **Per-crate CHANGELOG.md** -- release-please automation with Conventional Commits
+- **crates.io categories** -- `categories` in all `Cargo.toml` manifests for better discoverability
+- **docs.rs links** -- `documentation` field in all `Cargo.toml` manifests pointing to docs.rs
+- **GitHub topics** -- repository topics for discoverability (rust, ai, llm, agent, ai-agent, tools, mcp, building-blocks, context-management)
+- **Expanded examples** -- streaming, multi-turn, structured output, multi-provider, context management, model retry, tool middleware, tracing hook, local durable context
 
 ## Next (v0.2)
 
 Near-term planned work:
 
-- **More providers** -- Gemini, Groq, DeepSeek (these follow the OpenAI Chat Completions format, so the existing OpenAI mapping code can be reused with minimal changes)
-- **`EmbeddingProvider` trait** -- new trait in `neuron-types` for embedding models, separate from `Provider`
-- **OpenTelemetry hook** -- concrete `ObservabilityHook` implementation wrapping the `tracing` + `opentelemetry` crates, following GenAI Semantic Conventions
-- **More examples** -- streaming, multi-turn conversation, structured output, multi-agent orchestration
-- **CHANGELOG.md** -- per-crate changelogs with release-please automation
+_(All items shipped — see Now section)_
 
 ## Later
 
 Community-driven and longer-term:
 
-- **Additional providers** -- Bedrock, Cohere, Mistral, xAI, Together, HuggingFace, and others as independent crates
+- **More providers** -- Gemini, Groq, DeepSeek (OpenAI Chat Completions compat), Bedrock, Cohere, Mistral, xAI, Together, HuggingFace as independent crates
+- **An SDK layer** -- higher-level composition on neuron building blocks: `Agent<Deps, Output>` typed generics (from Pydantic AI), handoff protocol (from OpenAI Agents SDK), parallel guardrails, sub-agent orchestration. neuron stays as building blocks; an SDK layer is the opinionated framework built on top.
 - **`VectorStore` trait** -- trait in `neuron-types` with reference implementations (in-memory, Qdrant) as separate crates
-- **Resilience layer** -- retry with backoff, circuit breaker, rate limiting, provider failover (likely a `neuron-resilience` crate)
-- **Config-driven provider routing** -- YAML/TOML manifests for provider configuration, model mapping, and routing strategies
-- **Cost and usage tracking** -- token pricing metadata, per-request cost estimation
+- **Token pricing metadata** -- `ProviderPricing` data in `neuron-types` so cost estimation can be done by callers; cost estimation logic belongs in the SDK layer
 - **Dedicated docs site** -- beyond docs.rs, a standalone site with guides and tutorials
 
 ## Not Planned
@@ -43,3 +72,6 @@ top if you need them:
 - Built-in RAG pipeline (the `VectorStore` trait will exist, but a full loader-splitter-embedder-retriever chain is out of scope)
 - Workflow or DAG engine (use Temporal, Restate, or a dedicated orchestrator)
 - Graph orchestrator (not our concern)
+- **Retry/resilience middleware** -- use tower middleware or your durable engine's retry policy; neuron exposes `ProviderError::is_retryable()` and `DurableContext` with `RetryPolicy` for durable engines
+- **Config-driven provider routing** -- YAML/TOML manifests for provider selection and model mapping are opinionated composition that belongs in application code or the SDK layer
+- **Sub-agent orchestration registry** -- `SubAgentManager` is moving to an SDK layer; compose sub-agents directly with `AgentLoop` + `ToolRegistry`

@@ -1,5 +1,9 @@
 # neuron
 
+[![crates.io](https://img.shields.io/crates/v/neuron.svg)](https://crates.io/crates/neuron)
+[![docs.rs](https://docs.rs/neuron/badge.svg)](https://docs.rs/neuron)
+[![license](https://img.shields.io/crates/l/neuron.svg)](LICENSE-MIT)
+
 Composable building blocks for AI agents in Rust.
 
 Building blocks, not a framework. Each block is an independent Rust crate — pull
@@ -19,24 +23,20 @@ neuron is none of those.
 
 ## Quick Start
 
-```rust
+```rust,no_run
 use neuron::prelude::*;
 use neuron::anthropic::Anthropic;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let provider = Anthropic::new("your-api-key").model("claude-sonnet-4-20250514");
+    let provider = Anthropic::from_env()?;
     let context = SlidingWindowStrategy::new(10, 100_000);
-    let tools = ToolRegistry::new();
 
     let mut agent = AgentLoop::builder(provider, context)
         .system_prompt("You are a helpful assistant.")
-        .max_turns(10)
-        .tools(tools)
         .build();
 
-    let ctx = ToolContext::default();
-    let result = agent.run_text("Hello!", &ctx).await?;
+    let result = agent.run_text("Hello!", &ToolContext::default()).await?;
     println!("{}", result.response);
     Ok(())
 }
@@ -46,16 +46,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 | Crate                       | Description                                                   |
 | --------------------------- | ------------------------------------------------------------- |
-| `neuron-types`              | Shared types and traits — the lingua franca of all blocks     |
-| `neuron-tool`               | Tool registry, middleware pipeline, and built-in middleware   |
-| `neuron-tool-macros`        | `#[neuron_tool]` proc macro for deriving Tool implementations |
-| `neuron-context`            | Context management — token counting, compaction strategies    |
-| `neuron-loop`               | The agentic while loop — composes provider + tools + context  |
-| `neuron-provider-anthropic` | Anthropic Claude provider (Messages API, streaming)           |
-| `neuron-provider-openai`    | OpenAI provider (Chat Completions API, streaming)             |
-| `neuron-provider-ollama`    | Ollama local provider (Chat API, NDJSON streaming)            |
-| `neuron-mcp`                | MCP (Model Context Protocol) integration via rmcp             |
-| `neuron-runtime`            | Sessions, sub-agents, guardrails, durability, sandboxing      |
+| `neuron-types`              | Core traits for AI agents — Provider, Tool, ContextStrategy   |
+| `neuron-tool`               | Tool registry with composable middleware pipeline             |
+| `neuron-tool-macros`        | Derive macro for LLM tool definitions from Rust structs       |
+| `neuron-context`            | LLM context management — sliding window, token counting, compaction |
+| `neuron-loop`               | Agentic loop — multi-turn tool dispatch, streaming, conversation management |
+| `neuron-provider-anthropic` | Anthropic Claude — Messages API, streaming, prompt caching    |
+| `neuron-provider-openai`    | OpenAI — Chat Completions API, streaming, OpenAI-compatible endpoints |
+| `neuron-provider-ollama`    | Ollama — local LLM inference with NDJSON streaming            |
+| `neuron-mcp`                | MCP client and server — stdio, HTTP, tool bridging            |
+| `neuron-runtime`            | Sessions, sub-agents, guardrails, durable execution           |
 | `neuron`                    | Umbrella crate with feature flags                             |
 
 ## Feature Flags (neuron)

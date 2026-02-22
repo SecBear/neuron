@@ -1,18 +1,22 @@
 # neuron-provider-openai
 
 OpenAI provider for the neuron agent blocks ecosystem. Implements the `Provider`
-trait from `neuron-types` against the OpenAI Chat Completions API, supporting
-both synchronous completions and server-sent event (SSE) streaming.
+and `EmbeddingProvider` traits from `neuron-types` against the OpenAI Chat
+Completions and Embeddings APIs, supporting synchronous completions, server-sent
+event (SSE) streaming, and text embeddings.
 
-The default model is `gpt-4o`. The default base URL is `https://api.openai.com`.
-Both can be overridden with the builder API. The `base_url` override also makes
+The default completion model is `gpt-4o`. The default embedding model is
+`text-embedding-3-small`. The default base URL is `https://api.openai.com`.
+All can be overridden with the builder API. The `base_url` override also makes
 this client usable with Azure OpenAI and compatible third-party endpoints.
 
 ## Key Types
 
 - `OpenAi` -- client struct with builder methods (`new`, `model`, `base_url`,
-  `organization`). Implements `Provider` from `neuron-types`.
-- `ProviderError` -- re-exported error type for all provider failures.
+  `organization`). Implements `Provider` and `EmbeddingProvider` from `neuron-types`.
+- `ProviderError` -- re-exported error type for provider failures.
+- `EmbeddingError` -- re-exported error type for embedding failures.
+- `EmbeddingRequest`, `EmbeddingResponse` -- re-exported embedding types.
 - `StreamHandle` -- returned by `complete_stream`, yields `StreamEvent` items
   as the model generates tokens.
 
@@ -24,8 +28,12 @@ this client usable with Azure OpenAI and compatible third-party endpoints.
 - SSE streaming parsed from raw byte stream with `data: [DONE]` sentinel
   handling.
 - Usage statistics included in streaming responses via `stream_options`.
+- `EmbeddingProvider` support for generating text embeddings with optional
+  dimension control.
 
 ## Usage
+
+### Completions
 
 ```rust,no_run
 use neuron_provider_openai::OpenAi;
@@ -52,6 +60,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     for block in &response.message.content {
         println!("{block:?}");
     }
+    Ok(())
+}
+```
+
+### Embeddings
+
+```rust,no_run
+use neuron_provider_openai::OpenAi;
+use neuron_types::{EmbeddingProvider, EmbeddingRequest};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let provider = OpenAi::new("sk-...");
+
+    let request = EmbeddingRequest {
+        input: vec!["Hello world".to_string(), "Rust is great".to_string()],
+        dimensions: Some(256),
+        ..Default::default()
+    };
+
+    let response = provider.embed(request).await?;
+
+    println!("Model: {}", response.model);
+    println!("Embeddings: {} vectors", response.embeddings.len());
+    println!("Dimensions: {}", response.embeddings[0].len());
+    println!("Usage: {} tokens", response.usage.total_tokens);
     Ok(())
 }
 ```

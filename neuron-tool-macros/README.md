@@ -1,8 +1,20 @@
 # neuron-tool-macros
 
+[![crates.io](https://img.shields.io/crates/v/neuron-tool-macros.svg)](https://crates.io/crates/neuron-tool-macros)
+[![docs.rs](https://docs.rs/neuron-tool-macros/badge.svg)](https://docs.rs/neuron-tool-macros)
+[![license](https://img.shields.io/crates/l/neuron-tool-macros.svg)](LICENSE-MIT)
+
 Procedural macro crate for the neuron tool system. Provides the `#[neuron_tool]`
 attribute macro that generates a full `Tool` trait implementation from an
 annotated async function, eliminating boilerplate for tool definitions.
+
+## Installation
+
+```sh
+cargo add neuron-tool-macros
+```
+
+Or use it through `neuron-tool` with the `macros` feature (enabled by default).
 
 ## What It Generates
 
@@ -58,7 +70,7 @@ enabled: `neuron_tool::neuron_tool`.
 
 ## Part of neuron
 
-This crate is part of [neuron](https://github.com/empathic-ai/neuron), a
+This crate is part of [neuron](https://github.com/secbear/neuron), a
 composable building-blocks library for AI agents in Rust.
 
 ## License

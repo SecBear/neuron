@@ -5,7 +5,7 @@ Implements the `Provider` trait from `neuron-types` for the Ollama Chat API.
 ## Structure
 
 - `src/lib.rs` -- Public API, module declarations, re-exports
-- `src/client.rs` -- `Ollama` struct, builder, and `Provider` impl
+- `src/client.rs` -- `Ollama` struct, builder (`new`, `from_env`), and `Provider` impl
 - `src/mapping.rs` -- Request/response JSON mapping
 - `src/streaming.rs` -- NDJSON stream parsing and `StreamHandle` construction
 - `src/error.rs` -- HTTP status -> `ProviderError` mapping

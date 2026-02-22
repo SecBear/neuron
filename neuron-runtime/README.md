@@ -17,6 +17,8 @@ execution contexts, and tool sandboxing.
   before input reaches the LLM or before output reaches the user.
 - `GuardrailResult` -- `Pass`, `Tripwire(reason)`, or `Warn(reason)`. A
   tripwire halts execution immediately.
+- `GuardrailHook` -- an `ObservabilityHook` that runs input/output guardrails
+  during the agent loop. Tripwires terminate; warnings log and continue.
 - `SubAgentConfig` -- configuration for spawning sub-agents (system prompt,
   tool filter, max depth, max turns).
 - `SubAgentManager` -- registers and spawns sub-agents.
@@ -63,6 +65,61 @@ impl InputGuardrail for NoSecrets {
     }
 }
 ```
+
+## GuardrailHook
+
+`GuardrailHook` wraps input and output guardrails as an `ObservabilityHook`,
+so they integrate directly into the agent loop via the hook system.
+
+```rust,no_run
+use neuron_runtime::{
+    GuardrailHook, GuardrailResult, InputGuardrail, OutputGuardrail,
+};
+
+struct BlockSecrets;
+impl InputGuardrail for BlockSecrets {
+    fn check(
+        &self,
+        input: &str,
+    ) -> impl std::future::Future<Output = GuardrailResult> + Send {
+        async move {
+            if input.contains("API_KEY") {
+                GuardrailResult::Tripwire("secret in input".to_string())
+            } else {
+                GuardrailResult::Pass
+            }
+        }
+    }
+}
+
+struct NoLeaks;
+impl OutputGuardrail for NoLeaks {
+    fn check(
+        &self,
+        output: &str,
+    ) -> impl std::future::Future<Output = GuardrailResult> + Send {
+        async move {
+            if output.contains("sk-") {
+                GuardrailResult::Tripwire("secret in output".to_string())
+            } else {
+                GuardrailResult::Pass
+            }
+        }
+    }
+}
+
+let hook = GuardrailHook::new()
+    .input_guardrail(BlockSecrets)
+    .output_guardrail(NoLeaks);
+
+// Pass `hook` as the ObservabilityHook when building the agent loop.
+```
+
+- On `PreLlmCall`, the hook extracts the last user message text and runs all
+  input guardrails. A `Tripwire` returns `HookAction::Terminate`; a `Warn`
+  logs via `tracing::warn!` and continues.
+- On `PostLlmCall`, the hook extracts the assistant response text and runs all
+  output guardrails with the same mapping.
 
 ## Part of neuron
 
