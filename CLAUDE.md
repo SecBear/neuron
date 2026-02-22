@@ -1,4 +1,4 @@
-# rust-agent-blocks
+# neuron
 
 ## Philosophy
 
@@ -16,7 +16,7 @@ Everyone else jumped straight to the framework. We're filling the gap underneath
    management, tool pipelines, durability, runtime.
 
 2. **Composition over integration.** Blocks compose through traits defined in
-   `agent-types`. No block knows about any other block — only about the traits
+   `neuron-types`. No block knows about any other block — only about the traits
    it depends on.
 
 3. **Traits are the API.** `Provider`, `Tool`, `ContextStrategy`,
@@ -81,11 +81,11 @@ Rust agent framework.
 
 **Why it's not the answer:**
 
-| Concern | ADK-Rust | rust-agent-blocks |
+| Concern | ADK-Rust | neuron |
 |---------|---------|-------------------|
 | **Provider independence** | All 14+ providers in one `adk-model` crate behind feature flags. Version conflict in one blocks all. | One crate per provider, independent versioning |
-| **Core bloat** | `adk-core` has 11 files: Agent, Llm, Tool, Session, State, Memory, Artifacts, Events, 6 callback types, context hierarchy. Any change cascades everywhere. | `agent-types` is lean: messages, Provider, Tool, errors. Logic lives in owning crates. |
-| **Coupling** | `adk-agent` hard-depends on `adk-model` (implementation, not just trait). `adk-server` depends on 7 crates. Independence is partial. | Arrows only point up. Each block depends on `agent-types` and the blocks directly below it. |
+| **Core bloat** | `adk-core` has 11 files: Agent, Llm, Tool, Session, State, Memory, Artifacts, Events, 6 callback types, context hierarchy. Any change cascades everywhere. | `neuron-types` is lean: messages, Provider, Tool, errors. Logic lives in owning crates. |
+| **Coupling** | `adk-agent` hard-depends on `adk-model` (implementation, not just trait). `adk-server` depends on 7 crates. Independence is partial. | Arrows only point up. Each block depends on `neuron-types` and the blocks directly below it. |
 | **Durability** | None. No crash recovery, no Temporal mapping, no replay. | `DurableContext` wraps side effects. Implementations for Temporal, Restate, local passthrough. |
 | **Context management** | `EventsCompactionConfig` stub. No token counting, no strategies. | First-class crate: 4 compaction strategies, token estimation, persistent context, system injection. |
 | **Tool middleware** | Direct call with `Box<dyn Fn>` callbacks. | Composable middleware chain (validate, permissions, hooks, format). Same pattern as axum's `from_fn`. |
@@ -164,7 +164,7 @@ These decisions were validated against real API docs, source code, and specs.
   Observation-only hooks cannot participate in Temporal replay. Durable
   execution requires wrapping side effects, not observing them. Every engine
   (Temporal, Restate, Inngest) needs the same thing: `ctx.execute(...)`.
-- **`agent-mcp` wraps rmcp** (official Rust MCP SDK, 3.8M downloads). Do not
+- **`neuron-mcp` wraps rmcp** (official Rust MCP SDK, 3.8M downloads). Do not
   reimplement the protocol. Our `connect_sse` targeted a deprecated transport;
   Streamable HTTP is the current spec.
 - **Rust 2024 edition, native async traits.** Drop `#[async_trait]`. Use
@@ -184,14 +184,14 @@ When making design decisions, apply these filters in order:
 
 2. **Can it be a trait?** If a capability varies across implementations
    (providers, storage backends, compaction strategies), define a trait in
-   `agent-types` and let satellites implement it.
+   `neuron-types` and let satellites implement it.
 
-3. **Does it belong in `agent-types`?** Types and traits go in `agent-types`.
+3. **Does it belong in `neuron-types`?** Types and traits go in `neuron-types`.
    Logic goes in the block that owns the concern. If you're adding logic to
-   `agent-types`, stop and reconsider.
+   `neuron-types`, stop and reconsider.
 
 4. **One block, one concern.** If a change touches two blocks, check whether
-   you're introducing coupling. The fix is usually a new trait in `agent-types`.
+   you're introducing coupling. The fix is usually a new trait in `neuron-types`.
 
 5. **Study the prior art first.** Before designing an abstraction, check how
    Rig, ADK-Rust, Claude Code, Pydantic AI, and OpenAI Agents SDK handle it.
@@ -206,24 +206,24 @@ When making design decisions, apply these filters in order:
 ## Block dependency graph
 
 ```
-agent-types                     (zero deps, the foundation)
+neuron-types                    (zero deps, the foundation)
     ^
-    |-- agent-provider-*        (each implements Provider trait)
-    |-- agent-tool              (implements Tool trait, registry, middleware)
-    |-- agent-mcp               (wraps rmcp, bridges to Tool trait)
-    +-- agent-context           (+ optional Provider for summarization)
+    |-- neuron-provider-*       (each implements Provider trait)
+    |-- neuron-tool             (implements Tool trait, registry, middleware)
+    |-- neuron-mcp              (wraps rmcp, bridges to Tool trait)
+    +-- neuron-context          (+ optional Provider for summarization)
             ^
-        agent-loop              (composes provider + tool + context)
+        neuron-loop             (composes provider + tool + context)
             ^
-        agent-runtime           (sub-agents, sessions, DurableContext, guardrails)
+        neuron-runtime          (sub-agents, sessions, DurableContext, guardrails)
             ^
-        agent-blocks            (umbrella re-export, build LAST)
+        neuron                  (umbrella re-export, build LAST)
             ^
         YOUR PROJECTS           (sdk, cli, tui, gui, gh-aw)
 ```
 
 Arrows only point up. No circular dependencies. Each block knows only about
-`agent-types` and the blocks directly below it.
+`neuron-types` and the blocks directly below it.
 
 ---
 
@@ -242,7 +242,7 @@ Arrows only point up. No circular dependencies. Each block knows only about
 Every block follows the same layout:
 
 ```
-agent-{block}/
+neuron-{block}/
     CLAUDE.md              # Agent instructions for this crate
     Cargo.toml
     src/

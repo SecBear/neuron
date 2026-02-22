@@ -1,0 +1,22 @@
+[package]
+name = "neuron-types"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "Shared types and traits for neuron"
+license.workspace = true
+repository = "https://github.com/secbear/neuron"
+keywords = ["ai", "agent", "types", "llm"]
+categories = ["development-tools"]
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+schemars.workspace = true
+futures.workspace = true
+tokio-util.workspace = true
+chrono.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

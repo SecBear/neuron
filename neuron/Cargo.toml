@@ -1,0 +1,39 @@
+[package]
+name = "neuron"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "Umbrella crate for neuron — composable building blocks for AI agents"
+license.workspace = true
+repository = "https://github.com/secbear/neuron"
+keywords = ["ai", "agent", "blocks", "composable"]
+categories = ["development-tools"]
+
+[features]
+default = ["anthropic"]
+anthropic = ["dep:neuron-provider-anthropic"]
+openai = ["dep:neuron-provider-openai"]
+ollama = ["dep:neuron-provider-ollama"]
+mcp = ["dep:neuron-mcp"]
+runtime = ["dep:neuron-runtime"]
+full = ["anthropic", "openai", "ollama", "mcp", "runtime"]
+
+[dependencies]
+neuron-types.workspace = true
+neuron-tool.workspace = true
+neuron-context.workspace = true
+neuron-loop.workspace = true
+neuron-provider-anthropic = { workspace = true, optional = true }
+neuron-provider-openai = { workspace = true, optional = true }
+neuron-provider-ollama = { workspace = true, optional = true }
+neuron-mcp = { workspace = true, optional = true }
+neuron-runtime = { workspace = true, optional = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tokio-util.workspace = true
+futures.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+schemars.workspace = true
+thiserror.workspace = true

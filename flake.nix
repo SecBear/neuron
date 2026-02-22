@@ -1,5 +1,5 @@
 {
-  description = "rust-agent-blocks — composable building blocks for AI agents";
+  description = "neuron — composable building blocks for AI agents";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -66,7 +66,7 @@
             RUST_SRC_PATH = "${rustToolchain}/lib/rustlib/src/rust/library";
 
             shellHook = ''
-              echo "rust-agent-blocks dev shell"
+              echo "neuron dev shell"
               echo ""
               echo "  rustc --version   — $(rustc --version)"
               echo "  cargo clippy      — lint all crates"

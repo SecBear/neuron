@@ -10,7 +10,7 @@ Two files contain everything:
 
 1. **`CLAUDE.md`** (root) — Philosophy, landscape comparison, decision
    framework, validated decisions, Rust conventions, block dependency graph.
-2. **`docs/plans/2026-02-21-rust-agent-blocks-design.md`** — Complete design
+2. **`docs/plans/2026-02-21-neuron-design.md`** — Complete design
    with every type, trait, error enum, block spec, composition example, build
    order, and dependencies finalized.
 
@@ -51,16 +51,16 @@ of the design process.
 
 ## Build order (from design doc section 3.3)
 
-1. `agent-types` — foundation, everything depends on this
-2. `agent-tool` — tool registry and middleware
-3. `agent-context` — compaction strategies
-4. `agent-provider-anthropic` — first real provider
-5. `agent-loop` — composes the above
-6. `agent-mcp` — wraps rmcp
-7. `agent-provider-openai` — second provider
-8. `agent-provider-ollama` — local inference
-9. `agent-runtime` — DurableContext, sessions, sub-agents, guardrails
-10. `agent-blocks` — umbrella crate, last
+1. `neuron-types` — foundation, everything depends on this
+2. `neuron-tool` — tool registry and middleware
+3. `neuron-context` — compaction strategies
+4. `neuron-provider-anthropic` — first real provider
+5. `neuron-loop` — composes the above
+6. `neuron-mcp` — wraps rmcp
+7. `neuron-provider-openai` — second provider
+8. `neuron-provider-ollama` — local inference
+9. `neuron-runtime` — DurableContext, sessions, sub-agents, guardrails
+10. `neuron` — umbrella crate, last
 
 ## Key technical decisions already made
 
@@ -74,7 +74,7 @@ of the design process.
   `add_tool_middleware`.
 - **schemars** for JSON Schema derivation on tool input types
 - **thiserror** for all errors, 2 levels max, retryable vs terminal separation
-- **agent-mcp wraps rmcp** — do not reimplement the MCP protocol
+- **neuron-mcp wraps rmcp** — do not reimplement the MCP protocol
 - **DurableContext** wraps side effects (not observation hooks). Loop calls
   through it when present, calls provider/tools directly when absent.
 - **Each block is its own independent crate** — not a Cargo workspace. Each
@@ -103,17 +103,17 @@ These validate that blocks compose correctly.
 - README per crate
 - docs.rs documentation (already inline from implementation)
 - Publish to crates.io in dependency order
-- Create the umbrella `agent-blocks` crate
+- Create the umbrella `neuron` crate
 
 ## Constraints for the implementation planner
 
 - **Each block is a separate Cargo project** (not workspace members). Use
-  path dependencies during development: `agent-types = { path = "../agent-types" }`.
+  path dependencies during development: `neuron-types = { path = "../neuron-types" }`.
 - **TDD**: Write failing test, make it pass, commit. Every public API has tests.
 - **No placeholder implementations** — each block must be functional when done.
   The Anthropic provider must actually call the API. The MCP client must
   actually connect to MCP servers.
-- **Start with agent-types** — this is the foundation. Get every type right here
+- **Start with neuron-types** — this is the foundation. Get every type right here
   because everything depends on it.
 - **The design doc is the spec** — every type signature, every trait, every error
   variant is already defined. The implementation plan translates the design doc

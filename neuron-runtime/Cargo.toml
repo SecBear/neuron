@@ -1,0 +1,30 @@
+[package]
+name = "neuron-runtime"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "Production runtime layer for neuron"
+license.workspace = true
+repository = "https://github.com/secbear/neuron"
+keywords = ["ai", "agent", "runtime", "session"]
+categories = ["development-tools"]
+
+[dependencies]
+neuron-types.workspace = true
+neuron-tool.workspace = true
+neuron-loop.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+uuid.workspace = true
+tokio = { workspace = true, features = ["fs", "time"] }
+futures.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+neuron-context.workspace = true
+schemars.workspace = true
+thiserror.workspace = true
+tempfile.workspace = true
+tokio-util.workspace = true

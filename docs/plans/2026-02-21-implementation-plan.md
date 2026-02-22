@@ -1,43 +1,43 @@
-# rust-agent-blocks Implementation Plan
+# neuron Implementation Plan
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** Implement all 10 crates of rust-agent-blocks from the design doc, in dependency order, with TDD and frequent commits.
+**Goal:** Implement all 10 crates of neuron from the design doc, in dependency order, with TDD and frequent commits.
 
-**Architecture:** Independent Rust crates composing via traits defined in `agent-types`. Each crate is its own Cargo project with path dependencies during development. Flat file layout per crate. Arrows only point up — no circular dependencies.
+**Architecture:** Independent Rust crates composing via traits defined in `neuron-types`. Each crate is its own Cargo project with path dependencies during development. Flat file layout per crate. Arrows only point up — no circular dependencies.
 
 **Tech Stack:** Rust 2024 edition (resolver 3, min 1.90), serde/serde_json, thiserror, schemars, futures, tokio, reqwest, rmcp, tracing, chrono, uuid, tokio-util
 
-**Design Spec:** `docs/plans/2026-02-21-rust-agent-blocks-design.md` — every type, trait, and error enum is defined there. This plan translates that spec into ordered coding tasks.
+**Design Spec:** `docs/plans/2026-02-21-neuron-design.md` — every type, trait, and error enum is defined there. This plan translates that spec into ordered coding tasks.
 
 ---
 
-## Block 1: `agent-types` (Foundation)
+## Block 1: `neuron-types` (Foundation)
 
 Everything depends on this. Zero logic — pure types, traits, serde.
 
 ### Task 1.1: Initialize the Cargo project
 
 **Files:**
-- Create: `agent-types/Cargo.toml`
-- Create: `agent-types/src/lib.rs`
-- Create: `agent-types/CLAUDE.md`
+- Create: `neuron-types/Cargo.toml`
+- Create: `neuron-types/src/lib.rs`
+- Create: `neuron-types/CLAUDE.md`
 
 **Step 1: Create project structure**
 
 ```bash
-mkdir -p agent-types/src agent-types/tests
+mkdir -p neuron-types/src neuron-types/tests
 ```
 
 **Step 2: Write Cargo.toml**
 
 ```toml
 [package]
-name = "agent-types"
+name = "neuron-types"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.90"
-description = "Shared types and traits for rust-agent-blocks"
+description = "Shared types and traits for neuron"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
@@ -56,10 +56,10 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 **Step 3: Write minimal lib.rs that compiles**
 
 ```rust
-//! Shared types and traits for rust-agent-blocks.
+//! Shared types and traits for neuron.
 //!
 //! This crate defines the lingua franca — messages, providers, tools, errors —
-//! that all other agent-blocks crates depend on. Zero logic, pure types.
+//! that all other neuron crates depend on. Zero logic, pure types.
 
 pub mod types;
 pub mod traits;
@@ -74,14 +74,14 @@ Create `src/types.rs`, `src/traits.rs`, `src/error.rs`, `src/wasm.rs`, `src/stre
 
 **Step 5: Verify it compiles**
 
-Run: `cd agent-types && cargo check`
+Run: `cd neuron-types && cargo check`
 Expected: success (compiles with empty modules)
 
 **Step 6: Commit**
 
 ```bash
-git add agent-types/
-git commit -m "feat(agent-types): initialize crate with project structure"
+git add neuron-types/
+git commit -m "feat(neuron-types): initialize crate with project structure"
 ```
 
 ---
@@ -89,8 +89,8 @@ git commit -m "feat(agent-types): initialize crate with project structure"
 ### Task 1.2: WASM compatibility types
 
 **Files:**
-- Modify: `agent-types/src/wasm.rs`
-- Test: `agent-types/src/wasm.rs` (inline tests)
+- Modify: `neuron-types/src/wasm.rs`
+- Test: `neuron-types/src/wasm.rs` (inline tests)
 
 **Step 1: Write failing test**
 
@@ -119,7 +119,7 @@ mod tests {
 
 **Step 2: Run test to verify it fails**
 
-Run: `cd agent-types && cargo test wasm`
+Run: `cd neuron-types && cargo test wasm`
 Expected: FAIL — `WasmCompatSend` not found
 
 **Step 3: Implement WASM compat types**
@@ -168,14 +168,14 @@ pub use wasm::*;
 
 **Step 4: Run test to verify it passes**
 
-Run: `cd agent-types && cargo test wasm`
+Run: `cd neuron-types && cargo test wasm`
 Expected: PASS
 
 **Step 5: Commit**
 
 ```bash
-git add agent-types/src/wasm.rs
-git commit -m "feat(agent-types): add WASM compatibility traits"
+git add neuron-types/src/wasm.rs
+git commit -m "feat(neuron-types): add WASM compatibility traits"
 ```
 
 ---
@@ -183,15 +183,15 @@ git commit -m "feat(agent-types): add WASM compatibility traits"
 ### Task 1.3: Message types
 
 **Files:**
-- Modify: `agent-types/src/types.rs`
-- Test: `agent-types/tests/messages.rs`
+- Modify: `neuron-types/src/types.rs`
+- Test: `neuron-types/tests/messages.rs`
 
 **Step 1: Write failing test**
 
-Create `agent-types/tests/messages.rs`:
+Create `neuron-types/tests/messages.rs`:
 
 ```rust
-use agent_types::*;
+use neuron_types::*;
 
 #[test]
 fn message_roundtrip_serde() {
@@ -253,7 +253,7 @@ fn thinking_block_serde() {
 
 **Step 2: Run test to verify it fails**
 
-Run: `cd agent-types && cargo test --test messages`
+Run: `cd neuron-types && cargo test --test messages`
 Expected: FAIL — types not defined
 
 **Step 3: Implement message types in `src/types.rs`**
@@ -267,14 +267,14 @@ pub use types::*;
 
 **Step 4: Run test to verify it passes**
 
-Run: `cd agent-types && cargo test --test messages`
+Run: `cd neuron-types && cargo test --test messages`
 Expected: PASS
 
 **Step 5: Commit**
 
 ```bash
-git add agent-types/
-git commit -m "feat(agent-types): add message types with serde"
+git add neuron-types/
+git commit -m "feat(neuron-types): add message types with serde"
 ```
 
 ---
@@ -282,15 +282,15 @@ git commit -m "feat(agent-types): add message types with serde"
 ### Task 1.4: CompletionRequest and response types
 
 **Files:**
-- Modify: `agent-types/src/types.rs`
-- Test: `agent-types/tests/completion.rs`
+- Modify: `neuron-types/src/types.rs`
+- Test: `neuron-types/tests/completion.rs`
 
 **Step 1: Write failing test**
 
-Create `agent-types/tests/completion.rs`:
+Create `neuron-types/tests/completion.rs`:
 
 ```rust
-use agent_types::*;
+use neuron_types::*;
 
 #[test]
 fn completion_request_minimal() {
@@ -369,7 +369,7 @@ fn token_usage_default() {
 
 **Step 2: Run test to verify it fails**
 
-Run: `cd agent-types && cargo test --test completion`
+Run: `cd neuron-types && cargo test --test completion`
 Expected: FAIL — types not defined
 
 **Step 3: Implement all completion-related types**
@@ -378,14 +378,14 @@ In `src/types.rs`, add: `SystemPrompt`, `SystemBlock`, `CacheControl`, `CacheTtl
 
 **Step 4: Run test to verify it passes**
 
-Run: `cd agent-types && cargo test --test completion`
+Run: `cd neuron-types && cargo test --test completion`
 Expected: PASS
 
 **Step 5: Commit**
 
 ```bash
-git add agent-types/
-git commit -m "feat(agent-types): add completion request/response types"
+git add neuron-types/
+git commit -m "feat(neuron-types): add completion request/response types"
 ```
 
 ---
@@ -393,15 +393,15 @@ git commit -m "feat(agent-types): add completion request/response types"
 ### Task 1.5: Tool-related types
 
 **Files:**
-- Modify: `agent-types/src/types.rs`
-- Test: `agent-types/tests/tool_types.rs`
+- Modify: `neuron-types/src/types.rs`
+- Test: `neuron-types/tests/tool_types.rs`
 
 **Step 1: Write failing test**
 
-Create `agent-types/tests/tool_types.rs`:
+Create `neuron-types/tests/tool_types.rs`:
 
 ```rust
-use agent_types::*;
+use neuron_types::*;
 
 #[test]
 fn tool_definition_serde() {
@@ -445,7 +445,7 @@ fn tool_output_text() {
 
 **Step 2: Run test to verify it fails**
 
-Run: `cd agent-types && cargo test --test tool_types`
+Run: `cd neuron-types && cargo test --test tool_types`
 Expected: FAIL
 
 **Step 3: Implement tool types**
@@ -456,14 +456,14 @@ Note: `ToolContext` has non-serde fields (`CancellationToken`, `Arc<dyn Progress
 
 **Step 4: Run tests**
 
-Run: `cd agent-types && cargo test --test tool_types`
+Run: `cd neuron-types && cargo test --test tool_types`
 Expected: PASS
 
 **Step 5: Commit**
 
 ```bash
-git add agent-types/
-git commit -m "feat(agent-types): add tool-related types"
+git add neuron-types/
+git commit -m "feat(neuron-types): add tool-related types"
 ```
 
 ---
@@ -471,15 +471,15 @@ git commit -m "feat(agent-types): add tool-related types"
 ### Task 1.6: Error types
 
 **Files:**
-- Modify: `agent-types/src/error.rs`
-- Test: `agent-types/tests/errors.rs`
+- Modify: `neuron-types/src/error.rs`
+- Test: `neuron-types/tests/errors.rs`
 
 **Step 1: Write failing test**
 
-Create `agent-types/tests/errors.rs`:
+Create `neuron-types/tests/errors.rs`:
 
 ```rust
-use agent_types::*;
+use neuron_types::*;
 use std::time::Duration;
 
 #[test]
@@ -512,7 +512,7 @@ fn tool_error_display() {
 
 **Step 2: Run test to verify it fails**
 
-Run: `cd agent-types && cargo test --test errors`
+Run: `cd neuron-types && cargo test --test errors`
 Expected: FAIL
 
 **Step 3: Implement all error types**
@@ -534,14 +534,14 @@ impl ProviderError {
 
 **Step 4: Run tests**
 
-Run: `cd agent-types && cargo test --test errors`
+Run: `cd neuron-types && cargo test --test errors`
 Expected: PASS
 
 **Step 5: Commit**
 
 ```bash
-git add agent-types/
-git commit -m "feat(agent-types): add error types with retryable classification"
+git add neuron-types/
+git commit -m "feat(neuron-types): add error types with retryable classification"
 ```
 
 ---
@@ -549,15 +549,15 @@ git commit -m "feat(agent-types): add error types with retryable classification"
 ### Task 1.7: Stream types
 
 **Files:**
-- Modify: `agent-types/src/stream.rs`
-- Test: `agent-types/tests/stream.rs`
+- Modify: `neuron-types/src/stream.rs`
+- Test: `neuron-types/tests/stream.rs`
 
 **Step 1: Write failing test**
 
-Create `agent-types/tests/stream.rs`:
+Create `neuron-types/tests/stream.rs`:
 
 ```rust
-use agent_types::*;
+use neuron_types::*;
 
 #[test]
 fn stream_event_text_delta() {
@@ -587,7 +587,7 @@ fn stream_event_tool_use_demux() {
 
 **Step 2: Run test to verify it fails**
 
-Run: `cd agent-types && cargo test --test stream`
+Run: `cd neuron-types && cargo test --test stream`
 Expected: FAIL
 
 **Step 3: Implement stream types**
@@ -596,14 +596,14 @@ In `src/stream.rs`, implement `StreamEvent` and `StreamHandle` exactly as in des
 
 **Step 4: Run tests**
 
-Run: `cd agent-types && cargo test --test stream`
+Run: `cd neuron-types && cargo test --test stream`
 Expected: PASS
 
 **Step 5: Commit**
 
 ```bash
-git add agent-types/
-git commit -m "feat(agent-types): add stream event types"
+git add neuron-types/
+git commit -m "feat(neuron-types): add stream event types"
 ```
 
 ---
@@ -611,15 +611,15 @@ git commit -m "feat(agent-types): add stream event types"
 ### Task 1.8: Provider trait
 
 **Files:**
-- Modify: `agent-types/src/traits.rs`
-- Test: `agent-types/tests/provider_trait.rs`
+- Modify: `neuron-types/src/traits.rs`
+- Test: `neuron-types/tests/provider_trait.rs`
 
 **Step 1: Write failing test**
 
-Create `agent-types/tests/provider_trait.rs`:
+Create `neuron-types/tests/provider_trait.rs`:
 
 ```rust
-use agent_types::*;
+use neuron_types::*;
 use std::future::Future;
 
 /// A mock provider that always returns a fixed response.
@@ -684,7 +684,7 @@ async fn mock_provider_complete() {
 
 **Step 2: Run test to verify it fails**
 
-Run: `cd agent-types && cargo test --test provider_trait`
+Run: `cd neuron-types && cargo test --test provider_trait`
 Expected: FAIL
 
 **Step 3: Implement Provider trait**
@@ -716,14 +716,14 @@ pub trait Provider: WasmCompatSend + WasmCompatSync {
 
 **Step 4: Run tests**
 
-Run: `cd agent-types && cargo test --test provider_trait`
+Run: `cd neuron-types && cargo test --test provider_trait`
 Expected: PASS
 
 **Step 5: Commit**
 
 ```bash
-git add agent-types/
-git commit -m "feat(agent-types): add Provider trait with RPITIT"
+git add neuron-types/
+git commit -m "feat(neuron-types): add Provider trait with RPITIT"
 ```
 
 ---
@@ -731,15 +731,15 @@ git commit -m "feat(agent-types): add Provider trait with RPITIT"
 ### Task 1.9: Tool and ToolDyn traits with blanket impl
 
 **Files:**
-- Modify: `agent-types/src/traits.rs`
-- Test: `agent-types/tests/tool_trait.rs`
+- Modify: `neuron-types/src/traits.rs`
+- Test: `neuron-types/tests/tool_trait.rs`
 
 **Step 1: Write failing test**
 
-Create `agent-types/tests/tool_trait.rs`:
+Create `neuron-types/tests/tool_trait.rs`:
 
 ```rust
-use agent_types::*;
+use neuron_types::*;
 use serde::{Deserialize, Serialize};
 use std::future::Future;
 use std::path::PathBuf;
@@ -847,7 +847,7 @@ fn schemars_generates_schema() {
 
 **Step 2: Run test to verify it fails**
 
-Run: `cd agent-types && cargo test --test tool_trait`
+Run: `cd neuron-types && cargo test --test tool_trait`
 Expected: FAIL
 
 **Step 3: Implement Tool, ToolDyn, and blanket impl**
@@ -863,14 +863,14 @@ Also add the `schemars::schema_for!` helper for converting `JsonSchema` into `se
 
 **Step 4: Run tests**
 
-Run: `cd agent-types && cargo test --test tool_trait`
+Run: `cd neuron-types && cargo test --test tool_trait`
 Expected: PASS
 
 **Step 5: Commit**
 
 ```bash
-git add agent-types/
-git commit -m "feat(agent-types): add Tool/ToolDyn traits with blanket impl"
+git add neuron-types/
+git commit -m "feat(neuron-types): add Tool/ToolDyn traits with blanket impl"
 ```
 
 ---
@@ -878,15 +878,15 @@ git commit -m "feat(agent-types): add Tool/ToolDyn traits with blanket impl"
 ### Task 1.10: ContextStrategy, ObservabilityHook, DurableContext, PermissionPolicy traits
 
 **Files:**
-- Modify: `agent-types/src/traits.rs`
-- Test: `agent-types/tests/traits.rs`
+- Modify: `neuron-types/src/traits.rs`
+- Test: `neuron-types/tests/traits.rs`
 
 **Step 1: Write failing test**
 
-Create `agent-types/tests/traits.rs`:
+Create `neuron-types/tests/traits.rs`:
 
 ```rust
-use agent_types::*;
+use neuron_types::*;
 use std::future::Future;
 
 struct NoopHook;
@@ -926,7 +926,7 @@ fn allow_all_policy() {
 
 **Step 2: Run test to verify it fails**
 
-Run: `cd agent-types && cargo test --test traits`
+Run: `cd neuron-types && cargo test --test traits`
 Expected: FAIL
 
 **Step 3: Implement remaining traits**
@@ -946,14 +946,14 @@ pub enum HookError {
 
 **Step 4: Run tests**
 
-Run: `cd agent-types && cargo test --test traits`
+Run: `cd neuron-types && cargo test --test traits`
 Expected: PASS
 
 **Step 5: Commit**
 
 ```bash
-git add agent-types/
-git commit -m "feat(agent-types): add ContextStrategy, hooks, DurableContext, PermissionPolicy traits"
+git add neuron-types/
+git commit -m "feat(neuron-types): add ContextStrategy, hooks, DurableContext, PermissionPolicy traits"
 ```
 
 ---
@@ -961,7 +961,7 @@ git commit -m "feat(agent-types): add ContextStrategy, hooks, DurableContext, Pe
 ### Task 1.11: Re-exports and final validation
 
 **Files:**
-- Modify: `agent-types/src/lib.rs`
+- Modify: `neuron-types/src/lib.rs`
 
 **Step 1: Set up complete re-exports in lib.rs**
 
@@ -977,49 +977,49 @@ pub use stream::*;
 
 **Step 2: Run all tests**
 
-Run: `cd agent-types && cargo test`
+Run: `cd neuron-types && cargo test`
 Expected: ALL PASS
 
 **Step 3: Run clippy**
 
-Run: `cd agent-types && cargo clippy -- -D warnings`
+Run: `cd neuron-types && cargo clippy -- -D warnings`
 Expected: PASS (no warnings)
 
 **Step 4: Write CLAUDE.md for the crate**
 
-Create `agent-types/CLAUDE.md` with crate-specific guidance.
+Create `neuron-types/CLAUDE.md` with crate-specific guidance.
 
 **Step 5: Commit**
 
 ```bash
-git add agent-types/
-git commit -m "feat(agent-types): finalize re-exports and crate docs"
+git add neuron-types/
+git commit -m "feat(neuron-types): finalize re-exports and crate docs"
 ```
 
 ---
 
-## Block 2: `agent-tool` (Tool Registry + Middleware)
+## Block 2: `neuron-tool` (Tool Registry + Middleware)
 
-**Depends on:** `agent-types`
+**Depends on:** `neuron-types`
 
 ### Task 2.1: Initialize the Cargo project
 
 **Files:**
-- Create: `agent-tool/Cargo.toml`
-- Create: `agent-tool/src/lib.rs`
+- Create: `neuron-tool/Cargo.toml`
+- Create: `neuron-tool/src/lib.rs`
 
 **Step 1: Create project**
 
 ```toml
 [package]
-name = "agent-tool"
+name = "neuron-tool"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.90"
-description = "Tool registry and middleware pipeline for rust-agent-blocks"
+description = "Tool registry and middleware pipeline for neuron"
 
 [dependencies]
-agent-types = { path = "../agent-types" }
+neuron-types = { path = "../neuron-types" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["sync"] }
@@ -1038,13 +1038,13 @@ tokio-util = "0.7"
 
 **Step 3: Verify compilation**
 
-Run: `cd agent-tool && cargo check`
+Run: `cd neuron-tool && cargo check`
 
 **Step 4: Commit**
 
 ```bash
-git add agent-tool/
-git commit -m "feat(agent-tool): initialize crate"
+git add neuron-tool/
+git commit -m "feat(neuron-tool): initialize crate"
 ```
 
 ---
@@ -1052,14 +1052,14 @@ git commit -m "feat(agent-tool): initialize crate"
 ### Task 2.2: ToolCall type and Next struct
 
 **Files:**
-- Modify: `agent-tool/src/middleware.rs`
-- Test: `agent-tool/tests/middleware.rs`
+- Modify: `neuron-tool/src/middleware.rs`
+- Test: `neuron-tool/tests/middleware.rs`
 
 **Step 1: Write failing test**
 
 ```rust
-use agent_tool::*;
-use agent_types::*;
+use neuron_tool::*;
+use neuron_types::*;
 
 #[tokio::test]
 async fn next_run_calls_tool() {
@@ -1084,8 +1084,8 @@ where
 **Step 4: Commit**
 
 ```bash
-git add agent-tool/
-git commit -m "feat(agent-tool): add ToolMiddleware trait with Next and tool_middleware_fn"
+git add neuron-tool/
+git commit -m "feat(neuron-tool): add ToolMiddleware trait with Next and tool_middleware_fn"
 ```
 
 ---
@@ -1093,18 +1093,18 @@ git commit -m "feat(agent-tool): add ToolMiddleware trait with Next and tool_mid
 ### Task 2.3: ToolRegistry core
 
 **Files:**
-- Modify: `agent-tool/src/registry.rs`
-- Test: `agent-tool/tests/registry.rs`
+- Modify: `neuron-tool/src/registry.rs`
+- Test: `neuron-tool/tests/registry.rs`
 
 **Step 1: Write failing test**
 
 ```rust
-use agent_tool::*;
-use agent_types::*;
+use neuron_tool::*;
+use neuron_types::*;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-// Reuse the ReadFileTool from agent-types tests
+// Reuse the ReadFileTool from neuron-types tests
 // ... (define ReadFileTool here)
 
 #[tokio::test]
@@ -1141,14 +1141,14 @@ Implement `new()`, `register()`, `register_dyn()`, `get()`, `definitions()`, `ex
 
 **Step 3: Run tests**
 
-Run: `cd agent-tool && cargo test`
+Run: `cd neuron-tool && cargo test`
 Expected: PASS
 
 **Step 4: Commit**
 
 ```bash
-git add agent-tool/
-git commit -m "feat(agent-tool): add ToolRegistry with register/execute"
+git add neuron-tool/
+git commit -m "feat(neuron-tool): add ToolRegistry with register/execute"
 ```
 
 ---
@@ -1156,13 +1156,13 @@ git commit -m "feat(agent-tool): add ToolRegistry with register/execute"
 ### Task 2.4: Middleware chain execution
 
 **Files:**
-- Test: `agent-tool/tests/middleware_chain.rs`
+- Test: `neuron-tool/tests/middleware_chain.rs`
 
 **Step 1: Write failing test**
 
 ```rust
-use agent_tool::*;
-use agent_types::*;
+use neuron_tool::*;
+use neuron_types::*;
 use std::sync::{Arc, atomic::{AtomicUsize, Ordering}};
 
 #[tokio::test]
@@ -1232,8 +1232,8 @@ async fn middleware_can_short_circuit() {
 **Step 3: Commit**
 
 ```bash
-git add agent-tool/
-git commit -m "feat(agent-tool): implement middleware chain execution"
+git add neuron-tool/
+git commit -m "feat(neuron-tool): implement middleware chain execution"
 ```
 
 ---
@@ -1241,8 +1241,8 @@ git commit -m "feat(agent-tool): implement middleware chain execution"
 ### Task 2.5: Built-in middleware (SchemaValidator, PermissionChecker, OutputFormatter)
 
 **Files:**
-- Modify: `agent-tool/src/builtin.rs`
-- Test: `agent-tool/tests/builtin.rs`
+- Modify: `neuron-tool/src/builtin.rs`
+- Test: `neuron-tool/tests/builtin.rs`
 
 **Step 1: Write tests for each**
 
@@ -1255,8 +1255,8 @@ Three structs, each implementing `ToolMiddleware`.
 **Step 3: Run tests, commit**
 
 ```bash
-git add agent-tool/
-git commit -m "feat(agent-tool): add built-in middleware (schema, permissions, output)"
+git add neuron-tool/
+git commit -m "feat(neuron-tool): add built-in middleware (schema, permissions, output)"
 ```
 
 ---
@@ -1267,26 +1267,26 @@ git commit -m "feat(agent-tool): add built-in middleware (schema, permissions, o
 
 **Step 2: Run full test suite + clippy**
 
-Run: `cd agent-tool && cargo test && cargo clippy -- -D warnings`
+Run: `cd neuron-tool && cargo test && cargo clippy -- -D warnings`
 
 **Step 3: Commit**
 
 ```bash
-git add agent-tool/
-git commit -m "feat(agent-tool): finalize re-exports and docs"
+git add neuron-tool/
+git commit -m "feat(neuron-tool): finalize re-exports and docs"
 ```
 
 ---
 
-## Block 3: `agent-context` (Context Engine)
+## Block 3: `neuron-context` (Context Engine)
 
-**Depends on:** `agent-types`
+**Depends on:** `neuron-types`
 
 ### Task 3.1: Initialize the Cargo project
 
-Create `agent-context/` with deps on `agent-types`. Modules: `lib.rs`, `counter.rs`, `strategies.rs`, `persistent.rs`, `injector.rs`, `error.rs`.
+Create `neuron-context/` with deps on `neuron-types`. Modules: `lib.rs`, `counter.rs`, `strategies.rs`, `persistent.rs`, `injector.rs`, `error.rs`.
 
-Commit: `feat(agent-context): initialize crate`
+Commit: `feat(neuron-context): initialize crate`
 
 ---
 
@@ -1296,7 +1296,7 @@ Commit: `feat(agent-context): initialize crate`
 
 **Implement:** `TokenCounter` with `estimate_messages()`, `estimate_text()`, `estimate_tools()` as in design doc section 4.5.
 
-Commit: `feat(agent-context): add TokenCounter`
+Commit: `feat(neuron-context): add TokenCounter`
 
 ---
 
@@ -1306,7 +1306,7 @@ Commit: `feat(agent-context): add TokenCounter`
 
 **Implement:** `SlidingWindowStrategy` implementing `ContextStrategy`.
 
-Commit: `feat(agent-context): add SlidingWindowStrategy`
+Commit: `feat(neuron-context): add SlidingWindowStrategy`
 
 ---
 
@@ -1316,7 +1316,7 @@ Commit: `feat(agent-context): add SlidingWindowStrategy`
 
 **Implement:** `ToolResultClearingStrategy` implementing `ContextStrategy`. Replace old `ToolResult` content blocks with a short "[tool result cleared]" text.
 
-Commit: `feat(agent-context): add ToolResultClearingStrategy`
+Commit: `feat(neuron-context): add ToolResultClearingStrategy`
 
 ---
 
@@ -1326,7 +1326,7 @@ Commit: `feat(agent-context): add ToolResultClearingStrategy`
 
 **Implement:** `SummarizationStrategy<P: Provider>` implementing `ContextStrategy`.
 
-Commit: `feat(agent-context): add SummarizationStrategy`
+Commit: `feat(neuron-context): add SummarizationStrategy`
 
 ---
 
@@ -1336,7 +1336,7 @@ Commit: `feat(agent-context): add SummarizationStrategy`
 
 **Implement:** `CompositeStrategy` that tries each strategy until under threshold.
 
-Commit: `feat(agent-context): add CompositeStrategy`
+Commit: `feat(neuron-context): add CompositeStrategy`
 
 ---
 
@@ -1346,21 +1346,21 @@ Commit: `feat(agent-context): add CompositeStrategy`
 
 **Implement:** `PersistentContext`, `ContextSection`, `SystemInjector`, `InjectionTrigger` from design doc.
 
-Commit: `feat(agent-context): add PersistentContext and SystemInjector`
+Commit: `feat(neuron-context): add PersistentContext and SystemInjector`
 
 ---
 
 ### Task 3.8: Re-exports and validation
 
-Run: `cd agent-context && cargo test && cargo clippy -- -D warnings`
+Run: `cd neuron-context && cargo test && cargo clippy -- -D warnings`
 
-Commit: `feat(agent-context): finalize crate`
+Commit: `feat(neuron-context): finalize crate`
 
 ---
 
-## Block 4: `agent-provider-anthropic` (First Real Provider)
+## Block 4: `neuron-provider-anthropic` (First Real Provider)
 
-**Depends on:** `agent-types`, `reqwest`, `serde`, `futures`
+**Depends on:** `neuron-types`, `reqwest`, `serde`, `futures`
 
 This validates the Provider trait against a real API.
 
@@ -1368,7 +1368,7 @@ This validates the Provider trait against a real API.
 
 ```toml
 [dependencies]
-agent-types = { path = "../agent-types" }
+neuron-types = { path = "../neuron-types" }
 reqwest = { version = "0.12", features = ["json", "stream"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -1383,7 +1383,7 @@ wiremock = "0.6"
 
 Modules: `lib.rs`, `client.rs`, `mapping.rs`, `streaming.rs`, `error.rs`
 
-Commit: `feat(agent-provider-anthropic): initialize crate`
+Commit: `feat(neuron-provider-anthropic): initialize crate`
 
 ---
 
@@ -1407,7 +1407,7 @@ impl Anthropic {
 }
 ```
 
-Commit: `feat(agent-provider-anthropic): add Anthropic client builder`
+Commit: `feat(neuron-provider-anthropic): add Anthropic client builder`
 
 ---
 
@@ -1417,7 +1417,7 @@ Commit: `feat(agent-provider-anthropic): add Anthropic client builder`
 
 **Implement:** `mapping.rs` with `to_api_request()` and `from_api_response()` functions. These are the core of the provider — translating our types to/from the Anthropic wire format.
 
-Commit: `feat(agent-provider-anthropic): add request/response mapping`
+Commit: `feat(neuron-provider-anthropic): add request/response mapping`
 
 ---
 
@@ -1427,7 +1427,7 @@ Commit: `feat(agent-provider-anthropic): add request/response mapping`
 
 **Implement:** `impl Provider for Anthropic` — the `complete` method. Makes a POST to `/v1/messages` with `stream: false`.
 
-Commit: `feat(agent-provider-anthropic): implement Provider::complete`
+Commit: `feat(neuron-provider-anthropic): implement Provider::complete`
 
 ---
 
@@ -1437,7 +1437,7 @@ Commit: `feat(agent-provider-anthropic): implement Provider::complete`
 
 **Implement:** `streaming.rs` — parse SSE from Anthropic's streaming format. Each SSE `data:` line maps to a `StreamEvent`. Return a `StreamHandle` with a receiver.
 
-Commit: `feat(agent-provider-anthropic): implement Provider::complete_stream`
+Commit: `feat(neuron-provider-anthropic): implement Provider::complete_stream`
 
 ---
 
@@ -1447,7 +1447,7 @@ Commit: `feat(agent-provider-anthropic): implement Provider::complete_stream`
 
 **Implement:** Error mapping from reqwest/HTTP errors to `ProviderError`.
 
-Commit: `feat(agent-provider-anthropic): add error mapping`
+Commit: `feat(neuron-provider-anthropic): add error mapping`
 
 ---
 
@@ -1455,20 +1455,20 @@ Commit: `feat(agent-provider-anthropic): add error mapping`
 
 Run full suite + clippy. Write CLAUDE.md.
 
-Commit: `feat(agent-provider-anthropic): finalize crate`
+Commit: `feat(neuron-provider-anthropic): finalize crate`
 
 ---
 
-## Block 5: `agent-loop` (The Agentic While Loop)
+## Block 5: `neuron-loop` (The Agentic While Loop)
 
-**Depends on:** `agent-types`, `agent-tool`, `agent-context`
+**Depends on:** `neuron-types`, `neuron-tool`, `neuron-context`
 
 ### Task 5.1: Initialize the Cargo project
 
 ```toml
 [dependencies]
-agent-types = { path = "../agent-types" }
-agent-tool = { path = "../agent-tool" }
+neuron-types = { path = "../neuron-types" }
+neuron-tool = { path = "../neuron-tool" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 futures = "0.3"
@@ -1477,12 +1477,12 @@ tokio = { version = "1", features = ["sync"] }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
-agent-context = { path = "../agent-context" }
+neuron-context = { path = "../neuron-context" }
 ```
 
 Modules: `lib.rs`, `config.rs`, `loop_impl.rs`, `step.rs`
 
-Commit: `feat(agent-loop): initialize crate`
+Commit: `feat(neuron-loop): initialize crate`
 
 ---
 
@@ -1492,7 +1492,7 @@ Commit: `feat(agent-loop): initialize crate`
 
 **Implement:** `LoopConfig`, `AgentLoop<P, C>`, `AgentResult` as in design doc section 4.6.
 
-Commit: `feat(agent-loop): add AgentLoop struct and config`
+Commit: `feat(neuron-loop): add AgentLoop struct and config`
 
 ---
 
@@ -1502,7 +1502,7 @@ Commit: `feat(agent-loop): add AgentLoop struct and config`
 
 **Implement:** The core while loop as described in the design doc pseudocode. Without durability first — direct provider/tool calls.
 
-Commit: `feat(agent-loop): implement run() with tool execution loop`
+Commit: `feat(neuron-loop): implement run() with tool execution loop`
 
 ---
 
@@ -1512,7 +1512,7 @@ Commit: `feat(agent-loop): implement run() with tool execution loop`
 
 **Implement:** Fire hooks at each point in the loop. Respect `HookAction` return values.
 
-Commit: `feat(agent-loop): integrate ObservabilityHook events`
+Commit: `feat(neuron-loop): integrate ObservabilityHook events`
 
 ---
 
@@ -1522,7 +1522,7 @@ Commit: `feat(agent-loop): integrate ObservabilityHook events`
 
 **Implement:** Check `context.should_compact()` at the top of each loop iteration. Call `context.compact()` when needed.
 
-Commit: `feat(agent-loop): integrate context compaction`
+Commit: `feat(neuron-loop): integrate context compaction`
 
 ---
 
@@ -1532,7 +1532,7 @@ Commit: `feat(agent-loop): integrate context compaction`
 
 **Implement:** Add the `if durability` branches from the pseudocode.
 
-Commit: `feat(agent-loop): integrate DurableContext`
+Commit: `feat(neuron-loop): integrate DurableContext`
 
 ---
 
@@ -1542,27 +1542,27 @@ Commit: `feat(agent-loop): integrate DurableContext`
 
 **Implement:** `run_stream()` wraps `complete_stream` and yields events. `StepIterator` yields after each turn.
 
-Commit: `feat(agent-loop): implement run_stream() and run_step()`
+Commit: `feat(neuron-loop): implement run_stream() and run_step()`
 
 ---
 
 ### Task 5.8: Re-exports and validation
 
-Run: `cd agent-loop && cargo test && cargo clippy -- -D warnings`
+Run: `cd neuron-loop && cargo test && cargo clippy -- -D warnings`
 
-Commit: `feat(agent-loop): finalize crate`
+Commit: `feat(neuron-loop): finalize crate`
 
 ---
 
-## Block 6: `agent-mcp` (MCP Integration)
+## Block 6: `neuron-mcp` (MCP Integration)
 
-**Depends on:** `agent-types`, `rmcp`
+**Depends on:** `neuron-types`, `rmcp`
 
 ### Task 6.1: Initialize the Cargo project
 
 ```toml
 [dependencies]
-agent-types = { path = "../agent-types" }
+neuron-types = { path = "../neuron-types" }
 rmcp = { version = "0.1", features = ["client", "transport-io", "transport-child-process", "transport-streamable-http-client"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -1575,7 +1575,7 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 
 Modules: `lib.rs`, `client.rs`, `bridge.rs`, `server.rs`, `types.rs`, `error.rs`
 
-Commit: `feat(agent-mcp): initialize crate`
+Commit: `feat(neuron-mcp): initialize crate`
 
 ---
 
@@ -1585,7 +1585,7 @@ Commit: `feat(agent-mcp): initialize crate`
 
 **Implement:** `McpClient` wrapping `rmcp::Client`. `connect_stdio()` spawns a child process and handles MCP initialization handshake.
 
-Commit: `feat(agent-mcp): add McpClient with stdio transport`
+Commit: `feat(neuron-mcp): add McpClient with stdio transport`
 
 ---
 
@@ -1593,7 +1593,7 @@ Commit: `feat(agent-mcp): add McpClient with stdio transport`
 
 **Implement:** `connect_http()` uses rmcp's Streamable HTTP transport.
 
-Commit: `feat(agent-mcp): add HTTP transport`
+Commit: `feat(neuron-mcp): add HTTP transport`
 
 ---
 
@@ -1603,7 +1603,7 @@ Commit: `feat(agent-mcp): add HTTP transport`
 
 **Implement:** Map between rmcp types and our types.
 
-Commit: `feat(agent-mcp): add tool operations`
+Commit: `feat(neuron-mcp): add tool operations`
 
 ---
 
@@ -1613,7 +1613,7 @@ Commit: `feat(agent-mcp): add tool operations`
 
 **Implement:** `McpToolBridge` struct implementing `ToolDyn`. `discover_tools()` on `McpClient` returns `Vec<Arc<dyn ToolDyn>>`.
 
-Commit: `feat(agent-mcp): add McpToolBridge for ToolDyn integration`
+Commit: `feat(neuron-mcp): add McpToolBridge for ToolDyn integration`
 
 ---
 
@@ -1621,7 +1621,7 @@ Commit: `feat(agent-mcp): add McpToolBridge for ToolDyn integration`
 
 **Implement:** `list_resources`, `read_resource`, `list_prompts`, `get_prompt` on `McpClient`.
 
-Commit: `feat(agent-mcp): add resource and prompt operations`
+Commit: `feat(neuron-mcp): add resource and prompt operations`
 
 ---
 
@@ -1629,29 +1629,29 @@ Commit: `feat(agent-mcp): add resource and prompt operations`
 
 **Implement:** `McpServer` wrapping a `ToolRegistry` and exposing tools via MCP protocol.
 
-Commit: `feat(agent-mcp): add McpServer`
+Commit: `feat(neuron-mcp): add McpServer`
 
 ---
 
 ### Task 6.8: Re-exports and validation
 
-Commit: `feat(agent-mcp): finalize crate`
+Commit: `feat(neuron-mcp): finalize crate`
 
 ---
 
-## Block 7: `agent-provider-openai`
+## Block 7: `neuron-provider-openai`
 
-**Depends on:** `agent-types`, `reqwest`, `serde`, `futures`
+**Depends on:** `neuron-types`, `reqwest`, `serde`, `futures`
 
-Same pattern as agent-provider-anthropic.
+Same pattern as neuron-provider-anthropic.
 
 ### Task 7.1: Initialize crate
 
-Commit: `feat(agent-provider-openai): initialize crate`
+Commit: `feat(neuron-provider-openai): initialize crate`
 
 ### Task 7.2: OpenAI client builder
 
-Commit: `feat(agent-provider-openai): add client builder`
+Commit: `feat(neuron-provider-openai): add client builder`
 
 ### Task 7.3: Request/response mapping
 
@@ -1663,37 +1663,37 @@ Map to OpenAI Chat Completions format. Key differences from Anthropic:
 - Multiple tool calls in one response (parallel tool calls)
 - `extra` forwarded as additional body fields
 
-Commit: `feat(agent-provider-openai): add request/response mapping`
+Commit: `feat(neuron-provider-openai): add request/response mapping`
 
 ### Task 7.4: Streaming
 
 OpenAI SSE format: `choices[0].delta` with `content`, `tool_calls` fields.
 
-Commit: `feat(agent-provider-openai): implement streaming`
+Commit: `feat(neuron-provider-openai): implement streaming`
 
 ### Task 7.5: Provider implementation + error mapping
 
-Commit: `feat(agent-provider-openai): implement Provider trait`
+Commit: `feat(neuron-provider-openai): implement Provider trait`
 
 ### Task 7.6: Finalize
 
-Commit: `feat(agent-provider-openai): finalize crate`
+Commit: `feat(neuron-provider-openai): finalize crate`
 
 ---
 
-## Block 8: `agent-provider-ollama`
+## Block 8: `neuron-provider-ollama`
 
-**Depends on:** `agent-types`, `reqwest`, `serde`, `futures`
+**Depends on:** `neuron-types`, `reqwest`, `serde`, `futures`
 
 ### Task 8.1: Initialize crate
 
-Commit: `feat(agent-provider-ollama): initialize crate`
+Commit: `feat(neuron-provider-ollama): initialize crate`
 
 ### Task 8.2: Ollama client builder
 
 Key config: `base_url` (default `http://localhost:11434`), `keep_alive`.
 
-Commit: `feat(agent-provider-ollama): add client builder`
+Commit: `feat(neuron-provider-ollama): add client builder`
 
 ### Task 8.3: Request/response mapping
 
@@ -1704,23 +1704,23 @@ Key differences:
 - Synthesize tool use IDs (Ollama doesn't provide them)
 - `extra` forwarded into `options` object
 
-Commit: `feat(agent-provider-ollama): add request/response mapping`
+Commit: `feat(neuron-provider-ollama): add request/response mapping`
 
 ### Task 8.4: NDJSON streaming
 
 Ollama uses newline-delimited JSON, not SSE. Parse each line as a JSON object.
 
-Commit: `feat(agent-provider-ollama): implement NDJSON streaming`
+Commit: `feat(neuron-provider-ollama): implement NDJSON streaming`
 
 ### Task 8.5: Provider implementation + finalize
 
-Commit: `feat(agent-provider-ollama): implement Provider and finalize`
+Commit: `feat(neuron-provider-ollama): implement Provider and finalize`
 
 ---
 
-## Block 9: `agent-runtime` (Production Layer)
+## Block 9: `neuron-runtime` (Production Layer)
 
-**Depends on:** `agent-types`, `agent-tool`, `agent-loop`, `chrono`, `uuid`
+**Depends on:** `neuron-types`, `neuron-tool`, `neuron-loop`, `chrono`, `uuid`
 
 Largest block (~2500 lines). Contains sub-agents, sessions, guardrails, DurableContext implementations, sandboxing.
 
@@ -1728,9 +1728,9 @@ Largest block (~2500 lines). Contains sub-agents, sessions, guardrails, DurableC
 
 ```toml
 [dependencies]
-agent-types = { path = "../agent-types" }
-agent-tool = { path = "../agent-tool" }
-agent-loop = { path = "../agent-loop" }
+neuron-types = { path = "../neuron-types" }
+neuron-tool = { path = "../neuron-tool" }
+neuron-loop = { path = "../neuron-loop" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 chrono = { version = "0.4", features = ["serde"] }
@@ -1740,12 +1740,12 @@ tracing = "0.1"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
-agent-context = { path = "../agent-context" }
+neuron-context = { path = "../neuron-context" }
 ```
 
 Modules: `lib.rs`, `session.rs`, `sub_agent.rs`, `guardrail.rs`, `durable.rs`, `sandbox.rs`, `error.rs`
 
-Commit: `feat(agent-runtime): initialize crate`
+Commit: `feat(neuron-runtime): initialize crate`
 
 ### Task 9.2: Session and SessionState types
 
@@ -1753,7 +1753,7 @@ Commit: `feat(agent-runtime): initialize crate`
 
 **Implement:** `Session`, `SessionState`, `SessionSummary` from design doc.
 
-Commit: `feat(agent-runtime): add Session types`
+Commit: `feat(neuron-runtime): add Session types`
 
 ### Task 9.3: SessionStorage trait + in-memory impl
 
@@ -1761,7 +1761,7 @@ Commit: `feat(agent-runtime): add Session types`
 
 **Implement:** `SessionStorage` trait + `InMemorySessionStorage` implementation.
 
-Commit: `feat(agent-runtime): add SessionStorage with in-memory impl`
+Commit: `feat(neuron-runtime): add SessionStorage with in-memory impl`
 
 ### Task 9.4: File-based SessionStorage
 
@@ -1769,7 +1769,7 @@ Commit: `feat(agent-runtime): add SessionStorage with in-memory impl`
 
 **Implement:** `FileSessionStorage` storing one JSON file per session.
 
-Commit: `feat(agent-runtime): add file-based SessionStorage`
+Commit: `feat(neuron-runtime): add file-based SessionStorage`
 
 ### Task 9.5: SubAgentConfig and SubAgentManager
 
@@ -1777,7 +1777,7 @@ Commit: `feat(agent-runtime): add file-based SessionStorage`
 
 **Implement:** `SubAgentConfig`, `SubAgentManager` with `spawn()` from design doc.
 
-Commit: `feat(agent-runtime): add SubAgentManager`
+Commit: `feat(neuron-runtime): add SubAgentManager`
 
 ### Task 9.6: spawn_parallel
 
@@ -1785,7 +1785,7 @@ Commit: `feat(agent-runtime): add SubAgentManager`
 
 **Implement:** `spawn_parallel()` using `tokio::join!` or `futures::join_all`.
 
-Commit: `feat(agent-runtime): add parallel sub-agent spawning`
+Commit: `feat(neuron-runtime): add parallel sub-agent spawning`
 
 ### Task 9.7: Guardrails
 
@@ -1793,7 +1793,7 @@ Commit: `feat(agent-runtime): add parallel sub-agent spawning`
 
 **Implement:** `InputGuardrail`, `OutputGuardrail`, `GuardrailResult` traits from design doc.
 
-Commit: `feat(agent-runtime): add guardrail traits`
+Commit: `feat(neuron-runtime): add guardrail traits`
 
 ### Task 9.8: LocalDurableContext
 
@@ -1801,7 +1801,7 @@ Commit: `feat(agent-runtime): add guardrail traits`
 
 **Implement:** `LocalDurableContext` implementing `DurableContext` — direct passthrough.
 
-Commit: `feat(agent-runtime): add LocalDurableContext`
+Commit: `feat(neuron-runtime): add LocalDurableContext`
 
 ### Task 9.9: Sandbox trait
 
@@ -1809,7 +1809,7 @@ Commit: `feat(agent-runtime): add LocalDurableContext`
 
 **Implement:** `Sandbox` trait from design doc.
 
-Commit: `feat(agent-runtime): add Sandbox trait`
+Commit: `feat(neuron-runtime): add Sandbox trait`
 
 ### Task 9.10: TemporalDurableContext and RestateDurableContext (stubs)
 
@@ -1817,17 +1817,17 @@ These require the actual SDKs (`temporal-sdk`, `restate-sdk`) and should be feat
 
 **Implement:** Feature-gated modules that compile but require actual SDK integration to use.
 
-Commit: `feat(agent-runtime): add Temporal/Restate DurableContext stubs`
+Commit: `feat(neuron-runtime): add Temporal/Restate DurableContext stubs`
 
 ### Task 9.11: Finalize
 
-Run: `cd agent-runtime && cargo test && cargo clippy -- -D warnings`
+Run: `cd neuron-runtime && cargo test && cargo clippy -- -D warnings`
 
-Commit: `feat(agent-runtime): finalize crate`
+Commit: `feat(neuron-runtime): finalize crate`
 
 ---
 
-## Block 10: `agent-blocks` (Umbrella Crate)
+## Block 10: `neuron` (Umbrella Crate)
 
 **Depends on:** everything
 
@@ -1835,34 +1835,34 @@ Commit: `feat(agent-runtime): finalize crate`
 
 ```toml
 [package]
-name = "agent-blocks"
+name = "neuron"
 version = "0.1.0"
 edition = "2024"
 
 [features]
 default = ["anthropic"]
-anthropic = ["dep:agent-provider-anthropic"]
-openai = ["dep:agent-provider-openai"]
-ollama = ["dep:agent-provider-ollama"]
-mcp = ["dep:agent-mcp"]
-runtime = ["dep:agent-runtime"]
+anthropic = ["dep:neuron-provider-anthropic"]
+openai = ["dep:neuron-provider-openai"]
+ollama = ["dep:neuron-provider-ollama"]
+mcp = ["dep:neuron-mcp"]
+runtime = ["dep:neuron-runtime"]
 full = ["anthropic", "openai", "ollama", "mcp", "runtime"]
 
 [dependencies]
-agent-types = { path = "../agent-types" }
-agent-tool = { path = "../agent-tool" }
-agent-context = { path = "../agent-context" }
-agent-loop = { path = "../agent-loop" }
-agent-provider-anthropic = { path = "../agent-provider-anthropic", optional = true }
-agent-provider-openai = { path = "../agent-provider-openai", optional = true }
-agent-provider-ollama = { path = "../agent-provider-ollama", optional = true }
-agent-mcp = { path = "../agent-mcp", optional = true }
-agent-runtime = { path = "../agent-runtime", optional = true }
+neuron-types = { path = "../neuron-types" }
+neuron-tool = { path = "../neuron-tool" }
+neuron-context = { path = "../neuron-context" }
+neuron-loop = { path = "../neuron-loop" }
+neuron-provider-anthropic = { path = "../neuron-provider-anthropic", optional = true }
+neuron-provider-openai = { path = "../neuron-provider-openai", optional = true }
+neuron-provider-ollama = { path = "../neuron-provider-ollama", optional = true }
+neuron-mcp = { path = "../neuron-mcp", optional = true }
+neuron-runtime = { path = "../neuron-runtime", optional = true }
 ```
 
 **Implement:** `lib.rs` with feature-gated re-exports.
 
-Commit: `feat(agent-blocks): add umbrella crate with feature flags`
+Commit: `feat(neuron): add umbrella crate with feature flags`
 
 ### Task 10.2: Integration examples
 
@@ -1871,14 +1871,14 @@ Write the three composition examples from design doc section 5 as integration te
 - Coding agent with MCP (6 blocks)
 - Durable production agent (all blocks)
 
-Commit: `feat(agent-blocks): add composition integration tests`
+Commit: `feat(neuron): add composition integration tests`
 
 ### Task 10.3: Final validation
 
 Run all tests across all crates:
 
 ```bash
-for crate in agent-types agent-tool agent-context agent-provider-anthropic agent-loop agent-mcp agent-provider-openai agent-provider-ollama agent-runtime agent-blocks; do
+for crate in neuron-types neuron-tool neuron-context neuron-provider-anthropic neuron-loop neuron-mcp neuron-provider-openai neuron-provider-ollama neuron-runtime neuron; do
     (cd $crate && cargo test && cargo clippy -- -D warnings)
 done
 ```
@@ -1896,4 +1896,4 @@ After all blocks are complete:
 3. **Integration:** The three composition examples from the design doc compile and pass
 4. **Dependency graph:** Verify no circular deps — each crate only depends on crates below it in the build order
 5. **Doc comments:** `cargo doc --no-deps` generates clean documentation for each crate
-6. **Manual smoke test:** Build a minimal agent with `agent-provider-anthropic` and run a single completion against the real API (requires `ANTHROPIC_API_KEY`)
+6. **Manual smoke test:** Build a minimal agent with `neuron-provider-anthropic` and run a single completion against the real API (requires `ANTHROPIC_API_KEY`)

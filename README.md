@@ -1,4 +1,4 @@
-# rust-agent-blocks
+# neuron
 
 Composable building blocks for AI agents in Rust.
 
@@ -8,8 +8,8 @@ pull one without buying the whole stack.
 ## Quick Start
 
 ```rust
-use agent_blocks::prelude::*;
-use agent_blocks::anthropic::Anthropic;
+use neuron::prelude::*;
+use neuron::anthropic::Anthropic;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -34,19 +34,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 | Crate | Description |
 |-------|-------------|
-| `agent-types` | Shared types and traits — the lingua franca of all blocks |
-| `agent-tool` | Tool registry, middleware pipeline, and built-in middleware |
-| `agent-tool-macros` | `#[agent_tool]` proc macro for deriving Tool implementations |
-| `agent-context` | Context management — token counting, compaction strategies |
-| `agent-loop` | The agentic while loop — composes provider + tools + context |
-| `agent-provider-anthropic` | Anthropic Claude provider (Messages API, streaming) |
-| `agent-provider-openai` | OpenAI provider (Chat Completions API, streaming) |
-| `agent-provider-ollama` | Ollama local provider (Chat API, NDJSON streaming) |
-| `agent-mcp` | MCP (Model Context Protocol) integration via rmcp |
-| `agent-runtime` | Sessions, sub-agents, guardrails, durability, sandboxing |
-| `agent-blocks` | Umbrella crate with feature flags |
+| `neuron-types` | Shared types and traits — the lingua franca of all blocks |
+| `neuron-tool` | Tool registry, middleware pipeline, and built-in middleware |
+| `neuron-tool-macros` | `#[neuron_tool]` proc macro for deriving Tool implementations |
+| `neuron-context` | Context management — token counting, compaction strategies |
+| `neuron-loop` | The agentic while loop — composes provider + tools + context |
+| `neuron-provider-anthropic` | Anthropic Claude provider (Messages API, streaming) |
+| `neuron-provider-openai` | OpenAI provider (Chat Completions API, streaming) |
+| `neuron-provider-ollama` | Ollama local provider (Chat API, NDJSON streaming) |
+| `neuron-mcp` | MCP (Model Context Protocol) integration via rmcp |
+| `neuron-runtime` | Sessions, sub-agents, guardrails, durability, sandboxing |
+| `neuron` | Umbrella crate with feature flags |
 
-## Feature Flags (agent-blocks)
+## Feature Flags (neuron)
 
 | Feature | Description | Default |
 |---------|-------------|---------|
@@ -60,18 +60,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ## Architecture
 
 ```
-agent-types                     (zero deps, the foundation)
+neuron-types                    (zero deps, the foundation)
     ^
-    |-- agent-provider-*        (each implements Provider trait)
-    |-- agent-tool              (Tool trait, registry, middleware)
-    |-- agent-mcp               (wraps rmcp, bridges to Tool trait)
-    +-- agent-context           (+ optional Provider for summarization)
+    |-- neuron-provider-*       (each implements Provider trait)
+    |-- neuron-tool             (Tool trait, registry, middleware)
+    |-- neuron-mcp              (wraps rmcp, bridges to Tool trait)
+    +-- neuron-context          (+ optional Provider for summarization)
             ^
-        agent-loop              (composes provider + tool + context)
+        neuron-loop             (composes provider + tool + context)
             ^
-        agent-runtime           (sub-agents, sessions, durability)
+        neuron-runtime          (sub-agents, sessions, durability)
             ^
-        agent-blocks            (umbrella re-export)
+        neuron                  (umbrella re-export)
 ```
 
 Arrows point up. No circular dependencies.

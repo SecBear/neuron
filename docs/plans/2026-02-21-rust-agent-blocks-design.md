@@ -1,4 +1,4 @@
-# rust-agent-blocks: Design Document
+# neuron: Design Document
 
 **Date:** 2026-02-21
 **Status:** Post-validation — ready for implementation planning
@@ -8,7 +8,7 @@
 
 ## 1. Vision
 
-`rust-agent-blocks` is a set of independent, composable Rust crates that
+`neuron` is a set of independent, composable Rust crates that
 provide the building blocks for constructing AI agent systems. Not a framework.
 Not an SDK. Building blocks.
 
@@ -64,35 +64,35 @@ See CLAUDE.md for the full landscape comparison. Summary:
 ### 3.1 Overview
 
 ```
-rust-agent-blocks/
+neuron/
 |
-|-- agent-types/                      # Shared types, traits, serde
-|-- agent-provider-anthropic/         # Anthropic Messages API
-|-- agent-provider-openai/            # OpenAI Chat/Responses API
-|-- agent-provider-ollama/            # Ollama (local/remote)
-|-- agent-tool/                       # Tool registry + middleware pipeline
-|-- agent-mcp/                        # MCP client + server (wraps rmcp)
-|-- agent-context/                    # Context engine (compaction, memory)
-|-- agent-loop/                       # The agentic while loop
-|-- agent-runtime/                    # Sub-agents, sessions, DurableContext, guardrails
-+-- agent-blocks/                     # Umbrella re-export (build LAST)
+|-- neuron-types/                      # Shared types, traits, serde
+|-- neuron-provider-anthropic/         # Anthropic Messages API
+|-- neuron-provider-openai/            # OpenAI Chat/Responses API
+|-- neuron-provider-ollama/            # Ollama (local/remote)
+|-- neuron-tool/                       # Tool registry + middleware pipeline
+|-- neuron-mcp/                        # MCP client + server (wraps rmcp)
+|-- neuron-context/                    # Context engine (compaction, memory)
+|-- neuron-loop/                       # The agentic while loop
+|-- neuron-runtime/                    # Sub-agents, sessions, DurableContext, guardrails
++-- neuron/                     # Umbrella re-export (build LAST)
 ```
 
 ### 3.2 Dependency graph
 
 ```
-agent-types                     (zero internal deps, the foundation)
+neuron-types                     (zero internal deps, the foundation)
     ^
-    |-- agent-provider-*        (each implements Provider trait)
-    |-- agent-tool              (Tool trait, registry, middleware)
-    |-- agent-mcp               (wraps rmcp, bridges to Tool trait)
-    +-- agent-context           (+ optional Provider for summarization)
+    |-- neuron-provider-*        (each implements Provider trait)
+    |-- neuron-tool              (Tool trait, registry, middleware)
+    |-- neuron-mcp               (wraps rmcp, bridges to Tool trait)
+    +-- neuron-context           (+ optional Provider for summarization)
             ^
-        agent-loop              (composes provider + tool + context)
+        neuron-loop              (composes provider + tool + context)
             ^
-        agent-runtime           (sub-agents, sessions, DurableContext, guardrails)
+        neuron-runtime           (sub-agents, sessions, DurableContext, guardrails)
             ^
-        agent-blocks            (umbrella, feature-gated re-exports)
+        neuron            (umbrella, feature-gated re-exports)
             ^
         YOUR PROJECTS           (sdk, cli, tui, gui, gh-aw)
 ```
@@ -101,37 +101,37 @@ Rule: arrows only point up. No circular dependencies.
 
 ### 3.3 Build order
 
-1. `agent-types` — foundation, everything depends on this
-2. `agent-tool` — tool registry and middleware, needed early for testing
-3. `agent-context` — compaction strategies
-4. `agent-provider-anthropic` — first real provider, validates Provider trait
-5. `agent-loop` — composes the above, validates the composition model
-6. `agent-mcp` — wraps rmcp, bridges MCP tools to ToolRegistry
-7. `agent-provider-openai` — second provider, validates trait generality
-8. `agent-provider-ollama` — local inference provider
-9. `agent-runtime` — DurableContext, sessions, sub-agents, guardrails
-10. `agent-blocks` — umbrella crate, last
+1. `neuron-types` — foundation, everything depends on this
+2. `neuron-tool` — tool registry and middleware, needed early for testing
+3. `neuron-context` — compaction strategies
+4. `neuron-provider-anthropic` — first real provider, validates Provider trait
+5. `neuron-loop` — composes the above, validates the composition model
+6. `neuron-mcp` — wraps rmcp, bridges MCP tools to ToolRegistry
+7. `neuron-provider-openai` — second provider, validates trait generality
+8. `neuron-provider-ollama` — local inference provider
+9. `neuron-runtime` — DurableContext, sessions, sub-agents, guardrails
+10. `neuron` — umbrella crate, last
 
 ### 3.4 Size estimates
 
 | Block | Purpose | Est. lines |
 |-------|---------|------------|
-| `agent-types` | Shared types, traits, serde | ~800 |
-| `agent-provider-anthropic` | Anthropic Messages API | ~800 |
-| `agent-provider-openai` | OpenAI Chat/Responses API | ~900 |
-| `agent-provider-ollama` | Ollama API | ~500 |
-| `agent-tool` | Tool registry, middleware, derive macro | ~1500 |
-| `agent-mcp` | MCP client + server (wrapping rmcp) | ~1200 |
-| `agent-context` | Compaction, memory, token mgmt | ~1200 |
-| `agent-loop` | The agentic while loop | ~400 |
-| `agent-runtime` | DurableContext, sub-agents, sessions, guardrails | ~2500 |
-| `agent-blocks` | Umbrella re-exports | ~100 |
+| `neuron-types` | Shared types, traits, serde | ~800 |
+| `neuron-provider-anthropic` | Anthropic Messages API | ~800 |
+| `neuron-provider-openai` | OpenAI Chat/Responses API | ~900 |
+| `neuron-provider-ollama` | Ollama API | ~500 |
+| `neuron-tool` | Tool registry, middleware, derive macro | ~1500 |
+| `neuron-mcp` | MCP client + server (wrapping rmcp) | ~1200 |
+| `neuron-context` | Compaction, memory, token mgmt | ~1200 |
+| `neuron-loop` | The agentic while loop | ~400 |
+| `neuron-runtime` | DurableContext, sub-agents, sessions, guardrails | ~2500 |
+| `neuron` | Umbrella re-exports | ~100 |
 
 ---
 
 ## 4. Block specifications
 
-### 4.1 `agent-types` — The lingua franca
+### 4.1 `neuron-types` — The lingua franca
 
 Zero logic. Pure types + traits + serde. Every other block depends on this.
 
@@ -616,12 +616,12 @@ impl<T> WasmCompatSync for T {}
 pub type WasmBoxedFuture<'a, T> = Pin<Box<dyn Future<Output = T> + 'a>>;
 ```
 
-### 4.2 `agent-provider-*` — Provider implementations
+### 4.2 `neuron-provider-*` — Provider implementations
 
-Each provider is its own crate implementing `Provider` from `agent-types`.
-Depends only on `agent-types` + `reqwest` + `serde` + `futures`.
+Each provider is its own crate implementing `Provider` from `neuron-types`.
+Depends only on `neuron-types` + `reqwest` + `serde` + `futures`.
 
-**Anthropic** (`agent-provider-anthropic`):
+**Anthropic** (`neuron-provider-anthropic`):
 - Messages API (`/v1/messages`)
 - Streaming via SSE
 - Prompt caching (`cache_control` on system blocks, content blocks, tools)
@@ -629,7 +629,7 @@ Depends only on `agent-types` + `reqwest` + `serde` + `futures`.
 - Model constants (`claude-sonnet-4-20250514`, `claude-opus-4-20250514`, etc.)
 - Maps `SystemPrompt::Blocks` to array-form system parameter
 
-**OpenAI** (`agent-provider-openai`):
+**OpenAI** (`neuron-provider-openai`):
 - Chat Completions API (`/v1/chat/completions`)
 - Streaming via SSE
 - Structured output (`response_format: json_schema`)
@@ -638,7 +638,7 @@ Depends only on `agent-types` + `reqwest` + `serde` + `futures`.
 - Parallel tool calls (multiple `ToolUse` blocks in one response)
 - `extra` field forwarded as additional request body fields
 
-**Ollama** (`agent-provider-ollama`):
+**Ollama** (`neuron-provider-ollama`):
 - Chat API (`/api/chat`)
 - Streaming via newline-delimited JSON (not SSE)
 - Maps `max_tokens` to `options.num_predict`, `temperature` to `options.temperature`
@@ -646,7 +646,7 @@ Depends only on `agent-types` + `reqwest` + `serde` + `futures`.
 - `extra` field forwarded into `options` object
 - `keep_alive` as provider constructor config, not per-request
 
-### 4.3 `agent-tool` — Tool system
+### 4.3 `neuron-tool` — Tool system
 
 Registry, middleware pipeline, derive macro.
 
@@ -729,13 +729,13 @@ struct ReadFile {
 // Generated: impl Tool for ReadFile with input_schema from JsonSchema derive
 ```
 
-### 4.4 `agent-mcp` — MCP integration
+### 4.4 `neuron-mcp` — MCP integration
 
 Wraps `rmcp` (official Rust MCP SDK, 3.8M downloads). Does NOT reimplement the
 protocol. Our value-add: bridging MCP to our `Tool`/`ToolDyn` trait and
 providing ergonomic lifecycle management.
 
-**Depends on:** `agent-types`, `rmcp` (with features: `client`, `server`,
+**Depends on:** `neuron-types`, `rmcp` (with features: `client`, `server`,
 `transport-io`, `transport-child-process`,
 `transport-streamable-http-client`, `transport-streamable-http-server`)
 
@@ -817,7 +817,7 @@ impl ToolDyn for McpToolBridge {
 }
 ```
 
-### 4.5 `agent-context` — Context engine
+### 4.5 `neuron-context` — Context engine
 
 Token management, compaction strategies, persistent memory, system injection.
 
@@ -854,7 +854,7 @@ pub struct CompositeStrategy {
 }
 ```
 
-All implement `ContextStrategy` from `agent-types`.
+All implement `ContextStrategy` from `neuron-types`.
 
 #### Persistent context
 
@@ -888,7 +888,7 @@ pub enum InjectionTrigger {
 }
 ```
 
-### 4.6 `agent-loop` — The loop
+### 4.6 `neuron-loop` — The loop
 
 Deliberately small. Composes Provider + Tools + Context via traits.
 
@@ -996,7 +996,7 @@ loop:
         return response.text
 ```
 
-### 4.7 `agent-runtime` — Production layer
+### 4.7 `neuron-runtime` — Production layer
 
 Sub-agents, sessions, guardrails, DurableContext implementations.
 
@@ -1116,7 +1116,7 @@ Built on Rust's `tracing` crate. Compatible with any OpenTelemetry collector.
 
 ```rust
 // Span conventions (documented, not a crate):
-// - agent_loop { session_id }
+// - neuron_loop { session_id }
 //   - llm_call { model, input_tokens, output_tokens }
 //   - tool_execution { tool_name, duration_ms }
 //   - context_compaction { old_tokens, new_tokens }
@@ -1131,14 +1131,14 @@ Built on Rust's `tracing` crate. Compatible with any OpenTelemetry collector.
 ### Minimal agent (3 blocks)
 
 ```rust
-use agent_types::*;
-use agent_provider_anthropic::Anthropic;
-use agent_loop::AgentLoop;
+use neuron_types::*;
+use neuron_provider_anthropic::Anthropic;
+use neuron_loop::AgentLoop;
 
 let provider = Anthropic::new(api_key).model("claude-sonnet-4-20250514");
-let context = agent_context::SlidingWindowStrategy::new(100_000);
+let context = neuron_context::SlidingWindowStrategy::new(100_000);
 
-let mut agent = AgentLoop::new(provider, agent_tool::ToolRegistry::new(), context)
+let mut agent = AgentLoop::new(provider, neuron_tool::ToolRegistry::new(), context)
     .system_prompt("You are a helpful assistant.");
 
 let result = agent.run("What is the capital of France?").await?;
@@ -1148,12 +1148,12 @@ println!("{}", result.response);
 ### Coding agent with MCP tools (6 blocks)
 
 ```rust
-use agent_types::*;
-use agent_provider_anthropic::Anthropic;
-use agent_tool::ToolRegistry;
-use agent_mcp::McpClient;
-use agent_context::CompositeStrategy;
-use agent_loop::AgentLoop;
+use neuron_types::*;
+use neuron_provider_anthropic::Anthropic;
+use neuron_tool::ToolRegistry;
+use neuron_mcp::McpClient;
+use neuron_context::CompositeStrategy;
+use neuron_loop::AgentLoop;
 
 let provider = Anthropic::new(api_key).model("claude-sonnet-4-20250514");
 
@@ -1172,8 +1172,8 @@ for tool in github.discover_tools().await? {
 tools.add_tool_middleware("bash", my_middleware::PermissionRequired);
 
 let context = CompositeStrategy::new(vec![
-    Box::new(agent_context::ToolResultClearingStrategy::new(10)),
-    Box::new(agent_context::SummarizationStrategy::new(
+    Box::new(neuron_context::ToolResultClearingStrategy::new(10)),
+    Box::new(neuron_context::SummarizationStrategy::new(
         Anthropic::new(api_key).model("claude-haiku-4-5-20251001"), 20,
     )),
 ]);
@@ -1188,12 +1188,12 @@ let result = agent.run("Fix the bug in src/main.rs").await?;
 ### Durable production agent (all blocks)
 
 ```rust
-use agent_types::*;
-use agent_provider_anthropic::Anthropic;
-use agent_tool::ToolRegistry;
-use agent_context::CompositeStrategy;
-use agent_loop::AgentLoop;
-use agent_runtime::*;
+use neuron_types::*;
+use neuron_provider_anthropic::Anthropic;
+use neuron_tool::ToolRegistry;
+use neuron_context::CompositeStrategy;
+use neuron_loop::AgentLoop;
+use neuron_runtime::*;
 
 let provider = Anthropic::new(api_key).model("claude-sonnet-4-20250514");
 let tools = /* ... */;
@@ -1233,7 +1233,7 @@ while let Some(turn) = steps.next().await {
 Every block follows the same layout:
 
 ```
-agent-{block}/
+neuron-{block}/
     CLAUDE.md              # Agent instructions for this crate
     Cargo.toml
     src/
@@ -1276,14 +1276,14 @@ Rules:
 
 | Crate | Used by | Purpose |
 |-------|---------|---------|
-| `serde`, `serde_json` | agent-types, all | Serialization |
-| `thiserror` | agent-types, all | Error derives |
-| `schemars` | agent-types, agent-tool | JSON Schema for tool inputs |
-| `futures` | agent-types, all | Stream trait, combinators |
+| `serde`, `serde_json` | neuron-types, all | Serialization |
+| `thiserror` | neuron-types, all | Error derives |
+| `schemars` | neuron-types, neuron-tool | JSON Schema for tool inputs |
+| `futures` | neuron-types, all | Stream trait, combinators |
 | `tokio` | providers, tool, loop | Async runtime |
 | `reqwest` | providers | HTTP client |
-| `rmcp` | agent-mcp | Official MCP Rust SDK |
+| `rmcp` | neuron-mcp | Official MCP Rust SDK |
 | `tracing` | all (optional) | Structured logging |
-| `chrono` | agent-runtime | Timestamps |
-| `uuid` | agent-runtime | Session IDs |
-| `tokio-util` | agent-tool | CancellationToken |
+| `chrono` | neuron-runtime | Timestamps |
+| `uuid` | neuron-runtime | Session IDs |
+| `tokio-util` | neuron-tool | CancellationToken |

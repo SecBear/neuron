@@ -1,0 +1,29 @@
+[package]
+name = "neuron-tool"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "Tool registry and middleware pipeline for neuron"
+license.workspace = true
+repository = "https://github.com/secbear/neuron"
+keywords = ["ai", "agent", "tools", "middleware"]
+categories = ["development-tools"]
+
+[features]
+default = ["macros"]
+macros = ["dep:neuron-tool-macros"]
+
+[dependencies]
+neuron-types.workspace = true
+neuron-tool-macros = { workspace = true, optional = true }
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+schemars.workspace = true
+thiserror.workspace = true
+tokio-util.workspace = true
+serde.workspace = true

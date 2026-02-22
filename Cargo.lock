@@ -3,179 +3,6 @@
 version = 4
 
 [[package]]
-name = "agent-blocks"
-version = "0.1.0"
-dependencies = [
- "agent-context",
- "agent-loop",
- "agent-mcp",
- "agent-provider-anthropic",
- "agent-provider-ollama",
- "agent-provider-openai",
- "agent-runtime",
- "agent-tool",
- "agent-types",
- "futures",
- "schemars 0.8.22",
- "serde",
- "serde_json",
- "thiserror",
- "tokio",
- "tokio-util",
-]
-
-[[package]]
-name = "agent-context"
-version = "0.1.0"
-dependencies = [
- "agent-types",
- "serde",
- "serde_json",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "agent-loop"
-version = "0.1.0"
-dependencies = [
- "agent-context",
- "agent-tool",
- "agent-types",
- "chrono",
- "futures",
- "schemars 0.8.22",
- "serde",
- "serde_json",
- "thiserror",
- "tokio",
- "tokio-util",
- "tracing",
-]
-
-[[package]]
-name = "agent-mcp"
-version = "0.1.0"
-dependencies = [
- "agent-tool",
- "agent-types",
- "rmcp",
- "serde",
- "serde_json",
- "tokio",
- "tokio-util",
- "tracing",
-]
-
-[[package]]
-name = "agent-provider-anthropic"
-version = "0.1.0"
-dependencies = [
- "agent-types",
- "async-stream",
- "bytes",
- "futures",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "tokio",
- "tracing",
- "wiremock",
-]
-
-[[package]]
-name = "agent-provider-ollama"
-version = "0.1.0"
-dependencies = [
- "agent-types",
- "async-stream",
- "bytes",
- "futures",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "tokio",
- "tracing",
- "uuid",
- "wiremock",
-]
-
-[[package]]
-name = "agent-provider-openai"
-version = "0.1.0"
-dependencies = [
- "agent-types",
- "async-stream",
- "bytes",
- "futures",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "tokio",
- "tracing",
- "wiremock",
-]
-
-[[package]]
-name = "agent-runtime"
-version = "0.1.0"
-dependencies = [
- "agent-context",
- "agent-loop",
- "agent-tool",
- "agent-types",
- "chrono",
- "futures",
- "schemars 0.8.22",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror",
- "tokio",
- "tokio-util",
- "tracing",
- "uuid",
-]
-
-[[package]]
-name = "agent-tool"
-version = "0.1.0"
-dependencies = [
- "agent-tool-macros",
- "agent-types",
- "schemars 0.8.22",
- "serde",
- "serde_json",
- "thiserror",
- "tokio",
- "tokio-util",
- "tracing",
-]
-
-[[package]]
-name = "agent-tool-macros"
-version = "0.1.0"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
-name = "agent-types"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "futures",
- "schemars 0.8.22",
- "serde",
- "serde_json",
- "thiserror",
- "tokio",
- "tokio-util",
-]
-
-[[package]]
 name = "aho-corasick"
 version = "1.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1021,6 +848,179 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "tempfile",
+]
+
+[[package]]
+name = "neuron"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "neuron-context",
+ "neuron-loop",
+ "neuron-mcp",
+ "neuron-provider-anthropic",
+ "neuron-provider-ollama",
+ "neuron-provider-openai",
+ "neuron-runtime",
+ "neuron-tool",
+ "neuron-types",
+ "schemars 0.8.22",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tokio",
+ "tokio-util",
+]
+
+[[package]]
+name = "neuron-context"
+version = "0.1.0"
+dependencies = [
+ "neuron-types",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "neuron-loop"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "futures",
+ "neuron-context",
+ "neuron-tool",
+ "neuron-types",
+ "schemars 0.8.22",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tokio",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
+name = "neuron-mcp"
+version = "0.1.0"
+dependencies = [
+ "neuron-tool",
+ "neuron-types",
+ "rmcp",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
+name = "neuron-provider-anthropic"
+version = "0.1.0"
+dependencies = [
+ "async-stream",
+ "bytes",
+ "futures",
+ "neuron-types",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "wiremock",
+]
+
+[[package]]
+name = "neuron-provider-ollama"
+version = "0.1.0"
+dependencies = [
+ "async-stream",
+ "bytes",
+ "futures",
+ "neuron-types",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "uuid",
+ "wiremock",
+]
+
+[[package]]
+name = "neuron-provider-openai"
+version = "0.1.0"
+dependencies = [
+ "async-stream",
+ "bytes",
+ "futures",
+ "neuron-types",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "wiremock",
+]
+
+[[package]]
+name = "neuron-runtime"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "futures",
+ "neuron-context",
+ "neuron-loop",
+ "neuron-tool",
+ "neuron-types",
+ "schemars 0.8.22",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "neuron-tool"
+version = "0.1.0"
+dependencies = [
+ "neuron-tool-macros",
+ "neuron-types",
+ "schemars 0.8.22",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tokio",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
+name = "neuron-tool-macros"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
+name = "neuron-types"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "futures",
+ "schemars 0.8.22",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tokio",
+ "tokio-util",
 ]
 
 [[package]]

@@ -1,0 +1,23 @@
+[package]
+name = "neuron-mcp"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "MCP integration for neuron"
+license.workspace = true
+repository = "https://github.com/secbear/neuron"
+keywords = ["ai", "agent", "mcp", "model-context-protocol"]
+categories = ["development-tools"]
+
+[dependencies]
+neuron-types.workspace = true
+neuron-tool.workspace = true
+rmcp = { version = "0.16", features = ["client", "server", "transport-io", "transport-child-process", "transport-streamable-http-client", "transport-streamable-http-client-reqwest"] }
+serde.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, features = ["process"] }
+tokio-util.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
