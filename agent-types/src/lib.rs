@@ -1,7 +1,4 @@
-//! Shared types and traits for rust-agent-blocks.
-//!
-//! This crate defines the lingua franca — messages, providers, tools, errors —
-//! that all other agent-blocks crates depend on. Zero logic, pure types.
+#![doc = include_str!("../README.md")]
 
 pub mod types;
 pub mod traits;

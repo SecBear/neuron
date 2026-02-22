@@ -1,12 +1,4 @@
-//! MCP (Model Context Protocol) integration for rust-agent-blocks.
-//!
-//! This crate wraps [`rmcp`] to provide:
-//! - [`McpClient`] — connect to MCP servers via stdio or HTTP
-//! - [`McpToolBridge`] — bridges MCP tools into the [`ToolDyn`] trait for use in [`ToolRegistry`]
-//! - [`McpServer`] — exposes a [`ToolRegistry`] as an MCP server
-//!
-//! The key value-add is bridging MCP tools to our `Tool`/`ToolDyn` trait system
-//! and providing ergonomic lifecycle management.
+#![doc = include_str!("../README.md")]
 
 pub mod client;
 pub mod bridge;

@@ -1,3 +1,4 @@
+#![cfg(feature = "openai")]
 //! Smoke tests against the real OpenAI API.
 //!
 //! These tests are `#[ignore]` by default. Run them with:

@@ -1,3 +1,4 @@
+#![cfg(feature = "ollama")]
 //! Smoke tests against a local Ollama instance.
 //!
 //! These tests are `#[ignore]` by default. Run them with:

@@ -1,36 +1,4 @@
-//! # agent-blocks
-//!
-//! Composable building blocks for AI agents in Rust.
-//!
-//! This umbrella crate re-exports all core blocks and optionally includes
-//! provider implementations, MCP integration, and production runtime features.
-//!
-//! ## Feature flags
-//!
-//! | Feature | Description | Default |
-//! |---------|-------------|---------|
-//! | `anthropic` | Anthropic Claude provider | yes |
-//! | `openai` | OpenAI provider | no |
-//! | `ollama` | Ollama local provider | no |
-//! | `mcp` | Model Context Protocol integration | no |
-//! | `runtime` | Sessions, sub-agents, guardrails, durability | no |
-//! | `full` | All of the above | no |
-//!
-//! ## Quick start
-//!
-//! ```ignore
-//! use agent_blocks::prelude::*;
-//! use agent_blocks::anthropic::Anthropic;
-//!
-//! let provider = Anthropic::new("your-api-key").model("claude-sonnet-4-20250514");
-//! let context = SlidingWindowStrategy::new(100_000);
-//! let tools = ToolRegistry::new();
-//!
-//! let mut agent = AgentLoop::new(provider, tools, context)
-//!     .system_prompt("You are a helpful assistant.");
-//!
-//! let result = agent.run("Hello!").await?;
-//! ```
+#![doc = include_str!("../README.md")]
 
 // === Core blocks (always available) ===
 
