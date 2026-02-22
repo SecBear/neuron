@@ -3,12 +3,13 @@ name = "neuron-mcp"
 version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
-description = "MCP integration for neuron"
+description = "Model Context Protocol (MCP) client and server in Rust — stdio, HTTP transports, and bridging to the Tool trait"
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true
-keywords = ["ai", "agent", "mcp", "llm"]
-categories = ["development-tools"]
+documentation = "https://docs.rs/neuron-mcp"
+keywords = ["ai", "agent", "mcp", "llm", "tools"]
+categories = ["artificial-intelligence", "api-bindings"]
 exclude = ["CLAUDE.md"]
 
 [dependencies]

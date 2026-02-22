@@ -3,12 +3,13 @@ name = "neuron-context"
 version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
-description = "Context engine with compaction strategies for neuron"
+description = "LLM context management for long-running agents — sliding window, token counting, and compaction strategies"
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true
-keywords = ["ai", "agent", "context", "llm"]
-categories = ["development-tools"]
+documentation = "https://docs.rs/neuron-context"
+keywords = ["ai", "agent", "llm", "context", "tokens"]
+categories = ["artificial-intelligence"]
 
 [dependencies]
 neuron-types.workspace = true

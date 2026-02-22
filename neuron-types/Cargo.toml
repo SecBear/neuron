@@ -3,12 +3,13 @@ name = "neuron-types"
 version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
-description = "Shared types and traits for neuron"
+description = "Core traits for AI agents in Rust — Provider, Tool, and ContextStrategy without the framework buy-in"
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true
-keywords = ["ai", "agent", "types", "llm"]
-categories = ["development-tools"]
+documentation = "https://docs.rs/neuron-types"
+keywords = ["ai", "agent", "llm", "traits", "provider"]
+categories = ["artificial-intelligence"]
 exclude = ["CLAUDE.md"]
 
 [dependencies]

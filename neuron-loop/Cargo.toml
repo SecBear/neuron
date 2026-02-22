@@ -3,12 +3,13 @@ name = "neuron-loop"
 version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
-description = "Agentic while loop for neuron"
+description = "Agentic loop for Rust — multi-turn tool dispatch, streaming, and conversation management over any LLM provider"
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true
-keywords = ["ai", "agent", "loop", "llm"]
-categories = ["development-tools"]
+documentation = "https://docs.rs/neuron-loop"
+keywords = ["ai", "llm", "agent", "agentic", "streaming"]
+categories = ["artificial-intelligence", "asynchronous"]
 exclude = ["CLAUDE.md"]
 
 [dependencies]

@@ -3,12 +3,13 @@ name = "neuron-provider-openai"
 version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
-description = "OpenAI provider for neuron"
+description = "OpenAI Chat Completions API client for Rust — streaming, tool use, and structured output. Compatible with Azure, Groq, and OpenAI-compatible endpoints. Part of neuron."
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true
-keywords = ["ai", "agent", "openai", "gpt"]
-categories = ["development-tools"]
+documentation = "https://docs.rs/neuron-provider-openai"
+keywords = ["ai", "llm", "openai", "gpt", "streaming"]
+categories = ["artificial-intelligence", "api-bindings"]
 exclude = ["CLAUDE.md"]
 
 [dependencies]

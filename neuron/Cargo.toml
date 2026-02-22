@@ -3,12 +3,13 @@ name = "neuron"
 version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
-description = "Umbrella crate for neuron — composable building blocks for AI agents"
+description = "Rust library for production AI agents — composable tool middleware, context compaction, MCP, sessions, and guardrails"
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true
-keywords = ["ai", "agent", "blocks", "composable"]
-categories = ["development-tools"]
+documentation = "https://docs.rs/neuron"
+keywords = ["ai", "agent", "llm", "tools", "mcp"]
+categories = ["artificial-intelligence"]
 exclude = ["tests/HUMAN.md"]
 
 [features]
@@ -39,3 +40,7 @@ serde.workspace = true
 serde_json.workspace = true
 schemars.workspace = true
 thiserror.workspace = true
+
+[[example]]
+name = "multi_provider"
+required-features = ["openai"]

@@ -3,30 +3,31 @@ name = "neuron-runtime"
 version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
-description = "Production runtime layer for neuron"
+description = "Production runtime for AI agents — sessions, sub-agents, input/output guardrails, permission policies, and durable execution"
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true
-keywords = ["ai", "agent", "runtime", "session"]
-categories = ["development-tools"]
+documentation = "https://docs.rs/neuron-runtime"
+keywords = ["ai", "llm", "agent", "guardrails", "sessions"]
+categories = ["artificial-intelligence", "asynchronous"]
 exclude = ["CLAUDE.md"]
 
 [dependencies]
 neuron-types.workspace = true
 neuron-tool.workspace = true
-neuron-loop.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 chrono.workspace = true
 uuid.workspace = true
 tokio = { workspace = true, features = ["fs", "time"] }
-futures.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
-neuron-context.workspace = true
 schemars.workspace = true
 thiserror.workspace = true
 tempfile.workspace = true
 tokio-util.workspace = true
+tracing-subscriber = "0.3"
+neuron-loop.workspace = true
+neuron-context.workspace = true

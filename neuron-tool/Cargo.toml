@@ -3,12 +3,13 @@ name = "neuron-tool"
 version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
-description = "Tool registry and middleware pipeline for neuron"
+description = "Tool registry with composable middleware pipeline for LLM function calling — rate limiting, auth, retries, and logging"
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true
-keywords = ["ai", "agent", "tools", "middleware"]
-categories = ["development-tools"]
+documentation = "https://docs.rs/neuron-tool"
+keywords = ["ai", "llm", "tools", "middleware", "function-calling"]
+categories = ["artificial-intelligence"]
 
 [features]
 default = ["macros"]
