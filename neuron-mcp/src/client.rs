@@ -5,21 +5,19 @@
 
 use std::borrow::Cow;
 
+use rmcp::ServiceExt;
 use rmcp::model::{
     CallToolRequestParams, CallToolResult, GetPromptRequestParams, GetPromptResult,
     PaginatedRequestParams, ReadResourceRequestParams,
 };
 use rmcp::service::{Peer, RoleClient, RunningService};
 use rmcp::transport::TokioChildProcess;
-use rmcp::ServiceExt;
 use tokio::process::Command;
 
 use neuron_types::{McpError, ToolDefinition};
 
 use crate::error::{from_client_init_error, from_service_error};
-use crate::types::{
-    McpPrompt, McpPromptArgument, McpResource, McpResourceContents, PaginatedList,
-};
+use crate::types::{McpPrompt, McpPromptArgument, McpResource, McpResourceContents, PaginatedList};
 
 /// MCP client that connects to an MCP server and provides tool, resource,
 /// and prompt operations.
@@ -67,12 +65,10 @@ impl McpClient {
             cmd.env(key, value);
         }
 
-        let transport = TokioChildProcess::new(cmd)
-            .map_err(|e| McpError::Connection(e.to_string()))?;
+        let transport =
+            TokioChildProcess::new(cmd).map_err(|e| McpError::Connection(e.to_string()))?;
 
-        let service = ().serve(transport)
-            .await
-            .map_err(from_client_init_error)?;
+        let service = ().serve(transport).await.map_err(from_client_init_error)?;
 
         let peer = service.peer().clone();
 
@@ -116,9 +112,7 @@ impl McpClient {
             StreamableHttpClientTransport::from_uri(&*config.url)
         };
 
-        let service = ().serve(transport)
-            .await
-            .map_err(from_client_init_error)?;
+        let service = ().serve(transport).await.map_err(from_client_init_error)?;
 
         let peer = service.peer().clone();
 
@@ -424,13 +418,11 @@ pub struct HttpConfig {
 /// Convert an rmcp `Tool` to our `ToolDefinition`.
 pub(crate) fn mcp_tool_to_definition(tool: rmcp::model::Tool) -> ToolDefinition {
     // Convert the rmcp JsonObject (Arc<Map<String, Value>>) to serde_json::Value
-    let input_schema = serde_json::Value::Object(
-        tool.input_schema.as_ref().clone(),
-    );
+    let input_schema = serde_json::Value::Object(tool.input_schema.as_ref().clone());
 
-    let output_schema = tool.output_schema.map(|s| {
-        serde_json::Value::Object(s.as_ref().clone())
-    });
+    let output_schema = tool
+        .output_schema
+        .map(|s| serde_json::Value::Object(s.as_ref().clone()));
 
     let annotations = tool.annotations.map(|a| neuron_types::ToolAnnotations {
         read_only_hint: a.read_only_hint,
@@ -461,14 +453,12 @@ pub(crate) fn call_tool_result_to_output(result: CallToolResult) -> neuron_types
                 rmcp::model::RawContent::Text(t) => {
                     Some(neuron_types::ContentItem::Text(t.text.clone()))
                 }
-                rmcp::model::RawContent::Image(img) => {
-                    Some(neuron_types::ContentItem::Image {
-                        source: neuron_types::ImageSource::Base64 {
-                            media_type: img.mime_type.clone(),
-                            data: img.data.clone(),
-                        },
-                    })
-                }
+                rmcp::model::RawContent::Image(img) => Some(neuron_types::ContentItem::Image {
+                    source: neuron_types::ImageSource::Base64 {
+                        media_type: img.mime_type.clone(),
+                        data: img.data.clone(),
+                    },
+                }),
                 // Audio, Resource, ResourceLink content types don't map to our ContentItem
                 _ => None,
             }

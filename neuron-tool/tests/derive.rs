@@ -13,6 +13,7 @@ struct EchoOutput {
 }
 
 #[derive(Debug, thiserror::Error)]
+#[allow(dead_code)]
 enum EchoError {
     #[error("echo failed")]
     Failed,
@@ -24,6 +25,7 @@ struct MathOutput {
 }
 
 #[derive(Debug, thiserror::Error)]
+#[allow(dead_code)]
 enum MathError {
     #[error("invalid expression: {0}")]
     Invalid(String),
@@ -70,7 +72,12 @@ async fn derive_basic_tool() {
     assert_eq!(Tool::definition(&tool).description, "Echo text back");
 
     let result = tool
-        .call(EchoArgs { text: "hello".into() }, &test_ctx())
+        .call(
+            EchoArgs {
+                text: "hello".into(),
+            },
+            &test_ctx(),
+        )
         .await
         .unwrap();
     assert_eq!(result.echoed, "hello");

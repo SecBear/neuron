@@ -75,10 +75,7 @@ impl<P: Provider> DurableContext for LocalDurableContext<P> {
         false
     }
 
-    async fn continue_as_new(
-        &self,
-        _state: serde_json::Value,
-    ) -> Result<(), DurableError> {
+    async fn continue_as_new(&self, _state: serde_json::Value) -> Result<(), DurableError> {
         // Local context: continue-as-new is a no-op
         Ok(())
     }

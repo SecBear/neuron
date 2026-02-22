@@ -73,9 +73,7 @@ impl OpenAi {
     /// ```
     pub fn from_env() -> Result<Self, ProviderError> {
         let api_key = std::env::var("OPENAI_API_KEY").map_err(|_| {
-            ProviderError::Authentication(
-                "OPENAI_API_KEY environment variable not set".into(),
-            )
+            ProviderError::Authentication("OPENAI_API_KEY environment variable not set".into())
         })?;
         let mut client = Self::new(api_key);
         if let Ok(org) = std::env::var("OPENAI_ORG_ID") {
@@ -115,7 +113,6 @@ impl OpenAi {
     pub(crate) fn completions_url(&self) -> String {
         format!("{}/v1/chat/completions", self.base_url)
     }
-
 }
 
 impl Provider for OpenAi {

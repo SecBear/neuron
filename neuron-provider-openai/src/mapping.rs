@@ -63,9 +63,8 @@ pub fn to_api_request(req: &CompletionRequest, default_model: &str) -> serde_jso
 
     // Tools
     if !req.tools.is_empty() {
-        body["tools"] = serde_json::Value::Array(
-            req.tools.iter().map(map_tool_definition).collect(),
-        );
+        body["tools"] =
+            serde_json::Value::Array(req.tools.iter().map(map_tool_definition).collect());
     }
 
     // Tool choice
@@ -175,8 +174,7 @@ fn map_messages(messages: &[Message]) -> Vec<serde_json::Value> {
             let mut msg_obj = serde_json::json!({ "role": role_str });
 
             if !text_parts.is_empty() {
-                msg_obj["content"] =
-                    serde_json::Value::String(text_parts.join(""));
+                msg_obj["content"] = serde_json::Value::String(text_parts.join(""));
             } else {
                 msg_obj["content"] = serde_json::Value::Null;
             }
@@ -229,9 +227,7 @@ fn map_messages(messages: &[Message]) -> Vec<serde_json::Value> {
             }
 
             if !content_parts.is_empty() {
-                if content_parts.len() == 1
-                    && content_parts[0]["type"].as_str() == Some("text")
-                {
+                if content_parts.len() == 1 && content_parts[0]["type"].as_str() == Some("text") {
                     // Single text block: use string content for simplicity
                     result.push(serde_json::json!({
                         "role": role_str,
@@ -372,9 +368,7 @@ pub fn from_api_response(body: &serde_json::Value) -> Result<CompletionResponse,
                 .as_str()
                 .unwrap_or_default()
                 .to_string();
-            let arguments_str = tc["function"]["arguments"]
-                .as_str()
-                .unwrap_or("{}");
+            let arguments_str = tc["function"]["arguments"].as_str().unwrap_or("{}");
             let input: serde_json::Value = serde_json::from_str(arguments_str)
                 .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
             content_blocks.push(ContentBlock::ToolUse {

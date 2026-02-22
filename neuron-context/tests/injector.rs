@@ -11,9 +11,21 @@ fn fires_on_every_n_turns() {
     );
 
     // Should fire on multiples of 5
-    assert!(injector.check(5, 0).contains(&"Reminder: be concise.".to_string()));
-    assert!(injector.check(10, 0).contains(&"Reminder: be concise.".to_string()));
-    assert!(injector.check(15, 0).contains(&"Reminder: be concise.".to_string()));
+    assert!(
+        injector
+            .check(5, 0)
+            .contains(&"Reminder: be concise.".to_string())
+    );
+    assert!(
+        injector
+            .check(10, 0)
+            .contains(&"Reminder: be concise.".to_string())
+    );
+    assert!(
+        injector
+            .check(15, 0)
+            .contains(&"Reminder: be concise.".to_string())
+    );
 
     // Should not fire on non-multiples
     assert!(injector.check(1, 0).is_empty());
@@ -39,8 +51,16 @@ fn fires_on_token_threshold() {
     );
 
     // At or above threshold → fire
-    assert!(injector.check(1, 50_000).contains(&"Context is getting long.".to_string()));
-    assert!(injector.check(1, 60_000).contains(&"Context is getting long.".to_string()));
+    assert!(
+        injector
+            .check(1, 50_000)
+            .contains(&"Context is getting long.".to_string())
+    );
+    assert!(
+        injector
+            .check(1, 60_000)
+            .contains(&"Context is getting long.".to_string())
+    );
 
     // Below threshold → no fire
     assert!(injector.check(1, 49_999).is_empty());
@@ -49,8 +69,14 @@ fn fires_on_token_threshold() {
 #[test]
 fn multiple_rules_can_fire_simultaneously() {
     let mut injector = SystemInjector::new();
-    injector.add_rule(InjectionTrigger::EveryNTurns(5), "Turn reminder".to_string());
-    injector.add_rule(InjectionTrigger::OnTokenThreshold(10_000), "Token warning".to_string());
+    injector.add_rule(
+        InjectionTrigger::EveryNTurns(5),
+        "Turn reminder".to_string(),
+    );
+    injector.add_rule(
+        InjectionTrigger::OnTokenThreshold(10_000),
+        "Token warning".to_string(),
+    );
 
     let injected = injector.check(5, 15_000);
     assert!(injected.contains(&"Turn reminder".to_string()));
@@ -68,7 +94,10 @@ fn no_rules_returns_empty() {
 fn only_matching_rules_fire() {
     let mut injector = SystemInjector::new();
     injector.add_rule(InjectionTrigger::EveryNTurns(10), "Turn 10".to_string());
-    injector.add_rule(InjectionTrigger::OnTokenThreshold(100_000), "High tokens".to_string());
+    injector.add_rule(
+        InjectionTrigger::OnTokenThreshold(100_000),
+        "High tokens".to_string(),
+    );
 
     // Turn 5, 50k tokens — neither rule fires
     assert!(injector.check(5, 50_000).is_empty());

@@ -43,7 +43,9 @@ async fn noop_hook_continues() {
 
 #[tokio::test]
 async fn hook_skip_variant() {
-    let action = HookAction::Skip { reason: "blocked".into() };
+    let action = HookAction::Skip {
+        reason: "blocked".into(),
+    };
     if let HookAction::Skip { reason } = action {
         assert_eq!(reason, "blocked");
     } else {
@@ -53,7 +55,9 @@ async fn hook_skip_variant() {
 
 #[tokio::test]
 async fn hook_terminate_variant() {
-    let action = HookAction::Terminate { reason: "too many turns".into() };
+    let action = HookAction::Terminate {
+        reason: "too many turns".into(),
+    };
     if let HookAction::Terminate { reason } = action {
         assert_eq!(reason, "too many turns");
     } else {
@@ -101,16 +105,32 @@ fn hook_event_variants() {
     let resp = CompletionResponse {
         id: "id".into(),
         model: "m".into(),
-        message: Message { role: Role::Assistant, content: vec![] },
+        message: Message {
+            role: Role::Assistant,
+            content: vec![],
+        },
         usage: TokenUsage::default(),
         stop_reason: StopReason::EndTurn,
     };
     let _ = HookEvent::PostLlmCall { response: &resp };
     let val = serde_json::json!({});
-    let _ = HookEvent::PreToolExecution { tool_name: "t", input: &val };
-    let out = ToolOutput { content: vec![], structured_content: None, is_error: false };
-    let _ = HookEvent::PostToolExecution { tool_name: "t", output: &out };
-    let _ = HookEvent::ContextCompaction { old_tokens: 100, new_tokens: 50 };
+    let _ = HookEvent::PreToolExecution {
+        tool_name: "t",
+        input: &val,
+    };
+    let out = ToolOutput {
+        content: vec![],
+        structured_content: None,
+        is_error: false,
+    };
+    let _ = HookEvent::PostToolExecution {
+        tool_name: "t",
+        output: &out,
+    };
+    let _ = HookEvent::ContextCompaction {
+        old_tokens: 100,
+        new_tokens: 50,
+    };
     let _ = HookEvent::SessionStart { session_id: "s" };
     let _ = HookEvent::SessionEnd { session_id: "s" };
 }

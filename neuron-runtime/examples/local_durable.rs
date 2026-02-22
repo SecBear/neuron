@@ -13,9 +13,9 @@ use std::time::Duration;
 use neuron_runtime::LocalDurableContext;
 use neuron_tool::ToolRegistry;
 use neuron_types::{
-    ActivityOptions, CompletionRequest, CompletionResponse, ContentBlock, ContentItem, DurableContext,
-    Message, ProviderError, Role, StopReason, StreamHandle, TokenUsage, Tool, ToolContext,
-    ToolDefinition,
+    ActivityOptions, CompletionRequest, CompletionResponse, ContentBlock, ContentItem,
+    DurableContext, Message, ProviderError, Role, StopReason, StreamHandle, TokenUsage, Tool,
+    ToolContext, ToolDefinition,
 };
 use tokio_util::sync::CancellationToken;
 
@@ -139,9 +139,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 1. Build a LocalDurableContext wrapping a mock provider and tool registry.
     //    In production, swap LocalDurableContext for a Temporal or Restate
     //    implementation — the rest of the code stays identical.
-    let provider = Arc::new(MockProvider::new(vec![
-        text_response("Rust is a systems programming language focused on safety and speed."),
-    ]));
+    let provider = Arc::new(MockProvider::new(vec![text_response(
+        "Rust is a systems programming language focused on safety and speed.",
+    )]));
 
     let mut registry = ToolRegistry::new();
     registry.register(EchoTool);
@@ -160,14 +160,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ..Default::default()
     };
 
-    let response = durable
-        .execute_llm_call(request, activity_opts(30))
-        .await?;
+    let response = durable.execute_llm_call(request, activity_opts(30)).await?;
 
-    println!(
-        "  stop_reason: {:?}",
-        response.stop_reason
-    );
+    println!("  stop_reason: {:?}", response.stop_reason);
     println!(
         "  input_tokens: {}, output_tokens: {}",
         response.usage.input_tokens, response.usage.output_tokens

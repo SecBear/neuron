@@ -71,9 +71,7 @@ impl Anthropic {
     /// ```
     pub fn from_env() -> Result<Self, ProviderError> {
         let api_key = std::env::var("ANTHROPIC_API_KEY").map_err(|_| {
-            ProviderError::Authentication(
-                "ANTHROPIC_API_KEY environment variable not set".into(),
-            )
+            ProviderError::Authentication("ANTHROPIC_API_KEY environment variable not set".into())
         })?;
         Ok(Self::new(api_key))
     }
@@ -139,8 +137,9 @@ impl Provider for Anthropic {
                 return Err(map_http_status(status, &response_text));
             }
 
-            let json: serde_json::Value = serde_json::from_str(&response_text)
-                .map_err(|e| ProviderError::InvalidRequest(format!("invalid JSON response: {e}")))?;
+            let json: serde_json::Value = serde_json::from_str(&response_text).map_err(|e| {
+                ProviderError::InvalidRequest(format!("invalid JSON response: {e}"))
+            })?;
 
             from_api_response(&json)
         }

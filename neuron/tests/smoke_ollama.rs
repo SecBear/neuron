@@ -11,10 +11,10 @@
 //! Tool calling is not tested here because small local models are unreliable
 //! with tool use. These tests validate basic completion and streaming.
 
+use futures::StreamExt;
 use neuron::prelude::*;
 use neuron::tool::ToolRegistry;
 use neuron_types::StreamEvent;
-use futures::StreamExt;
 use std::collections::HashMap;
 use std::path::PathBuf;
 

@@ -27,14 +27,12 @@ fn completion_request_minimal() {
 
 #[test]
 fn system_prompt_blocks_with_cache() {
-    let sys = SystemPrompt::Blocks(vec![
-        SystemBlock {
-            text: "You are helpful.".into(),
-            cache_control: Some(CacheControl {
-                ttl: Some(CacheTtl::OneHour),
-            }),
-        },
-    ]);
+    let sys = SystemPrompt::Blocks(vec![SystemBlock {
+        text: "You are helpful.".into(),
+        cache_control: Some(CacheControl {
+            ttl: Some(CacheTtl::OneHour),
+        }),
+    }]);
     let json = serde_json::to_string(&sys).unwrap();
     let rt: SystemPrompt = serde_json::from_str(&json).unwrap();
     if let SystemPrompt::Blocks(blocks) = rt {

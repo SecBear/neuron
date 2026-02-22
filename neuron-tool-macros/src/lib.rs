@@ -64,7 +64,8 @@ impl syn::parse::Parse for AgentToolArgs {
 
         Ok(AgentToolArgs {
             name: name.ok_or_else(|| input.error("missing `name` attribute"))?,
-            description: description.ok_or_else(|| input.error("missing `description` attribute"))?,
+            description: description
+                .ok_or_else(|| input.error("missing `description` attribute"))?,
         })
     }
 }
@@ -81,10 +82,7 @@ fn to_pascal_case(s: &str) -> String {
         .collect()
 }
 
-fn expand_neuron_tool(
-    args: AgentToolArgs,
-    func: ItemFn,
-) -> syn::Result<proc_macro2::TokenStream> {
+fn expand_neuron_tool(args: AgentToolArgs, func: ItemFn) -> syn::Result<proc_macro2::TokenStream> {
     let func_name = &func.sig.ident;
     let vis = &func.vis;
     let pascal = to_pascal_case(&func_name.to_string());

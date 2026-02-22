@@ -16,6 +16,7 @@ struct ReadFileOutput {
 }
 
 #[derive(Debug, thiserror::Error)]
+#[allow(dead_code)]
 enum ReadFileError {
     #[error("not found: {0}")]
     NotFound(String),
@@ -301,7 +302,10 @@ async fn schema_validator_rejects_missing_required_field() {
 
     match result {
         Err(ToolError::InvalidInput(msg)) => {
-            assert!(msg.contains("path"), "error should mention the missing field: {msg}");
+            assert!(
+                msg.contains("path"),
+                "error should mention the missing field: {msg}"
+            );
         }
         other => panic!("expected InvalidInput error, got: {other:?}"),
     }
@@ -321,7 +325,10 @@ async fn schema_validator_rejects_wrong_type() {
 
     match result {
         Err(ToolError::InvalidInput(msg)) => {
-            assert!(msg.contains("path"), "error should mention the field with wrong type: {msg}");
+            assert!(
+                msg.contains("path"),
+                "error should mention the field with wrong type: {msg}"
+            );
         }
         other => panic!("expected InvalidInput error, got: {other:?}"),
     }

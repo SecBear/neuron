@@ -3,10 +3,12 @@
 use std::future::Future;
 use std::time::Duration;
 
-use serde::de::DeserializeOwned;
 use serde::Serialize;
+use serde::de::DeserializeOwned;
 
-use crate::error::{ContextError, DurableError, EmbeddingError, HookError, ProviderError, ToolError};
+use crate::error::{
+    ContextError, DurableError, EmbeddingError, HookError, ProviderError, ToolError,
+};
 use crate::stream::StreamHandle;
 use crate::types::{
     CompletionRequest, CompletionResponse, ContentItem, EmbeddingRequest, EmbeddingResponse,
@@ -181,9 +183,10 @@ impl<T: Tool> ToolDyn for T {
             let args: T::Args = serde_json::from_value(input)
                 .map_err(|e| ToolError::InvalidInput(e.to_string()))?;
 
-            let output = self.call(args, ctx).await.map_err(|e| {
-                ToolError::ExecutionFailed(e.to_string().into())
-            })?;
+            let output = self
+                .call(args, ctx)
+                .await
+                .map_err(|e| ToolError::ExecutionFailed(e.to_string().into()))?;
 
             let structured = serde_json::to_value(&output)
                 .map_err(|e| ToolError::ExecutionFailed(Box::new(e)))?;
@@ -405,10 +408,7 @@ pub trait DurableContext: WasmCompatSend + WasmCompatSync {
     ) -> impl Future<Output = Result<(), DurableError>> + WasmCompatSend;
 
     /// Sleep for a duration (durable — survives replay).
-    fn sleep(
-        &self,
-        duration: Duration,
-    ) -> impl Future<Output = ()> + WasmCompatSend;
+    fn sleep(&self, duration: Duration) -> impl Future<Output = ()> + WasmCompatSend;
 
     /// Current time (deterministic during replay).
     fn now(&self) -> chrono::DateTime<chrono::Utc>;

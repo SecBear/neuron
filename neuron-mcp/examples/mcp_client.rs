@@ -40,11 +40,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 4. Register discovered tools into a ToolRegistry.
     let mut registry = ToolRegistry::new();
     for tool in &tools {
-        println!(
-            "  - {} : {}",
-            tool.name(),
-            tool.definition().description
-        );
+        println!("  - {} : {}", tool.name(), tool.definition().description);
         registry.register_dyn(Arc::clone(tool));
     }
 

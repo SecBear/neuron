@@ -39,14 +39,10 @@ impl ToolMiddleware for PermissionChecker {
         Box::pin(async move {
             match self.policy.check(&call.name, &call.input) {
                 PermissionDecision::Allow => next.run(call, ctx).await,
-                PermissionDecision::Deny(reason) => {
-                    Err(ToolError::PermissionDenied(reason))
-                }
-                PermissionDecision::Ask(reason) => {
-                    Err(ToolError::PermissionDenied(format!(
-                        "requires confirmation: {reason}"
-                    )))
-                }
+                PermissionDecision::Deny(reason) => Err(ToolError::PermissionDenied(reason)),
+                PermissionDecision::Ask(reason) => Err(ToolError::PermissionDenied(format!(
+                    "requires confirmation: {reason}"
+                ))),
             }
         })
     }
@@ -156,10 +152,7 @@ impl ToolMiddleware for SchemaValidator {
 /// - Input must be an object (if schema says `"type": "object"`)
 /// - All `"required"` fields must be present
 /// - Property types must match the schema's `"type"` declarations
-fn validate_input(
-    input: &serde_json::Value,
-    schema: &serde_json::Value,
-) -> Result<(), ToolError> {
+fn validate_input(input: &serde_json::Value, schema: &serde_json::Value) -> Result<(), ToolError> {
     let schema_obj = match schema.as_object() {
         Some(obj) => obj,
         None => return Ok(()), // No schema object to validate against
@@ -170,9 +163,7 @@ fn validate_input(
         && ty == "object"
         && !input.is_object()
     {
-        return Err(ToolError::InvalidInput(
-            "expected object input".to_string(),
-        ));
+        return Err(ToolError::InvalidInput("expected object input".to_string()));
     }
 
     let input_obj = match input.as_object() {
@@ -197,8 +188,7 @@ fn validate_input(
     if let Some(serde_json::Value::Object(properties)) = schema_obj.get("properties") {
         for (field_name, prop_schema) in properties {
             if let Some(value) = input_obj.get(field_name)
-                && let Some(serde_json::Value::String(expected_type)) =
-                    prop_schema.get("type")
+                && let Some(serde_json::Value::String(expected_type)) = prop_schema.get("type")
                 && !json_type_matches(value, expected_type)
             {
                 return Err(ToolError::InvalidInput(format!(

@@ -113,7 +113,10 @@ impl Tool for FetchDataTool {
         // Simulate work
         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
 
-        self.timestamps.lock().unwrap().push((source.to_string(), start));
+        self.timestamps
+            .lock()
+            .unwrap()
+            .push((source.to_string(), start));
         Ok(format!("Data from {source}: [mock data]"))
     }
 }
@@ -137,7 +140,10 @@ async fn main() {
 
     let ctx = ToolContext::default();
     let start = std::time::Instant::now();
-    let result = agent.run(Message::user("Fetch all data"), &ctx).await.unwrap();
+    let result = agent
+        .run(Message::user("Fetch all data"), &ctx)
+        .await
+        .unwrap();
 
     let elapsed = start.elapsed();
     println!("Response: {}", result.response);

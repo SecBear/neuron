@@ -4,8 +4,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::future::Future;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct ReadFileArgs {
@@ -18,6 +18,7 @@ struct ReadFileOutput {
 }
 
 #[derive(Debug, thiserror::Error)]
+#[allow(dead_code)]
 enum ReadFileError {
     #[error("not found: {0}")]
     NotFound(String),

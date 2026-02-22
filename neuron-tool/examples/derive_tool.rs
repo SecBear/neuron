@@ -5,7 +5,7 @@
 //!
 //! Run with: `cargo run --example derive_tool -p neuron-tool`
 
-use neuron_tool::{neuron_tool, ToolRegistry};
+use neuron_tool::{ToolRegistry, neuron_tool};
 use neuron_types::{Tool, ToolContext};
 
 // --- Custom output type ---
@@ -25,7 +25,10 @@ enum FileError {
 
 // --- Tool 1: check if a file exists ---
 
-#[neuron_tool(name = "check_file", description = "Check if a file exists and return its size")]
+#[neuron_tool(
+    name = "check_file",
+    description = "Check if a file exists and return its size"
+)]
 async fn check_file(
     /// The file path to check
     path: String,
@@ -76,7 +79,11 @@ async fn main() {
     let ctx = ToolContext::default();
 
     let result = registry
-        .execute("greet", serde_json::json!({"name": "Alice", "formal": true}), &ctx)
+        .execute(
+            "greet",
+            serde_json::json!({"name": "Alice", "formal": true}),
+            &ctx,
+        )
         .await
         .unwrap();
     println!("\nGreet output: {:?}", result.content);
@@ -89,8 +96,16 @@ async fn main() {
 
     // Direct typed call (compile-time checked)
     let info = CheckFileTool
-        .call(CheckFileArgs { path: "Cargo.toml".into() }, &ctx)
+        .call(
+            CheckFileArgs {
+                path: "Cargo.toml".into(),
+            },
+            &ctx,
+        )
         .await
         .unwrap();
-    println!("\nDirect call — Cargo.toml exists: {}, size: {:?}", info.exists, info.size_bytes);
+    println!(
+        "\nDirect call — Cargo.toml exists: {}, size: {:?}",
+        info.exists, info.size_bytes
+    );
 }

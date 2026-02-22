@@ -5,7 +5,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use neuron_tool::{neuron_tool, ToolRegistry};
+use neuron_tool::{ToolRegistry, neuron_tool};
 use neuron_types::{Tool, ToolContext};
 use tokio_util::sync::CancellationToken;
 
@@ -24,7 +24,10 @@ enum CalcError {
 
 // --- Define the tool using the #[neuron_tool] macro ---
 
-#[neuron_tool(name = "calculate", description = "Perform basic arithmetic on two numbers")]
+#[neuron_tool(
+    name = "calculate",
+    description = "Perform basic arithmetic on two numbers"
+)]
 async fn calculate(
     /// The left-hand operand
     left: f64,

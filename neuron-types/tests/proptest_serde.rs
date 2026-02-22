@@ -1,14 +1,10 @@
 //! Property-based tests: serde roundtrip for all public types.
 
-use proptest::prelude::*;
 use neuron_types::*;
+use proptest::prelude::*;
 
 fn arb_role() -> impl Strategy<Value = Role> {
-    prop_oneof![
-        Just(Role::User),
-        Just(Role::Assistant),
-        Just(Role::System),
-    ]
+    prop_oneof![Just(Role::User), Just(Role::Assistant), Just(Role::System),]
 }
 
 fn arb_content_block() -> impl Strategy<Value = ContentBlock> {
@@ -24,7 +20,10 @@ fn arb_content_block() -> impl Strategy<Value = ContentBlock> {
 }
 
 fn arb_message() -> impl Strategy<Value = Message> {
-    (arb_role(), proptest::collection::vec(arb_content_block(), 0..5))
+    (
+        arb_role(),
+        proptest::collection::vec(arb_content_block(), 0..5),
+    )
         .prop_map(|(role, content)| Message { role, content })
 }
 

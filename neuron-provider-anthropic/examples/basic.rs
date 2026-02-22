@@ -24,7 +24,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let response = provider.complete(request).await?;
     println!("Response: {:?}", response.message.content);
-    println!("Tokens: {} in / {} out", response.usage.input_tokens, response.usage.output_tokens);
+    println!(
+        "Tokens: {} in / {} out",
+        response.usage.input_tokens, response.usage.output_tokens
+    );
 
     Ok(())
 }

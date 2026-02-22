@@ -12,8 +12,10 @@
 //!
 //! Reference: <https://github.com/ollama/ollama/blob/main/docs/api.md#generate-a-chat-completion>
 
-use neuron_types::{ContentBlock, Message, Role, StreamError, StreamEvent, StreamHandle, TokenUsage};
 use futures::{Stream, StreamExt};
+use neuron_types::{
+    ContentBlock, Message, Role, StreamError, StreamEvent, StreamHandle, TokenUsage,
+};
 use reqwest::Response;
 
 /// Wrap an HTTP response body into a [`StreamHandle`] that emits [`StreamEvent`]s.
@@ -264,9 +266,9 @@ mod tests {
             r#"{"model":"llama3.2","message":{"role":"assistant","content":""},"done":true,"done_reason":"stop","eval_count":10,"prompt_eval_count":20}"#,
         );
 
-        let has_usage = events.iter().any(|e| {
-            matches!(e, StreamEvent::Usage(u) if u.input_tokens == 20 && u.output_tokens == 10)
-        });
+        let has_usage = events.iter().any(
+            |e| matches!(e, StreamEvent::Usage(u) if u.input_tokens == 20 && u.output_tokens == 10),
+        );
         assert!(has_usage, "expected Usage event");
     }
 
@@ -278,14 +280,14 @@ mod tests {
             r#"{"model":"llama3.2","message":{"role":"assistant","content":"","tool_calls":[{"function":{"name":"search","arguments":{"query":"rust"}}}]},"done":true,"done_reason":"tool_calls","eval_count":15,"prompt_eval_count":25}"#,
         );
 
-        let has_tool_start = events.iter().any(|e| {
-            matches!(e, StreamEvent::ToolUseStart { name, .. } if name == "search")
-        });
+        let has_tool_start = events
+            .iter()
+            .any(|e| matches!(e, StreamEvent::ToolUseStart { name, .. } if name == "search"));
         assert!(has_tool_start, "expected ToolUseStart event");
 
-        let has_tool_input = events.iter().any(|e| {
-            matches!(e, StreamEvent::ToolUseInputDelta { delta, .. } if delta.contains("rust"))
-        });
+        let has_tool_input = events.iter().any(
+            |e| matches!(e, StreamEvent::ToolUseInputDelta { delta, .. } if delta.contains("rust")),
+        );
         assert!(has_tool_input, "expected ToolUseInputDelta event");
 
         let has_tool_end = events
@@ -293,9 +295,7 @@ mod tests {
             .any(|e| matches!(e, StreamEvent::ToolUseEnd { .. }));
         assert!(has_tool_end, "expected ToolUseEnd event");
 
-        let has_usage = events
-            .iter()
-            .any(|e| matches!(e, StreamEvent::Usage(_)));
+        let has_usage = events.iter().any(|e| matches!(e, StreamEvent::Usage(_)));
         assert!(has_usage, "expected Usage event");
     }
 

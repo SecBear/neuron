@@ -30,7 +30,9 @@ impl TokenCounter {
     /// Creates a new `TokenCounter` with the default ratio of 4.0 chars/token.
     #[must_use]
     pub fn new() -> Self {
-        Self { chars_per_token: 4.0 }
+        Self {
+            chars_per_token: 4.0,
+        }
     }
 
     /// Creates a new `TokenCounter` with a custom chars-per-token ratio.
@@ -90,9 +92,10 @@ impl TokenCounter {
                 let input_tokens = self.estimate_text(&input_str);
                 name_tokens + input_tokens
             }
-            ContentBlock::ToolResult { content, .. } => {
-                content.iter().map(|item| self.estimate_content_item(item)).sum()
-            }
+            ContentBlock::ToolResult { content, .. } => content
+                .iter()
+                .map(|item| self.estimate_content_item(item))
+                .sum(),
             ContentBlock::Image { .. } => {
                 // Images are expensive; use a fixed estimate
                 300

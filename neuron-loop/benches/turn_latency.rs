@@ -1,4 +1,4 @@
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, criterion_group, criterion_main};
 use neuron_loop::AgentLoop;
 use neuron_tool::ToolRegistry;
 use neuron_types::*;
@@ -25,9 +25,7 @@ impl Provider for InstantProvider {
         &self,
         _request: CompletionRequest,
     ) -> Result<StreamHandle, ProviderError> {
-        Err(ProviderError::InvalidRequest(
-            "not implemented".to_string(),
-        ))
+        Err(ProviderError::InvalidRequest("not implemented".to_string()))
     }
 }
 

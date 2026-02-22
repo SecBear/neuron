@@ -14,8 +14,8 @@ use neuron_context::SlidingWindowStrategy;
 use neuron_loop::AgentLoop;
 use neuron_tool::ToolRegistry;
 use neuron_types::{
-    CompletionRequest, CompletionResponse, ContentBlock, ContentItem, Message, ProviderError,
-    Role, StopReason, StreamHandle, TokenUsage, Tool, ToolContext, ToolDefinition,
+    CompletionRequest, CompletionResponse, ContentBlock, ContentItem, Message, ProviderError, Role,
+    StopReason, StreamHandle, TokenUsage, Tool, ToolContext, ToolDefinition,
 };
 use tokio_util::sync::CancellationToken;
 

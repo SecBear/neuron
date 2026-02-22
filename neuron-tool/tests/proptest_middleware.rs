@@ -1,8 +1,8 @@
 //! Property-based tests: middleware chain ordering.
 
-use proptest::prelude::*;
 use neuron_tool::*;
 use neuron_types::*;
+use proptest::prelude::*;
 use std::sync::{Arc, Mutex};
 
 /// A logging middleware that records its index when invoked.

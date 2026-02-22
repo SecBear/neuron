@@ -16,6 +16,7 @@ struct ReadFileOutput {
 }
 
 #[derive(Debug, thiserror::Error)]
+#[allow(dead_code)]
 enum ReadFileError {
     #[error("file not found: {0}")]
     NotFound(String),

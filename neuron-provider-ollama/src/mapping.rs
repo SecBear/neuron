@@ -57,10 +57,7 @@ pub fn to_api_request(
     }
 
     if let Some(temp) = req.temperature {
-        options.insert(
-            "temperature".into(),
-            serde_json::Value::from(temp as f64),
-        );
+        options.insert("temperature".into(), serde_json::Value::from(temp as f64));
     }
 
     if let Some(top_p) = req.top_p {
@@ -92,9 +89,8 @@ pub fn to_api_request(
 
     // Tools — Ollama uses the same format as OpenAI
     if !req.tools.is_empty() {
-        body["tools"] = serde_json::Value::Array(
-            req.tools.iter().map(map_tool_definition).collect(),
-        );
+        body["tools"] =
+            serde_json::Value::Array(req.tools.iter().map(map_tool_definition).collect());
     }
 
     // Tool choice — Ollama doesn't have direct tool_choice support in the same way,
@@ -228,10 +224,7 @@ pub fn from_api_response(body: &serde_json::Value) -> Result<CompletionResponse,
     if let Some(tool_calls) = message_obj["tool_calls"].as_array() {
         for tc in tool_calls {
             let function = &tc["function"];
-            let name = function["name"]
-                .as_str()
-                .unwrap_or_default()
-                .to_string();
+            let name = function["name"].as_str().unwrap_or_default().to_string();
             let arguments = &function["arguments"];
 
             // Ollama does not provide tool call IDs; synthesize one
@@ -305,9 +298,7 @@ fn parse_stop_reason(body: &serde_json::Value) -> StopReason {
 
 #[cfg(test)]
 mod tests {
-    use neuron_types::{
-        ContentBlock, Message, Role, SystemPrompt, ToolDefinition,
-    };
+    use neuron_types::{ContentBlock, Message, Role, SystemPrompt, ToolDefinition};
 
     use super::*;
 
@@ -352,7 +343,9 @@ mod tests {
     fn messages_mapped_correctly() {
         let req = minimal_request();
         let body = to_api_request(&req, "m", None);
-        let messages = body["messages"].as_array().expect("messages should be array");
+        let messages = body["messages"]
+            .as_array()
+            .expect("messages should be array");
         assert_eq!(messages.len(), 1);
         assert_eq!(messages[0]["role"], "user");
         assert_eq!(messages[0]["content"], "Hello");
@@ -363,7 +356,9 @@ mod tests {
         let mut req = minimal_request();
         req.system = Some(SystemPrompt::Text("You are a helpful assistant.".into()));
         let body = to_api_request(&req, "m", None);
-        let messages = body["messages"].as_array().expect("messages should be array");
+        let messages = body["messages"]
+            .as_array()
+            .expect("messages should be array");
         assert_eq!(messages.len(), 2);
         assert_eq!(messages[0]["role"], "system");
         assert_eq!(messages[0]["content"], "You are a helpful assistant.");
@@ -384,7 +379,9 @@ mod tests {
             },
         ]));
         let body = to_api_request(&req, "m", None);
-        let messages = body["messages"].as_array().expect("messages should be array");
+        let messages = body["messages"]
+            .as_array()
+            .expect("messages should be array");
         assert_eq!(messages[0]["content"], "Be concise.\n\nBe helpful.");
     }
 
@@ -401,7 +398,9 @@ mod tests {
         let mut req = minimal_request();
         req.temperature = Some(0.7);
         let body = to_api_request(&req, "m", None);
-        let temp = body["options"]["temperature"].as_f64().expect("should be f64");
+        let temp = body["options"]["temperature"]
+            .as_f64()
+            .expect("should be f64");
         assert!((temp - 0.7).abs() < 0.001, "expected ~0.7, got {temp}");
     }
 
@@ -496,7 +495,9 @@ mod tests {
         assert_eq!(resp.stop_reason, StopReason::EndTurn);
         assert_eq!(resp.usage.input_tokens, 20);
         assert_eq!(resp.usage.output_tokens, 10);
-        assert!(matches!(&resp.message.content[0], ContentBlock::Text(t) if t == "Hello! How can I help you today?"));
+        assert!(
+            matches!(&resp.message.content[0], ContentBlock::Text(t) if t == "Hello! How can I help you today?")
+        );
     }
 
     #[test]
@@ -628,7 +629,9 @@ mod tests {
         };
         let body = to_api_request(&req, "m", None);
         let messages = body["messages"].as_array().expect("should be array");
-        let tc = messages[0]["tool_calls"].as_array().expect("should have tool_calls");
+        let tc = messages[0]["tool_calls"]
+            .as_array()
+            .expect("should have tool_calls");
         assert_eq!(tc.len(), 1);
         assert_eq!(tc[0]["function"]["name"], "search");
         assert_eq!(tc[0]["function"]["arguments"]["q"], "test");

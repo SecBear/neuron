@@ -4,7 +4,10 @@ use neuron_context::ToolResultClearingStrategy;
 use neuron_types::{ContentBlock, ContentItem, ContextStrategy, Message, Role};
 
 fn user_msg(text: &str) -> Message {
-    Message { role: Role::User, content: vec![ContentBlock::Text(text.to_string())] }
+    Message {
+        role: Role::User,
+        content: vec![ContentBlock::Text(text.to_string())],
+    }
 }
 
 fn assistant_msg_with_tool_use(id: &str, name: &str) -> Message {
@@ -74,7 +77,10 @@ async fn clears_old_tool_results_keeps_recent() {
         tool_result_msg("id5", "result five"),
     ];
 
-    let result = strategy.compact(messages).await.expect("compact should succeed");
+    let result = strategy
+        .compact(messages)
+        .await
+        .expect("compact should succeed");
 
     // Collect all tool result contents
     let tool_result_contents: Vec<String> = result
@@ -104,21 +110,40 @@ async fn tool_use_ids_are_preserved_after_clearing() {
         tool_result_msg("def-456", "recent content"),
     ];
 
-    let result = strategy.compact(messages).await.expect("compact should succeed");
+    let result = strategy
+        .compact(messages)
+        .await
+        .expect("compact should succeed");
 
     // The cleared result should still have the original tool_use_id
     let tool_result_msgs: Vec<&Message> = result
         .iter()
-        .filter(|m| m.content.iter().any(|b| matches!(b, ContentBlock::ToolResult { .. })))
+        .filter(|m| {
+            m.content
+                .iter()
+                .any(|b| matches!(b, ContentBlock::ToolResult { .. }))
+        })
         .collect();
 
     assert_eq!(tool_result_msgs.len(), 2);
     // First is cleared but id preserved
-    assert_eq!(extract_tool_result_id(tool_result_msgs[0]), Some("abc-123".to_string()));
-    assert_eq!(extract_tool_result_content(tool_result_msgs[0]), Some("[tool result cleared]".to_string()));
+    assert_eq!(
+        extract_tool_result_id(tool_result_msgs[0]),
+        Some("abc-123".to_string())
+    );
+    assert_eq!(
+        extract_tool_result_content(tool_result_msgs[0]),
+        Some("[tool result cleared]".to_string())
+    );
     // Second is untouched
-    assert_eq!(extract_tool_result_id(tool_result_msgs[1]), Some("def-456".to_string()));
-    assert_eq!(extract_tool_result_content(tool_result_msgs[1]), Some("recent content".to_string()));
+    assert_eq!(
+        extract_tool_result_id(tool_result_msgs[1]),
+        Some("def-456".to_string())
+    );
+    assert_eq!(
+        extract_tool_result_content(tool_result_msgs[1]),
+        Some("recent content".to_string())
+    );
 }
 
 #[tokio::test]
@@ -134,7 +159,10 @@ async fn non_tool_result_messages_are_untouched() {
         tool_result_msg("id1", "some result"),
     ];
 
-    let result = strategy.compact(messages).await.expect("compact should succeed");
+    let result = strategy
+        .compact(messages)
+        .await
+        .expect("compact should succeed");
 
     // Non-tool-result messages should be untouched
     let first = &result[0];
@@ -154,11 +182,20 @@ async fn fewer_results_than_keep_n_leaves_all_intact() {
         tool_result_msg("id2", "result b"),
     ];
 
-    let result = strategy.compact(messages).await.expect("compact should succeed");
+    let result = strategy
+        .compact(messages)
+        .await
+        .expect("compact should succeed");
 
     // Both should be intact
-    assert_eq!(extract_tool_result_content(&result[0]), Some("result a".to_string()));
-    assert_eq!(extract_tool_result_content(&result[1]), Some("result b".to_string()));
+    assert_eq!(
+        extract_tool_result_content(&result[0]),
+        Some("result a".to_string())
+    );
+    assert_eq!(
+        extract_tool_result_content(&result[1]),
+        Some("result b".to_string())
+    );
 }
 
 #[test]

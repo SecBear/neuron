@@ -47,8 +47,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         },
         stop_reason: StopReason::EndTurn,
     };
-    hook.on_event(HookEvent::PostLlmCall { response: &response })
-        .await?;
+    hook.on_event(HookEvent::PostLlmCall {
+        response: &response,
+    })
+    .await?;
 
     // Simulate a tool execution.
     let tool_input = serde_json::json!({"query": "Rust programming"});

@@ -37,7 +37,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     session.messages.push(Message {
         role: Role::Assistant,
         content: vec![ContentBlock::Text(
-            "I don't have access to real-time weather data, but I can help you find it!".to_string(),
+            "I don't have access to real-time weather data, but I can help you find it!"
+                .to_string(),
         )],
     });
     session.messages.push(Message {

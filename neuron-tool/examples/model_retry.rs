@@ -9,7 +9,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use neuron_tool::{neuron_tool, ToolRegistry};
+use neuron_tool::{ToolRegistry, neuron_tool};
 use neuron_types::{ToolContext, ToolError};
 use tokio_util::sync::CancellationToken;
 

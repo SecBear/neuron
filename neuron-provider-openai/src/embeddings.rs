@@ -2,7 +2,9 @@
 
 use std::future::Future;
 
-use neuron_types::{EmbeddingError, EmbeddingProvider, EmbeddingRequest, EmbeddingResponse, EmbeddingUsage};
+use neuron_types::{
+    EmbeddingError, EmbeddingProvider, EmbeddingRequest, EmbeddingResponse, EmbeddingUsage,
+};
 
 use crate::client::OpenAi;
 
@@ -106,10 +108,9 @@ impl EmbeddingProvider for OpenAi {
                 return Err(map_embedding_http_status(status, &response_text));
             }
 
-            let json: serde_json::Value =
-                serde_json::from_str(&response_text).map_err(|e| {
-                    EmbeddingError::InvalidRequest(format!("invalid JSON response: {e}"))
-                })?;
+            let json: serde_json::Value = serde_json::from_str(&response_text).map_err(|e| {
+                EmbeddingError::InvalidRequest(format!("invalid JSON response: {e}"))
+            })?;
 
             parse_embedding_response(&json, &model)
         }
@@ -134,22 +135,15 @@ fn parse_embedding_response(
             })?
             .iter()
             .map(|v| {
-                v.as_f64()
-                    .map(|f| f as f32)
-                    .ok_or_else(|| {
-                        EmbeddingError::InvalidRequest(
-                            "non-numeric value in embedding".to_string(),
-                        )
-                    })
+                v.as_f64().map(|f| f as f32).ok_or_else(|| {
+                    EmbeddingError::InvalidRequest("non-numeric value in embedding".to_string())
+                })
             })
             .collect::<Result<Vec<f32>, _>>()?;
         embeddings.push(embedding);
     }
 
-    let model = json["model"]
-        .as_str()
-        .unwrap_or(default_model)
-        .to_string();
+    let model = json["model"].as_str().unwrap_or(default_model).to_string();
 
     let usage = &json["usage"];
     let prompt_tokens = usage["prompt_tokens"].as_u64().unwrap_or(0) as usize;
@@ -218,10 +212,8 @@ mod tests {
 
     #[test]
     fn map_500_to_other() {
-        let err = map_embedding_http_status(
-            reqwest::StatusCode::INTERNAL_SERVER_ERROR,
-            "server error",
-        );
+        let err =
+            map_embedding_http_status(reqwest::StatusCode::INTERNAL_SERVER_ERROR, "server error");
         assert!(matches!(err, EmbeddingError::Other(_)));
     }
 

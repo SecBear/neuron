@@ -102,7 +102,10 @@ async fn main() {
             println!("[main] Loop was cancelled as expected!");
         }
         Ok(result) => {
-            println!("[main] Loop completed normally after {} turns", result.turns);
+            println!(
+                "[main] Loop completed normally after {} turns",
+                result.turns
+            );
         }
         Err(e) => {
             println!("[main] Loop errored: {e}");

@@ -9,10 +9,10 @@
 //! mapping, streaming parser, and agent loop work end-to-end against
 //! the actual Anthropic Messages API.
 
+use futures::StreamExt;
 use neuron::prelude::*;
 use neuron::tool::ToolRegistry;
 use neuron_types::{StreamEvent, ToolChoice};
-use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -26,8 +26,7 @@ fn api_key() -> String {
 }
 
 fn anthropic() -> neuron::anthropic::Anthropic {
-    neuron::anthropic::Anthropic::new(api_key())
-        .model("claude-haiku-4-5-20251001") // cheapest model for smoke tests
+    neuron::anthropic::Anthropic::new(api_key()).model("claude-haiku-4-5-20251001") // cheapest model for smoke tests
 }
 
 fn user_msg(text: &str) -> Message {
@@ -63,6 +62,7 @@ struct CalculateOutput {
 }
 
 #[derive(Debug, thiserror::Error)]
+#[allow(dead_code)]
 enum CalculateError {
     #[error("cannot evaluate: {0}")]
     Invalid(String),
@@ -95,8 +95,7 @@ impl Tool for CalculateTool {
     ) -> Result<Self::Output, Self::Error> {
         // Trivial evaluator — only handles "a op b" patterns
         let expr = args.expression.trim();
-        let result = eval_simple(expr)
-            .ok_or_else(|| CalculateError::Invalid(expr.to_string()))?;
+        let result = eval_simple(expr).ok_or_else(|| CalculateError::Invalid(expr.to_string()))?;
         Ok(CalculateOutput { result })
     }
 }
@@ -155,7 +154,10 @@ async fn smoke_basic_completion() {
     assert!(!response.model.is_empty(), "response should name the model");
     assert_eq!(response.message.role, Role::Assistant);
     assert!(!response.message.content.is_empty(), "should have content");
-    assert!(response.usage.input_tokens > 0, "should report input tokens");
+    assert!(
+        response.usage.input_tokens > 0,
+        "should report input tokens"
+    );
     assert!(
         response.usage.output_tokens > 0,
         "should report output tokens"
@@ -299,10 +301,7 @@ async fn smoke_tool_use() {
 
     // Step 2: Execute the tool
     let ctx = tool_ctx();
-    let tool_result = tool_dyn
-        .call_dyn(tool_call.2.clone(), &ctx)
-        .await
-        .unwrap();
+    let tool_result = tool_dyn.call_dyn(tool_call.2.clone(), &ctx).await.unwrap();
     assert!(!tool_result.is_error);
     println!(
         "  tool result: {:?}",
@@ -395,10 +394,7 @@ async fn smoke_full_neuron_loop() {
     let ctx = tool_ctx();
 
     let result = agent
-        .run(
-            user_msg("What is 99 * 101? Use the calculate tool."),
-            &ctx,
-        )
+        .run(user_msg("What is 99 * 101? Use the calculate tool."), &ctx)
         .await
         .unwrap();
 

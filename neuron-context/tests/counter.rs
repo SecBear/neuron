@@ -4,7 +4,10 @@ use neuron_context::TokenCounter;
 use neuron_types::{ContentBlock, ContentItem, Message, Role, ToolDefinition};
 
 fn text_message(role: Role, text: &str) -> Message {
-    Message { role, content: vec![ContentBlock::Text(text.to_string())] }
+    Message {
+        role,
+        content: vec![ContentBlock::Text(text.to_string())],
+    }
 }
 
 fn tool_use_message(id: &str, name: &str, input: serde_json::Value) -> Message {
@@ -102,7 +105,7 @@ fn custom_ratio_changes_estimates() {
     // Tighter ratio (fewer chars per token) → more tokens estimated
     assert!(tight_est > default_est);
     assert_eq!(default_est, 10); // 40/4
-    assert_eq!(tight_est, 20);   // 40/2
+    assert_eq!(tight_est, 20); // 40/2
 }
 
 #[test]

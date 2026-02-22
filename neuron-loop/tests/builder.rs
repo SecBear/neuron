@@ -4,8 +4,8 @@ use neuron_loop::AgentLoop;
 use neuron_types::*;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 // --- Mock Provider ---
 
@@ -51,7 +51,9 @@ impl Provider for MockProvider {
         &self,
         _request: CompletionRequest,
     ) -> Result<StreamHandle, ProviderError> {
-        Err(ProviderError::InvalidRequest("streaming not implemented in mock".into()))
+        Err(ProviderError::InvalidRequest(
+            "streaming not implemented in mock".into(),
+        ))
     }
 }
 
@@ -64,10 +66,7 @@ impl ContextStrategy for NoOpContext {
         false
     }
 
-    async fn compact(
-        &self,
-        _messages: Vec<Message>,
-    ) -> Result<Vec<Message>, ContextError> {
+    async fn compact(&self, _messages: Vec<Message>) -> Result<Vec<Message>, ContextError> {
         unreachable!()
     }
 
@@ -158,9 +157,7 @@ async fn builder_max_turns() {
     ]);
     let context = NoOpContext;
 
-    let mut agent = AgentLoop::builder(provider, context)
-        .max_turns(2)
-        .build();
+    let mut agent = AgentLoop::builder(provider, context).max_turns(2).build();
     let ctx = test_ctx();
     // This will try to execute "fake" tool which doesn't exist, causing a ToolNotFound error
     // or it will reach max turns. Let's check for error.
@@ -176,15 +173,22 @@ async fn builder_multiple_hooks() {
     let context = NoOpContext;
 
     let mut agent = AgentLoop::builder(provider, context)
-        .hook(CountingHook { count: count.clone() })
-        .hook(CountingHook { count: count.clone() })
+        .hook(CountingHook {
+            count: count.clone(),
+        })
+        .hook(CountingHook {
+            count: count.clone(),
+        })
         .build();
     let ctx = test_ctx();
     agent.run_text("hi", &ctx).await.unwrap();
 
     // Each hook fires for PreLlmCall + PostLlmCall = 2 events, 2 hooks = 4 total
     // Plus LoopIteration = 3 events per hook = 6 total
-    assert!(count.load(Ordering::SeqCst) >= 4, "hooks should fire multiple times");
+    assert!(
+        count.load(Ordering::SeqCst) >= 4,
+        "hooks should fire multiple times"
+    );
 }
 
 #[tokio::test]

@@ -1,16 +1,15 @@
 //! Property-based tests: error classification consistency.
 
-use proptest::prelude::*;
 use neuron_types::*;
+use proptest::prelude::*;
 use std::time::Duration;
 
 fn arb_provider_error() -> impl Strategy<Value = ProviderError> {
     prop_oneof![
         any::<String>().prop_map(ProviderError::Authentication),
-        proptest::option::of(0u64..3600)
-            .prop_map(|secs| ProviderError::RateLimit {
-                retry_after: secs.map(Duration::from_secs),
-            }),
+        proptest::option::of(0u64..3600).prop_map(|secs| ProviderError::RateLimit {
+            retry_after: secs.map(Duration::from_secs),
+        }),
         any::<String>().prop_map(ProviderError::InvalidRequest),
         any::<String>().prop_map(ProviderError::ModelNotFound),
         any::<String>().prop_map(ProviderError::ServiceUnavailable),
@@ -23,10 +22,9 @@ fn arb_provider_error() -> impl Strategy<Value = ProviderError> {
 fn arb_embedding_error() -> impl Strategy<Value = EmbeddingError> {
     prop_oneof![
         any::<String>().prop_map(EmbeddingError::Authentication),
-        proptest::option::of(0u64..3600)
-            .prop_map(|secs| EmbeddingError::RateLimit {
-                retry_after: secs.map(Duration::from_secs),
-            }),
+        proptest::option::of(0u64..3600).prop_map(|secs| EmbeddingError::RateLimit {
+            retry_after: secs.map(Duration::from_secs),
+        }),
         any::<String>().prop_map(EmbeddingError::InvalidRequest),
     ]
 }

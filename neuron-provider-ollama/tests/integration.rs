@@ -1,8 +1,8 @@
 //! Integration tests for the Ollama provider using wiremock.
 
+use futures::StreamExt;
 use neuron_provider_ollama::Ollama;
 use neuron_types::{CompletionRequest, ContentBlock, Message, Provider, ProviderError, Role};
-use futures::StreamExt;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -135,9 +135,7 @@ async fn complete_returns_model_not_found_on_404() {
 
     Mock::given(method("POST"))
         .and(path("/api/chat"))
-        .respond_with(
-            ResponseTemplate::new(404).set_body_string("model 'nonexistent' not found"),
-        )
+        .respond_with(ResponseTemplate::new(404).set_body_string("model 'nonexistent' not found"))
         .mount(&mock_server)
         .await;
 
@@ -269,9 +267,7 @@ async fn stream_returns_error_on_non_success_status() {
 
     Mock::given(method("POST"))
         .and(path("/api/chat"))
-        .respond_with(
-            ResponseTemplate::new(404).set_body_string("model 'nonexistent' not found"),
-        )
+        .respond_with(ResponseTemplate::new(404).set_body_string("model 'nonexistent' not found"))
         .mount(&mock_server)
         .await;
 
@@ -298,9 +294,7 @@ async fn complete_with_keep_alive() {
         .mount(&mock_server)
         .await;
 
-    let provider = Ollama::new()
-        .base_url(mock_server.uri())
-        .keep_alive("5m");
+    let provider = Ollama::new().base_url(mock_server.uri()).keep_alive("5m");
 
     let result = provider.complete(minimal_request()).await;
     assert!(result.is_ok(), "expected Ok, got: {:?}", result.err());

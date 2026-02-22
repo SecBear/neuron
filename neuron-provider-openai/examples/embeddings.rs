@@ -28,9 +28,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Model: {}", response.model);
     println!("Embeddings: {}", response.embeddings.len());
     println!("Dimensions: {}", response.embeddings[0].len());
-    println!("Usage: {} prompt tokens, {} total tokens",
-        response.usage.prompt_tokens,
-        response.usage.total_tokens,
+    println!(
+        "Usage: {} prompt tokens, {} total tokens",
+        response.usage.prompt_tokens, response.usage.total_tokens,
     );
 
     // Compute cosine similarity between first two embeddings

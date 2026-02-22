@@ -7,8 +7,10 @@
 
 use std::collections::HashMap;
 
-use neuron_types::{ContentBlock, Message, Role, StreamError, StreamEvent, StreamHandle, TokenUsage};
 use futures::{Stream, StreamExt};
+use neuron_types::{
+    ContentBlock, Message, Role, StreamError, StreamEvent, StreamHandle, TokenUsage,
+};
 use reqwest::Response;
 
 /// Wrap an HTTP response body into a [`StreamHandle`] that emits [`StreamEvent`]s.
@@ -166,7 +168,9 @@ impl SseParserState {
         let json: serde_json::Value = match serde_json::from_str(&data) {
             Ok(v) => v,
             Err(e) => {
-                return vec![StreamEvent::Error(StreamError::non_retryable(format!("JSON parse error in SSE: {e}")))];
+                return vec![StreamEvent::Error(StreamError::non_retryable(format!(
+                    "JSON parse error in SSE: {e}"
+                )))];
             }
         };
 
@@ -213,7 +217,10 @@ impl SseParserState {
                         input_buf: String::new(),
                     },
                 );
-                vec![StreamEvent::ToolUseStart { id: tool_id, name: tool_name }]
+                vec![StreamEvent::ToolUseStart {
+                    id: tool_id,
+                    name: tool_name,
+                }]
             }
             _ => vec![],
         }
@@ -249,7 +256,10 @@ impl SseParserState {
                         t.id.clone()
                     })
                     .unwrap_or_default();
-                vec![StreamEvent::ToolUseInputDelta { id: tool_id, delta: partial }]
+                vec![StreamEvent::ToolUseInputDelta {
+                    id: tool_id,
+                    delta: partial,
+                }]
             }
             _ => vec![],
         }
@@ -394,14 +404,14 @@ data: {\"type\":\"content_block_stop\",\"index\":0}
         });
         assert!(has_tool_start, "expected ToolUseStart event");
 
-        let has_input_delta = events.iter().any(|e| {
-            matches!(e, StreamEvent::ToolUseInputDelta { id, .. } if id == "toolu_01")
-        });
+        let has_input_delta = events
+            .iter()
+            .any(|e| matches!(e, StreamEvent::ToolUseInputDelta { id, .. } if id == "toolu_01"));
         assert!(has_input_delta, "expected ToolUseInputDelta event");
 
-        let has_tool_end = events.iter().any(|e| {
-            matches!(e, StreamEvent::ToolUseEnd { id } if id == "toolu_01")
-        });
+        let has_tool_end = events
+            .iter()
+            .any(|e| matches!(e, StreamEvent::ToolUseEnd { id } if id == "toolu_01"));
         assert!(has_tool_end, "expected ToolUseEnd event");
     }
 
@@ -460,9 +470,9 @@ event: message_delta
 data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":42}}
 ";
         let events = feed_sse(&mut state, sse);
-        let has_usage = events.iter().any(|e| {
-            matches!(e, StreamEvent::Usage(u) if u.output_tokens == 42)
-        });
+        let has_usage = events
+            .iter()
+            .any(|e| matches!(e, StreamEvent::Usage(u) if u.output_tokens == 42));
         assert!(has_usage, "expected Usage event");
     }
 }

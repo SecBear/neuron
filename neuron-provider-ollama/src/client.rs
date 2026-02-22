@@ -133,11 +133,7 @@ impl Provider for Ollama {
         let http_client = self.client.clone();
 
         async move {
-            let mut body = to_api_request(
-                &request,
-                &default_model,
-                keep_alive.as_deref(),
-            );
+            let mut body = to_api_request(&request, &default_model, keep_alive.as_deref());
             body["stream"] = serde_json::Value::Bool(false);
 
             tracing::debug!(url = %url, model = %body["model"], "sending completion request to Ollama");
@@ -157,8 +153,9 @@ impl Provider for Ollama {
                 return Err(map_http_status(status, &response_text));
             }
 
-            let json: serde_json::Value = serde_json::from_str(&response_text)
-                .map_err(|e| ProviderError::InvalidRequest(format!("invalid JSON response: {e}")))?;
+            let json: serde_json::Value = serde_json::from_str(&response_text).map_err(|e| {
+                ProviderError::InvalidRequest(format!("invalid JSON response: {e}"))
+            })?;
 
             from_api_response(&json)
         }
@@ -179,11 +176,7 @@ impl Provider for Ollama {
         let http_client = self.client.clone();
 
         async move {
-            let mut body = to_api_request(
-                &request,
-                &default_model,
-                keep_alive.as_deref(),
-            );
+            let mut body = to_api_request(&request, &default_model, keep_alive.as_deref());
             body["stream"] = serde_json::Value::Bool(true);
 
             tracing::debug!(url = %url, model = %body["model"], "sending streaming completion request to Ollama");

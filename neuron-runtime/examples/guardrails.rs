@@ -7,8 +7,8 @@
 use std::future::Future;
 
 use neuron_runtime::{
-    ErasedInputGuardrail, ErasedOutputGuardrail, GuardrailResult, InputGuardrail,
-    OutputGuardrail, run_input_guardrails, run_output_guardrails,
+    ErasedInputGuardrail, ErasedOutputGuardrail, GuardrailResult, InputGuardrail, OutputGuardrail,
+    run_input_guardrails, run_output_guardrails,
 };
 
 // --- Input guardrail: reject messages containing passwords or secrets ---
@@ -39,9 +39,7 @@ impl InputGuardrail for NoSqlInjection {
         let lower = input.to_lowercase();
         async move {
             if lower.contains("drop table") || lower.contains("'; --") {
-                GuardrailResult::Tripwire(
-                    "Input contains potential SQL injection".to_string(),
-                )
+                GuardrailResult::Tripwire("Input contains potential SQL injection".to_string())
             } else {
                 GuardrailResult::Pass
             }

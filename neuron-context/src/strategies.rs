@@ -11,7 +11,8 @@ use crate::counter::TokenCounter;
 // ---- Dyn-compatible wrapper for CompositeStrategy --------------------------
 
 /// Type alias for a pinned, boxed, `Send` future returning compacted messages.
-type CompactFuture<'a> = Pin<Box<dyn Future<Output = Result<Vec<Message>, ContextError>> + Send + 'a>>;
+type CompactFuture<'a> =
+    Pin<Box<dyn Future<Output = Result<Vec<Message>, ContextError>> + Send + 'a>>;
 
 /// A dyn-compatible strategy object. Used internally by [`CompositeStrategy`].
 ///
@@ -67,7 +68,8 @@ impl ContextStrategy for BoxedStrategy {
     fn compact(
         &self,
         messages: Vec<Message>,
-    ) -> impl Future<Output = Result<Vec<Message>, ContextError>> + neuron_types::WasmCompatSend {
+    ) -> impl Future<Output = Result<Vec<Message>, ContextError>> + neuron_types::WasmCompatSend
+    {
         let inner = Arc::clone(&self.0);
         async move { inner.erased_compact(messages).await }
     }
@@ -104,13 +106,21 @@ impl SlidingWindowStrategy {
     /// * `max_tokens` — token threshold above which compaction is triggered
     #[must_use]
     pub fn new(window_size: usize, max_tokens: usize) -> Self {
-        Self { window_size, counter: TokenCounter::new(), max_tokens }
+        Self {
+            window_size,
+            counter: TokenCounter::new(),
+            max_tokens,
+        }
     }
 
     /// Creates a new `SlidingWindowStrategy` with a custom [`TokenCounter`].
     #[must_use]
     pub fn with_counter(window_size: usize, max_tokens: usize, counter: TokenCounter) -> Self {
-        Self { window_size, counter, max_tokens }
+        Self {
+            window_size,
+            counter,
+            max_tokens,
+        }
     }
 }
 
@@ -179,17 +189,21 @@ impl ToolResultClearingStrategy {
     /// * `max_tokens` — token threshold above which compaction is triggered
     #[must_use]
     pub fn new(keep_recent_n: usize, max_tokens: usize) -> Self {
-        Self { keep_recent_n, counter: TokenCounter::new(), max_tokens }
+        Self {
+            keep_recent_n,
+            counter: TokenCounter::new(),
+            max_tokens,
+        }
     }
 
     /// Creates a new `ToolResultClearingStrategy` with a custom [`TokenCounter`].
     #[must_use]
-    pub fn with_counter(
-        keep_recent_n: usize,
-        max_tokens: usize,
-        counter: TokenCounter,
-    ) -> Self {
-        Self { keep_recent_n, counter, max_tokens }
+    pub fn with_counter(keep_recent_n: usize, max_tokens: usize, counter: TokenCounter) -> Self {
+        Self {
+            keep_recent_n,
+            counter,
+            max_tokens,
+        }
     }
 }
 
@@ -229,7 +243,10 @@ impl ContextStrategy for ToolResultClearingStrategy {
             let mut messages = messages;
             for (msg_idx, block_idx) in to_clear {
                 let block = &mut messages[msg_idx].content[block_idx];
-                if let ContentBlock::ToolResult { content, is_error, .. } = block {
+                if let ContentBlock::ToolResult {
+                    content, is_error, ..
+                } = block
+                {
                     *content = vec![ContentItem::Text("[tool result cleared]".to_string())];
                     *is_error = false;
                 }
@@ -276,7 +293,12 @@ impl<P: Provider> SummarizationStrategy<P> {
     /// * `max_tokens` — token threshold above which compaction is triggered
     #[must_use]
     pub fn new(provider: P, preserve_recent: usize, max_tokens: usize) -> Self {
-        Self { provider, preserve_recent, counter: TokenCounter::new(), max_tokens }
+        Self {
+            provider,
+            preserve_recent,
+            counter: TokenCounter::new(),
+            max_tokens,
+        }
     }
 
     /// Creates a new `SummarizationStrategy` with a custom [`TokenCounter`].
@@ -287,7 +309,12 @@ impl<P: Provider> SummarizationStrategy<P> {
         max_tokens: usize,
         counter: TokenCounter,
     ) -> Self {
-        Self { provider, preserve_recent, counter, max_tokens }
+        Self {
+            provider,
+            preserve_recent,
+            counter,
+            max_tokens,
+        }
     }
 }
 
@@ -406,7 +433,11 @@ impl CompositeStrategy {
     /// * `max_tokens` — token threshold above which compaction is triggered
     #[must_use]
     pub fn new(strategies: Vec<BoxedStrategy>, max_tokens: usize) -> Self {
-        Self { strategies, counter: TokenCounter::new(), max_tokens }
+        Self {
+            strategies,
+            counter: TokenCounter::new(),
+            max_tokens,
+        }
     }
 }
 

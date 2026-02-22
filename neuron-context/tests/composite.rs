@@ -1,17 +1,22 @@
 //! Integration tests for CompositeStrategy.
 
 use neuron_context::{
-    CompositeStrategy, SlidingWindowStrategy, ToolResultClearingStrategy,
-    strategies::BoxedStrategy,
+    CompositeStrategy, SlidingWindowStrategy, ToolResultClearingStrategy, strategies::BoxedStrategy,
 };
 use neuron_types::{ContentBlock, ContentItem, ContextStrategy, Message, Role};
 
 fn user_msg(text: &str) -> Message {
-    Message { role: Role::User, content: vec![ContentBlock::Text(text.to_string())] }
+    Message {
+        role: Role::User,
+        content: vec![ContentBlock::Text(text.to_string())],
+    }
 }
 
 fn assistant_msg(text: &str) -> Message {
-    Message { role: Role::Assistant, content: vec![ContentBlock::Text(text.to_string())] }
+    Message {
+        role: Role::Assistant,
+        content: vec![ContentBlock::Text(text.to_string())],
+    }
 }
 
 fn tool_result_msg(tool_use_id: &str, content: &str) -> Message {
@@ -45,7 +50,7 @@ async fn applies_first_strategy_when_sufficient() {
     let strategy = CompositeStrategy::new(
         vec![
             BoxedStrategy::new(ToolResultClearingStrategy::new(1, 0)), // always compact
-            BoxedStrategy::new(SlidingWindowStrategy::new(3, 0)),       // always compact
+            BoxedStrategy::new(SlidingWindowStrategy::new(3, 0)),      // always compact
         ],
         0, // threshold 0 → always triggers should_compact
     );
@@ -59,7 +64,10 @@ async fn applies_first_strategy_when_sufficient() {
         assistant_msg("done"),
     ];
 
-    let result = strategy.compact(messages).await.expect("compact should succeed");
+    let result = strategy
+        .compact(messages)
+        .await
+        .expect("compact should succeed");
     // Both strategies ran; tool results cleared, and window slid
     assert!(!result.is_empty());
 }
@@ -92,7 +100,10 @@ async fn stops_early_when_under_budget() {
     ];
 
     // compact is called manually (bypassing should_compact check)
-    let result = strategy.compact(messages).await.expect("compact should succeed");
+    let result = strategy
+        .compact(messages)
+        .await
+        .expect("compact should succeed");
     // With max_tokens=MAX, the loop exits immediately after checking token count
     // and neither inner strategy runs — messages pass through unchanged
     assert_eq!(result.len(), 4);
@@ -126,10 +137,17 @@ async fn chaining_clearing_then_sliding_both_apply() {
         user_msg("msg4"),
     ];
 
-    let result = strategy.compact(messages).await.expect("compact should succeed");
+    let result = strategy
+        .compact(messages)
+        .await
+        .expect("compact should succeed");
     // After tool clearing: old result cleared, new result kept
     // After window: only last 2 messages
-    assert!(result.len() <= 4, "expected at most 4 messages, got {}", result.len());
+    assert!(
+        result.len() <= 4,
+        "expected at most 4 messages, got {}",
+        result.len()
+    );
 }
 
 #[test]

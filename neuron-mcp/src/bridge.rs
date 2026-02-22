@@ -8,9 +8,11 @@ use std::sync::Arc;
 
 #[allow(unused_imports)] // ToolRegistry used in doc links
 use neuron_tool::ToolRegistry;
-use neuron_types::{McpError, ToolContext, ToolDefinition, ToolDyn, ToolError, ToolOutput, WasmBoxedFuture};
+use neuron_types::{
+    McpError, ToolContext, ToolDefinition, ToolDyn, ToolError, ToolOutput, WasmBoxedFuture,
+};
 
-use crate::client::{call_tool_result_to_output, McpClient};
+use crate::client::{McpClient, call_tool_result_to_output};
 
 /// Bridges an MCP tool to the [`ToolDyn`] trait.
 ///
@@ -172,14 +174,8 @@ mod tests {
             serde_json::Value::String("object".to_string()),
         );
         let mut props = serde_json::Map::new();
-        props.insert(
-            "name".to_string(),
-            serde_json::json!({"type": "string"}),
-        );
-        schema.insert(
-            "properties".to_string(),
-            serde_json::Value::Object(props),
-        );
+        props.insert("name".to_string(), serde_json::json!({"type": "string"}));
+        schema.insert("properties".to_string(), serde_json::Value::Object(props));
 
         let rmcp_tool = rmcp::model::Tool {
             name: Cow::Borrowed("greet"),

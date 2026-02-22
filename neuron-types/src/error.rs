@@ -222,7 +222,6 @@ pub enum StorageError {
     Other(Box<dyn std::error::Error + Send + Sync>),
 }
 
-
 /// Errors from sandbox operations.
 #[derive(Debug, thiserror::Error)]
 pub enum SandboxError {

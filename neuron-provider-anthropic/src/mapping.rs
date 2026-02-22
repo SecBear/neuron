@@ -54,9 +54,8 @@ pub fn to_api_request(req: &CompletionRequest, default_model: &str) -> serde_jso
 
     // Tools
     if !req.tools.is_empty() {
-        body["tools"] = serde_json::Value::Array(
-            req.tools.iter().map(map_tool_definition).collect(),
-        );
+        body["tools"] =
+            serde_json::Value::Array(req.tools.iter().map(map_tool_definition).collect());
     }
 
     // Tool choice
@@ -133,7 +132,10 @@ pub(crate) fn map_content_block(block: &ContentBlock) -> serde_json::Value {
             "type": "text",
             "text": text,
         }),
-        ContentBlock::Thinking { thinking, signature } => serde_json::json!({
+        ContentBlock::Thinking {
+            thinking,
+            signature,
+        } => serde_json::json!({
             "type": "thinking",
             "thinking": thinking,
             "signature": signature,
@@ -148,11 +150,13 @@ pub(crate) fn map_content_block(block: &ContentBlock) -> serde_json::Value {
             "name": name,
             "input": input,
         }),
-        ContentBlock::ToolResult { tool_use_id, content, is_error } => {
-            let mapped_content: Vec<serde_json::Value> = content
-                .iter()
-                .map(map_content_item)
-                .collect();
+        ContentBlock::ToolResult {
+            tool_use_id,
+            content,
+            is_error,
+        } => {
+            let mapped_content: Vec<serde_json::Value> =
+                content.iter().map(map_content_item).collect();
             serde_json::json!({
                 "type": "tool_result",
                 "tool_use_id": tool_use_id,
@@ -307,9 +311,9 @@ pub fn from_api_response(body: &serde_json::Value) -> Result<CompletionResponse,
         .ok_or_else(|| ProviderError::InvalidRequest("missing 'model' in response".into()))?
         .to_string();
 
-    let content_arr = body["content"]
-        .as_array()
-        .ok_or_else(|| ProviderError::InvalidRequest("missing 'content' array in response".into()))?;
+    let content_arr = body["content"].as_array().ok_or_else(|| {
+        ProviderError::InvalidRequest("missing 'content' array in response".into())
+    })?;
 
     let mut content_blocks = Vec::with_capacity(content_arr.len());
     for block in content_arr {
@@ -350,21 +354,15 @@ fn parse_content_block(block: &serde_json::Value) -> Result<ContentBlock, Provid
             Ok(ContentBlock::Text(text))
         }
         "thinking" => {
-            let thinking = block["thinking"]
-                .as_str()
-                .unwrap_or_default()
-                .to_string();
-            let signature = block["signature"]
-                .as_str()
-                .unwrap_or_default()
-                .to_string();
-            Ok(ContentBlock::Thinking { thinking, signature })
+            let thinking = block["thinking"].as_str().unwrap_or_default().to_string();
+            let signature = block["signature"].as_str().unwrap_or_default().to_string();
+            Ok(ContentBlock::Thinking {
+                thinking,
+                signature,
+            })
         }
         "redacted_thinking" => {
-            let data = block["data"]
-                .as_str()
-                .unwrap_or_default()
-                .to_string();
+            let data = block["data"].as_str().unwrap_or_default().to_string();
             Ok(ContentBlock::RedactedThinking { data })
         }
         "tool_use" => {
@@ -374,16 +372,15 @@ fn parse_content_block(block: &serde_json::Value) -> Result<ContentBlock, Provid
                 .to_string();
             let name = block["name"]
                 .as_str()
-                .ok_or_else(|| ProviderError::InvalidRequest("tool_use block missing 'name'".into()))?
+                .ok_or_else(|| {
+                    ProviderError::InvalidRequest("tool_use block missing 'name'".into())
+                })?
                 .to_string();
             let input = block["input"].clone();
             Ok(ContentBlock::ToolUse { id, name, input })
         }
         "compaction" => {
-            let content = block["content"]
-                .as_str()
-                .unwrap_or_default()
-                .to_string();
+            let content = block["content"].as_str().unwrap_or_default().to_string();
             Ok(ContentBlock::Compaction { content })
         }
         other => Err(ProviderError::InvalidRequest(format!(
@@ -412,7 +409,9 @@ fn parse_usage(usage: &serde_json::Value) -> TokenUsage {
     TokenUsage {
         input_tokens: usage["input_tokens"].as_u64().unwrap_or(0) as usize,
         output_tokens: usage["output_tokens"].as_u64().unwrap_or(0) as usize,
-        cache_read_tokens: usage["cache_read_input_tokens"].as_u64().map(|n| n as usize),
+        cache_read_tokens: usage["cache_read_input_tokens"]
+            .as_u64()
+            .map(|n| n as usize),
         cache_creation_tokens: usage["cache_creation_input_tokens"]
             .as_u64()
             .map(|n| n as usize),
@@ -562,7 +561,9 @@ mod tests {
     #[test]
     fn tool_choice_specific_maps_correctly() {
         let mut req = minimal_request();
-        req.tool_choice = Some(ToolChoice::Specific { name: "search".into() });
+        req.tool_choice = Some(ToolChoice::Specific {
+            name: "search".into(),
+        });
         let body = to_api_request(&req, "m");
         assert_eq!(body["tool_choice"]["type"], "tool");
         assert_eq!(body["tool_choice"]["name"], "search");

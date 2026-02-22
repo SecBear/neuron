@@ -44,8 +44,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 1. Create providers from environment variables.
     let anthropic_key = std::env::var("ANTHROPIC_API_KEY")
         .expect("ANTHROPIC_API_KEY environment variable must be set");
-    let openai_key = std::env::var("OPENAI_API_KEY")
-        .expect("OPENAI_API_KEY environment variable must be set");
+    let openai_key =
+        std::env::var("OPENAI_API_KEY").expect("OPENAI_API_KEY environment variable must be set");
 
     let anthropic = Anthropic::new(anthropic_key);
     let openai = OpenAi::new(openai_key);

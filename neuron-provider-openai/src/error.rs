@@ -97,10 +97,7 @@ mod tests {
 
     #[test]
     fn map_500_to_service_unavailable() {
-        let err = map_http_status(
-            reqwest::StatusCode::INTERNAL_SERVER_ERROR,
-            "Server error",
-        );
+        let err = map_http_status(reqwest::StatusCode::INTERNAL_SERVER_ERROR, "Server error");
         assert!(matches!(err, ProviderError::ServiceUnavailable(_)));
         assert!(err.is_retryable());
     }

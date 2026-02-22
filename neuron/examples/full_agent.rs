@@ -64,8 +64,7 @@ impl Tool for CalculateTool {
         _ctx: &ToolContext,
     ) -> Result<Self::Output, Self::Error> {
         let expr = args.expression.trim();
-        let result =
-            eval_simple(expr).ok_or_else(|| CalculateError::Invalid(expr.to_string()))?;
+        let result = eval_simple(expr).ok_or_else(|| CalculateError::Invalid(expr.to_string()))?;
         Ok(CalculateOutput { result })
     }
 }
@@ -94,8 +93,8 @@ fn eval_simple(expr: &str) -> Option<f64> {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 1. Create an Anthropic provider from the environment variable.
-    let api_key =
-        std::env::var("ANTHROPIC_API_KEY").expect("ANTHROPIC_API_KEY environment variable must be set");
+    let api_key = std::env::var("ANTHROPIC_API_KEY")
+        .expect("ANTHROPIC_API_KEY environment variable must be set");
     let provider = Anthropic::new(api_key).model("claude-haiku-4-5-20251001");
 
     // 2. Create a ToolRegistry and register a tool.

@@ -344,7 +344,8 @@ impl<P: Provider, C: ContextStrategy> AgentLoop<P, C> {
             }
 
             // Execute tool calls and collect results
-            let tool_result_blocks = if self.config.parallel_tool_execution && tool_calls.len() > 1 {
+            let tool_result_blocks = if self.config.parallel_tool_execution && tool_calls.len() > 1
+            {
                 let futs = tool_calls.iter().map(|(call_id, tool_name, input)| {
                     self.execute_single_tool(call_id, tool_name, input, tool_ctx)
                 });
@@ -353,7 +354,10 @@ impl<P: Provider, C: ContextStrategy> AgentLoop<P, C> {
             } else {
                 let mut blocks = Vec::new();
                 for (call_id, tool_name, input) in &tool_calls {
-                    blocks.push(self.execute_single_tool(call_id, tool_name, input, tool_ctx).await?);
+                    blocks.push(
+                        self.execute_single_tool(call_id, tool_name, input, tool_ctx)
+                            .await?,
+                    );
                 }
                 blocks
             };
@@ -423,7 +427,9 @@ impl<P: Provider, C: ContextStrategy> AgentLoop<P, C> {
                 .await
                 .map_err(|e| ToolError::ExecutionFailed(Box::new(e)))?
         } else {
-            self.tools.execute(tool_name, input.clone(), tool_ctx).await?
+            self.tools
+                .execute(tool_name, input.clone(), tool_ctx)
+                .await?
         };
 
         // Fire PostToolExecution hooks

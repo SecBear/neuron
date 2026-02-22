@@ -5,7 +5,9 @@
 
 use std::future::Future;
 
-use neuron_types::{SandboxError, ToolContext, ToolDyn, ToolOutput, WasmCompatSend, WasmCompatSync};
+use neuron_types::{
+    SandboxError, ToolContext, ToolDyn, ToolOutput, WasmCompatSend, WasmCompatSync,
+};
 
 /// Sandbox for isolating tool execution.
 ///

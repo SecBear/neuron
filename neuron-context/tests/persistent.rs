@@ -25,12 +25,21 @@ fn renders_sections_in_priority_order() {
     let rendered = ctx.render();
 
     // Role (priority 0) should appear before Reminder (5) before Rules (10)
-    let role_pos = rendered.find("Role").expect("Role section should be present");
-    let reminder_pos = rendered.find("Reminder").expect("Reminder section should be present");
-    let rules_pos = rendered.find("Rules").expect("Rules section should be present");
+    let role_pos = rendered
+        .find("Role")
+        .expect("Role section should be present");
+    let reminder_pos = rendered
+        .find("Reminder")
+        .expect("Reminder section should be present");
+    let rules_pos = rendered
+        .find("Rules")
+        .expect("Rules section should be present");
 
     assert!(role_pos < reminder_pos, "Role should come before Reminder");
-    assert!(reminder_pos < rules_pos, "Reminder should come before Rules");
+    assert!(
+        reminder_pos < rules_pos,
+        "Reminder should come before Rules"
+    );
 }
 
 #[test]

@@ -4,8 +4,8 @@
 //! intermediate state, inject messages, and modify the tool registry
 //! between turns.
 
-use neuron_tool::ToolRegistry;
 use futures::StreamExt;
+use neuron_tool::ToolRegistry;
 
 use neuron_types::{
     CompletionRequest, ContentBlock, ContentItem, ContextStrategy, HookAction, LoopError, Message,
@@ -13,9 +13,9 @@ use neuron_types::{
 };
 
 use crate::loop_impl::{
-    accumulate_usage, extract_text, fire_compaction_hooks, fire_loop_iteration_hooks,
-    fire_post_llm_hooks, fire_post_tool_hooks, fire_pre_llm_hooks, fire_pre_tool_hooks,
-    AgentLoop, AgentResult, DEFAULT_ACTIVITY_TIMEOUT,
+    AgentLoop, AgentResult, DEFAULT_ACTIVITY_TIMEOUT, accumulate_usage, extract_text,
+    fire_compaction_hooks, fire_loop_iteration_hooks, fire_post_llm_hooks, fire_post_tool_hooks,
+    fire_pre_llm_hooks, fire_pre_tool_hooks,
 };
 
 /// The result of a single turn in the agentic loop.
@@ -96,7 +96,10 @@ impl<'a, P: Provider, C: ContextStrategy> StepIterator<'a, P, C> {
         }
 
         // Check context compaction
-        let token_count = self.loop_ref.context.token_estimate(&self.loop_ref.messages);
+        let token_count = self
+            .loop_ref
+            .context
+            .token_estimate(&self.loop_ref.messages);
         if self
             .loop_ref
             .context
@@ -111,8 +114,10 @@ impl<'a, P: Provider, C: ContextStrategy> StepIterator<'a, P, C> {
             {
                 Ok(compacted) => {
                     self.loop_ref.messages = compacted;
-                    let new_tokens =
-                        self.loop_ref.context.token_estimate(&self.loop_ref.messages);
+                    let new_tokens = self
+                        .loop_ref
+                        .context
+                        .token_estimate(&self.loop_ref.messages);
 
                     // Fire compaction hooks
                     match fire_compaction_hooks(&self.loop_ref.hooks, old_tokens, new_tokens).await
@@ -254,14 +259,18 @@ impl<'a, P: Provider, C: ContextStrategy> StepIterator<'a, P, C> {
 
         if self.loop_ref.config.parallel_tool_execution && tool_calls.len() > 1 {
             let futs = tool_calls.iter().map(|(call_id, tool_name, input)| {
-                self.loop_ref.execute_single_tool(call_id, tool_name, input, self.tool_ctx)
+                self.loop_ref
+                    .execute_single_tool(call_id, tool_name, input, self.tool_ctx)
             });
             let results = futures::future::join_all(futs).await;
             for result in results {
                 match result {
                     Ok(block) => {
                         // Extract ToolOutput from the ContentBlock for TurnResult
-                        if let ContentBlock::ToolResult { content, is_error, .. } = &block {
+                        if let ContentBlock::ToolResult {
+                            content, is_error, ..
+                        } = &block
+                        {
                             tool_outputs.push(ToolOutput {
                                 content: content.clone(),
                                 structured_content: None,
@@ -278,9 +287,16 @@ impl<'a, P: Provider, C: ContextStrategy> StepIterator<'a, P, C> {
             }
         } else {
             for (call_id, tool_name, input) in &tool_calls {
-                match self.loop_ref.execute_single_tool(call_id, tool_name, input, self.tool_ctx).await {
+                match self
+                    .loop_ref
+                    .execute_single_tool(call_id, tool_name, input, self.tool_ctx)
+                    .await
+                {
                     Ok(block) => {
-                        if let ContentBlock::ToolResult { content, is_error, .. } = &block {
+                        if let ContentBlock::ToolResult {
+                            content, is_error, ..
+                        } = &block
+                        {
                             tool_outputs.push(ToolOutput {
                                 content: content.clone(),
                                 structured_content: None,
@@ -384,9 +400,7 @@ impl<P: Provider, C: ContextStrategy> AgentLoop<P, C> {
             // Check cancellation
             if tool_ctx.cancellation_token.is_cancelled() {
                 let _ = tx
-                    .send(StreamEvent::Error(StreamError::non_retryable(
-                        "cancelled",
-                    )))
+                    .send(StreamEvent::Error(StreamError::non_retryable("cancelled")))
                     .await;
                 break;
             }
@@ -524,7 +538,11 @@ impl<P: Provider, C: ContextStrategy> AgentLoop<P, C> {
                         return rx;
                     }
                 }
-                if tx.send(StreamEvent::Usage(response.usage.clone())).await.is_err() {
+                if tx
+                    .send(StreamEvent::Usage(response.usage.clone()))
+                    .await
+                    .is_err()
+                {
                     return rx;
                 }
                 if tx
@@ -701,9 +719,7 @@ impl<P: Provider, C: ContextStrategy> AgentLoop<P, C> {
             // Check cancellation before tool execution
             if tool_ctx.cancellation_token.is_cancelled() {
                 let _ = tx
-                    .send(StreamEvent::Error(StreamError::non_retryable(
-                        "cancelled",
-                    )))
+                    .send(StreamEvent::Error(StreamError::non_retryable("cancelled")))
                     .await;
                 break;
             }

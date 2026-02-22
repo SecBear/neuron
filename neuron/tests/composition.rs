@@ -9,8 +9,8 @@ use neuron_types::ContextStrategy;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 // --- Mock Provider ---
 
@@ -141,9 +141,7 @@ impl Tool for EchoTool {
         args: Self::Args,
         _ctx: &ToolContext,
     ) -> Result<Self::Output, Self::Error> {
-        Ok(EchoOutput {
-            echoed: args.text,
-        })
+        Ok(EchoOutput { echoed: args.text })
     }
 }
 
@@ -228,15 +226,13 @@ async fn agent_with_middleware() {
 
     let mut tools = ToolRegistry::new();
     tools.register(EchoTool);
-    tools.add_middleware(neuron::tool::tool_middleware_fn(
-        move |call, ctx, next| {
-            let c = counter.clone();
-            Box::pin(async move {
-                c.fetch_add(1, Ordering::SeqCst);
-                next.run(call, ctx).await
-            })
-        },
-    ));
+    tools.add_middleware(neuron::tool::tool_middleware_fn(move |call, ctx, next| {
+        let c = counter.clone();
+        Box::pin(async move {
+            c.fetch_add(1, Ordering::SeqCst);
+            next.run(call, ctx).await
+        })
+    }));
 
     let config = LoopConfig {
         system_prompt: neuron_types::SystemPrompt::Text("Echo with logging.".into()),

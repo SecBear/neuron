@@ -26,14 +26,19 @@ fn tool_result_with_content_items() {
         content: vec![
             ContentItem::Text("file contents here".into()),
             ContentItem::Image {
-                source: ImageSource::Url { url: "https://example.com/img.png".into() },
+                source: ImageSource::Url {
+                    url: "https://example.com/img.png".into(),
+                },
             },
         ],
         is_error: false,
     };
     let json = serde_json::to_string(&block).unwrap();
     let rt: ContentBlock = serde_json::from_str(&json).unwrap();
-    if let ContentBlock::ToolResult { content, is_error, .. } = rt {
+    if let ContentBlock::ToolResult {
+        content, is_error, ..
+    } = rt
+    {
         assert_eq!(content.len(), 2);
         assert!(!is_error);
     } else {

@@ -7,8 +7,10 @@
 
 use std::collections::HashMap;
 
-use neuron_types::{ContentBlock, Message, Role, StreamError, StreamEvent, StreamHandle, TokenUsage};
 use futures::{Stream, StreamExt};
+use neuron_types::{
+    ContentBlock, Message, Role, StreamError, StreamEvent, StreamHandle, TokenUsage,
+};
 use reqwest::Response;
 
 /// Wrap an HTTP response body into a [`StreamHandle`] that emits [`StreamEvent`]s.
@@ -152,7 +154,9 @@ impl SseParserState {
         let json: serde_json::Value = match serde_json::from_str(&data) {
             Ok(v) => v,
             Err(e) => {
-                return vec![StreamEvent::Error(StreamError::non_retryable(format!("JSON parse error in SSE: {e}")))];
+                return vec![StreamEvent::Error(StreamError::non_retryable(format!(
+                    "JSON parse error in SSE: {e}"
+                )))];
             }
         };
 
@@ -369,9 +373,9 @@ data: [DONE]
             .collect();
         assert_eq!(input_deltas.join(""), "{\"q\":\"rust\"}");
 
-        let has_tool_end = events.iter().any(|e| {
-            matches!(e, StreamEvent::ToolUseEnd { id } if id == "call_abc123")
-        });
+        let has_tool_end = events
+            .iter()
+            .any(|e| matches!(e, StreamEvent::ToolUseEnd { id } if id == "call_abc123"));
         assert!(has_tool_end, "expected ToolUseEnd event");
     }
 
@@ -386,9 +390,9 @@ data: {\"id\":\"chatcmpl-abc\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_r
 data: [DONE]
 ";
         let events = feed_sse(&mut state, sse);
-        let has_usage = events.iter().any(|e| {
-            matches!(e, StreamEvent::Usage(u) if u.input_tokens == 10 && u.output_tokens == 2)
-        });
+        let has_usage = events.iter().any(
+            |e| matches!(e, StreamEvent::Usage(u) if u.input_tokens == 10 && u.output_tokens == 2),
+        );
         assert!(has_usage, "expected Usage event");
     }
 
@@ -436,8 +440,7 @@ data: [DONE]
     #[test]
     fn error_object_produces_error_event() {
         let mut state = make_state();
-        let sse =
-            "data: {\"error\":{\"message\":\"Rate limit exceeded\",\"type\":\"rate_limit_error\"}}\n";
+        let sse = "data: {\"error\":{\"message\":\"Rate limit exceeded\",\"type\":\"rate_limit_error\"}}\n";
         let events = feed_sse(&mut state, sse);
         let has_error = events
             .iter()

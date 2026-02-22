@@ -1,8 +1,8 @@
 //! Integration tests for SummarizationStrategy.
 
 use std::future::Future;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use neuron_context::SummarizationStrategy;
 use neuron_types::{
@@ -21,7 +21,10 @@ struct MockProvider {
 
 impl MockProvider {
     fn new(summary: impl Into<String>) -> Self {
-        Self { summary: summary.into(), call_count: Arc::new(AtomicUsize::new(0)) }
+        Self {
+            summary: summary.into(),
+            call_count: Arc::new(AtomicUsize::new(0)),
+        }
     }
 
     fn call_count(&self) -> usize {
@@ -58,22 +61,35 @@ impl Provider for MockProvider {
         &self,
         _request: CompletionRequest,
     ) -> impl Future<Output = Result<StreamHandle, ProviderError>> + Send {
-        async { Err(ProviderError::InvalidRequest("streaming not supported in mock".to_string())) }
+        async {
+            Err(ProviderError::InvalidRequest(
+                "streaming not supported in mock".to_string(),
+            ))
+        }
     }
 }
 
 // ---- Helpers ----------------------------------------------------------------
 
 fn user_msg(text: &str) -> Message {
-    Message { role: Role::User, content: vec![ContentBlock::Text(text.to_string())] }
+    Message {
+        role: Role::User,
+        content: vec![ContentBlock::Text(text.to_string())],
+    }
 }
 
 fn assistant_msg(text: &str) -> Message {
-    Message { role: Role::Assistant, content: vec![ContentBlock::Text(text.to_string())] }
+    Message {
+        role: Role::Assistant,
+        content: vec![ContentBlock::Text(text.to_string())],
+    }
 }
 
 fn system_msg(text: &str) -> Message {
-    Message { role: Role::System, content: vec![ContentBlock::Text(text.to_string())] }
+    Message {
+        role: Role::System,
+        content: vec![ContentBlock::Text(text.to_string())],
+    }
 }
 
 // ---- Tests ------------------------------------------------------------------
@@ -95,7 +111,10 @@ async fn summarizes_old_messages_preserves_recent() {
         })
         .collect();
 
-    let result = strategy.compact(messages).await.expect("compact should succeed");
+    let result = strategy
+        .compact(messages)
+        .await
+        .expect("compact should succeed");
 
     // provider was called once
     assert_eq!(provider.call_count(), 1);
@@ -106,7 +125,10 @@ async fn summarizes_old_messages_preserves_recent() {
     // First is the summary User message
     assert!(matches!(&result[0].role, Role::User));
     if let ContentBlock::Text(text) = &result[0].content[0] {
-        assert!(text.contains(fixed_summary), "summary text should appear in result, got: {text}");
+        assert!(
+            text.contains(fixed_summary),
+            "summary text should appear in result, got: {text}"
+        );
     } else {
         panic!("expected Text block");
     }
@@ -132,7 +154,10 @@ async fn system_messages_preserved_alongside_summary() {
         assistant_msg("recent 2"),
     ];
 
-    let result = strategy.compact(messages).await.expect("compact should succeed");
+    let result = strategy
+        .compact(messages)
+        .await
+        .expect("compact should succeed");
 
     // System + summary + 2 recent = 4
     assert_eq!(result.len(), 4);
@@ -144,13 +169,12 @@ async fn preserve_recent_zero_summarizes_all() {
     let provider = MockProvider::new("Everything summarized");
     let strategy = SummarizationStrategy::new(provider.clone(), 0, 100_000);
 
-    let messages = vec![
-        user_msg("msg1"),
-        assistant_msg("msg2"),
-        user_msg("msg3"),
-    ];
+    let messages = vec![user_msg("msg1"), assistant_msg("msg2"), user_msg("msg3")];
 
-    let result = strategy.compact(messages).await.expect("compact should succeed");
+    let result = strategy
+        .compact(messages)
+        .await
+        .expect("compact should succeed");
 
     // Just the summary message
     assert_eq!(result.len(), 1);

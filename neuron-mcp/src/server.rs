@@ -10,13 +10,13 @@ use std::sync::Arc;
 use rmcp::handler::server::ServerHandler;
 use rmcp::model::{
     CallToolRequestParams, CallToolResult, Content, ErrorData, Implementation, ListToolsResult,
-    PaginatedRequestParams, ServerCapabilities, ServerInfo, Tool as RmcpTool, ToolAnnotations as RmcpToolAnnotations,
-    ToolsCapability,
+    PaginatedRequestParams, ServerCapabilities, ServerInfo, Tool as RmcpTool,
+    ToolAnnotations as RmcpToolAnnotations, ToolsCapability,
 };
 use rmcp::service::{RequestContext, RoleServer};
 
-use neuron_types::{McpError as AgentMcpError, ToolContext, ToolDefinition};
 use neuron_tool::ToolRegistry;
+use neuron_types::{McpError as AgentMcpError, ToolContext, ToolDefinition};
 
 /// MCP server that exposes a [`ToolRegistry`] via the MCP protocol.
 ///
@@ -87,8 +87,8 @@ impl McpServer {
     ///
     /// Returns [`AgentMcpError`] if the server fails to start.
     pub async fn serve_stdio(self) -> Result<(), AgentMcpError> {
-        use rmcp::transport::io::stdio;
         use rmcp::ServiceExt;
+        use rmcp::transport::io::stdio;
 
         let transport = stdio();
         let service = self
@@ -264,7 +264,10 @@ mod tests {
 
         assert_eq!(server.name, "my-server");
         assert_eq!(server.version, "1.0.0");
-        assert_eq!(server.instructions, Some("Use this server for testing".to_string()));
+        assert_eq!(
+            server.instructions,
+            Some("Use this server for testing".to_string())
+        );
     }
 
     #[test]
@@ -304,7 +307,13 @@ mod tests {
         assert_eq!(rmcp_tool.title, Some("Greeter".to_string()));
         assert_eq!(rmcp_tool.description.as_deref(), Some("Greets someone"));
         assert!(rmcp_tool.annotations.is_some());
-        assert_eq!(rmcp_tool.annotations.as_ref().and_then(|a| a.read_only_hint), Some(true));
+        assert_eq!(
+            rmcp_tool
+                .annotations
+                .as_ref()
+                .and_then(|a| a.read_only_hint),
+            Some(true)
+        );
     }
 
     #[test]

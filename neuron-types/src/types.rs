@@ -526,4 +526,3 @@ impl From<&str> for SystemPrompt {
         SystemPrompt::Text(s.to_string())
     }
 }
-

@@ -1,11 +1,14 @@
 //! Property-based tests: context strategy invariants.
 
-use proptest::prelude::*;
-use neuron_types::*;
 use neuron_context::TokenCounter;
+use neuron_types::*;
+use proptest::prelude::*;
 
 fn arb_text_message() -> impl Strategy<Value = Message> {
-    ("[a-zA-Z ]{1,200}", prop_oneof![Just(Role::User), Just(Role::Assistant)])
+    (
+        "[a-zA-Z ]{1,200}",
+        prop_oneof![Just(Role::User), Just(Role::Assistant)],
+    )
         .prop_map(|(text, role)| Message {
             role,
             content: vec![ContentBlock::Text(text)],

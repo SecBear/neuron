@@ -58,7 +58,11 @@ impl<'a> Next<'a> {
     }
 
     /// Continue the middleware chain, eventually calling the tool.
-    pub async fn run(self, call: &'a ToolCall, ctx: &'a ToolContext) -> Result<ToolOutput, ToolError> {
+    pub async fn run(
+        self,
+        call: &'a ToolCall,
+        ctx: &'a ToolContext,
+    ) -> Result<ToolOutput, ToolError> {
         if let Some((head, tail)) = self.middleware.split_first() {
             let next = Next::new(self.tool, tail);
             head.process(call, ctx, next).await

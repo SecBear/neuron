@@ -4,15 +4,24 @@ use neuron_context::SlidingWindowStrategy;
 use neuron_types::{ContentBlock, ContextStrategy, Message, Role};
 
 fn user_msg(text: &str) -> Message {
-    Message { role: Role::User, content: vec![ContentBlock::Text(text.to_string())] }
+    Message {
+        role: Role::User,
+        content: vec![ContentBlock::Text(text.to_string())],
+    }
 }
 
 fn assistant_msg(text: &str) -> Message {
-    Message { role: Role::Assistant, content: vec![ContentBlock::Text(text.to_string())] }
+    Message {
+        role: Role::Assistant,
+        content: vec![ContentBlock::Text(text.to_string())],
+    }
 }
 
 fn system_msg(text: &str) -> Message {
-    Message { role: Role::System, content: vec![ContentBlock::Text(text.to_string())] }
+    Message {
+        role: Role::System,
+        content: vec![ContentBlock::Text(text.to_string())],
+    }
 }
 
 #[tokio::test]
@@ -24,12 +33,17 @@ async fn keeps_only_last_n_non_system_messages() {
     messages.push(assistant_msg("final reply"));
     // total = 11 non-system
 
-    let result = strategy.compact(messages).await.expect("compact should succeed");
+    let result = strategy
+        .compact(messages)
+        .await
+        .expect("compact should succeed");
 
     // Should keep only the last 5
     assert_eq!(result.len(), 5);
     // The last message should be retained
-    assert!(matches!(&result.last().unwrap().content[0], ContentBlock::Text(t) if t == "final reply"));
+    assert!(
+        matches!(&result.last().unwrap().content[0], ContentBlock::Text(t) if t == "final reply")
+    );
 }
 
 #[tokio::test]
@@ -46,7 +60,10 @@ async fn system_messages_are_always_preserved() {
         user_msg("msg5"),
     ];
 
-    let result = strategy.compact(messages).await.expect("compact should succeed");
+    let result = strategy
+        .compact(messages)
+        .await
+        .expect("compact should succeed");
 
     // 2 system + last 3 non-system = 5
     assert_eq!(result.len(), 5);
@@ -73,7 +90,10 @@ async fn compact_fewer_messages_than_window_preserves_all() {
     let strategy = SlidingWindowStrategy::new(10, 100_000);
 
     let messages = vec![user_msg("only message"), assistant_msg("reply")];
-    let result = strategy.compact(messages).await.expect("compact should succeed");
+    let result = strategy
+        .compact(messages)
+        .await
+        .expect("compact should succeed");
     assert_eq!(result.len(), 2);
 }
 

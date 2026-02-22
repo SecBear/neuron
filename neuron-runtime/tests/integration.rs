@@ -4,9 +4,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-use neuron_runtime::{
-    FileSessionStorage, InMemorySessionStorage, Session, SessionStorage,
-};
+use neuron_runtime::{FileSessionStorage, InMemorySessionStorage, Session, SessionStorage};
 use neuron_tool::ToolRegistry;
 use neuron_types::{
     CompletionRequest, CompletionResponse, ContentBlock, Message, ProviderError, Role, StopReason,
@@ -244,7 +242,10 @@ async fn test_in_memory_delete() {
         .await
         .expect("save");
 
-    storage.delete("del-1").await.expect("delete should succeed");
+    storage
+        .delete("del-1")
+        .await
+        .expect("delete should succeed");
 
     let err = storage.load("del-1").await.unwrap_err();
     assert!(matches!(err, neuron_types::StorageError::NotFound(_)));
@@ -379,8 +380,8 @@ async fn test_file_list_empty_nonexistent_dir() {
 // ============================================================================
 
 use neuron_runtime::{
-    run_input_guardrails, run_output_guardrails, ErasedInputGuardrail, ErasedOutputGuardrail,
-    GuardrailResult, InputGuardrail, OutputGuardrail,
+    ErasedInputGuardrail, ErasedOutputGuardrail, GuardrailResult, InputGuardrail, OutputGuardrail,
+    run_input_guardrails, run_output_guardrails,
 };
 
 /// Input guardrail that rejects messages containing "DROP TABLE".
@@ -835,9 +836,7 @@ fn make_pre_llm_request(user_text: &str) -> CompletionRequest {
 async fn guardrail_hook_passes_clean_input() {
     let hook = GuardrailHook::new().input_guardrail(AlwaysPassInput);
     let request = make_pre_llm_request("Hello, how are you?");
-    let event = HookEvent::PreLlmCall {
-        request: &request,
-    };
+    let event = HookEvent::PreLlmCall { request: &request };
 
     let action = hook.on_event(event).await.expect("hook should not error");
     assert!(
@@ -850,9 +849,7 @@ async fn guardrail_hook_passes_clean_input() {
 async fn guardrail_hook_tripwires_on_forbidden_input() {
     let hook = GuardrailHook::new().input_guardrail(ForbiddenInputGuard);
     let request = make_pre_llm_request("Please process FORBIDDEN data");
-    let event = HookEvent::PreLlmCall {
-        request: &request,
-    };
+    let event = HookEvent::PreLlmCall { request: &request };
 
     let action = hook.on_event(event).await.expect("hook should not error");
     match action {
@@ -890,9 +887,7 @@ async fn guardrail_hook_tripwires_on_forbidden_output() {
 async fn guardrail_hook_warns_and_continues() {
     let hook = GuardrailHook::new().input_guardrail(WarnInputGuard);
     let request = make_pre_llm_request("This is SUSPICIOUS input");
-    let event = HookEvent::PreLlmCall {
-        request: &request,
-    };
+    let event = HookEvent::PreLlmCall { request: &request };
 
     let action = hook.on_event(event).await.expect("hook should not error");
     assert!(

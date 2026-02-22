@@ -56,7 +56,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         match block {
             ContentBlock::Text(text) => println!("\n{text}"),
             ContentBlock::Compaction { content } => {
-                println!("\n[Compaction summary: {}...]", &content[..content.len().min(100)])
+                println!(
+                    "\n[Compaction summary: {}...]",
+                    &content[..content.len().min(100)]
+                )
             }
             _ => {}
         }

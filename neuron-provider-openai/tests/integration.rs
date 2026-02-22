@@ -297,9 +297,7 @@ async fn embed_sends_correct_request() {
         .and(path("/v1/embeddings"))
         .and(header("authorization", "Bearer test-embed-key"))
         .and(header("content-type", "application/json"))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_json(embedding_success_response()),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_json(embedding_success_response()))
         .expect(1)
         .mount(&mock_server)
         .await;
@@ -335,17 +333,15 @@ async fn embed_sends_correct_body_fields() {
             "input": ["text one", "text two"],
             "encoding_format": "float"
         })))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "object": "list",
-                "data": [
-                    { "object": "embedding", "embedding": [0.1, 0.2], "index": 0 },
-                    { "object": "embedding", "embedding": [0.3, 0.4], "index": 1 }
-                ],
-                "model": "text-embedding-3-small",
-                "usage": { "prompt_tokens": 8, "total_tokens": 8 }
-            })),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "object": "list",
+            "data": [
+                { "object": "embedding", "embedding": [0.1, 0.2], "index": 0 },
+                { "object": "embedding", "embedding": [0.3, 0.4], "index": 1 }
+            ],
+            "model": "text-embedding-3-small",
+            "usage": { "prompt_tokens": 8, "total_tokens": 8 }
+        })))
         .expect(1)
         .mount(&mock_server)
         .await;
@@ -401,16 +397,14 @@ async fn embed_with_dimensions() {
         .and(wiremock::matchers::body_partial_json(serde_json::json!({
             "dimensions": 256
         })))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "object": "list",
-                "data": [
-                    { "object": "embedding", "embedding": [0.1, 0.2], "index": 0 }
-                ],
-                "model": "text-embedding-3-small",
-                "usage": { "prompt_tokens": 3, "total_tokens": 3 }
-            })),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "object": "list",
+            "data": [
+                { "object": "embedding", "embedding": [0.1, 0.2], "index": 0 }
+            ],
+            "model": "text-embedding-3-small",
+            "usage": { "prompt_tokens": 3, "total_tokens": 3 }
+        })))
         .expect(1)
         .mount(&mock_server)
         .await;
@@ -472,9 +466,7 @@ async fn embed_uses_default_model_when_empty() {
         .and(wiremock::matchers::body_partial_json(serde_json::json!({
             "model": "text-embedding-3-small"
         })))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_json(embedding_success_response()),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_json(embedding_success_response()))
         .expect(1)
         .mount(&mock_server)
         .await;

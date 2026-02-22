@@ -132,15 +132,16 @@ impl Tool for AddTool {
 async fn main() {
     println!("=== Test 1: Simple single-turn response ===");
     {
-        let provider = MockProvider::with_responses(vec![MockProvider::text(
-            "The answer is 42.",
-        )]);
+        let provider = MockProvider::with_responses(vec![MockProvider::text("The answer is 42.")]);
         let mut agent = AgentLoop::builder(provider, NoCompaction)
             .tools(ToolRegistry::new())
             .max_turns(1)
             .build();
         let ctx = ToolContext::default();
-        let result = agent.run(Message::user("What is the answer?"), &ctx).await.unwrap();
+        let result = agent
+            .run(Message::user("What is the answer?"), &ctx)
+            .await
+            .unwrap();
         println!("  Response: {}", result.response);
         println!("  Turns: {}", result.turns);
         assert_eq!(result.turns, 1);

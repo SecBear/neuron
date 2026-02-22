@@ -4,16 +4,16 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
+use futures::stream;
 use neuron_context::SlidingWindowStrategy;
 use neuron_loop::{AgentLoop, LoopConfig};
 use neuron_tool::ToolRegistry;
 use neuron_types::{
     ActivityOptions, CompletionRequest, CompletionResponse, ContentBlock, ContentItem,
     DurableContext, DurableError, HookAction, HookError, HookEvent, LoopError, Message,
-    ObservabilityHook, ProviderError, Role, StopReason, StreamEvent, StreamHandle,
-    SystemPrompt, TokenUsage, Tool, ToolContext, ToolDefinition, ToolOutput,
+    ObservabilityHook, ProviderError, Role, StopReason, StreamEvent, StreamHandle, SystemPrompt,
+    TokenUsage, Tool, ToolContext, ToolDefinition, ToolOutput,
 };
-use futures::stream;
 use tokio_util::sync::CancellationToken;
 
 /// A mock provider that returns pre-configured responses in sequence.
@@ -48,7 +48,9 @@ impl neuron_types::Provider for MockProvider {
         &self,
         _request: CompletionRequest,
     ) -> Result<StreamHandle, ProviderError> {
-        Err(ProviderError::InvalidRequest("streaming not implemented in mock".into()))
+        Err(ProviderError::InvalidRequest(
+            "streaming not implemented in mock".into(),
+        ))
     }
 }
 
@@ -82,11 +84,7 @@ impl Tool for EchoTool {
         }
     }
 
-    async fn call(
-        &self,
-        args: EchoArgs,
-        _ctx: &ToolContext,
-    ) -> Result<String, std::io::Error> {
+    async fn call(&self, args: EchoArgs, _ctx: &ToolContext) -> Result<String, std::io::Error> {
         Ok(format!("echo: {}", args.text))
     }
 }
@@ -195,7 +193,10 @@ async fn test_run_text_only_completes_in_one_turn() {
         content: vec![ContentBlock::Text("Hi".to_string())],
     };
 
-    let result = agent.run(user_msg, &test_tool_context()).await.expect("run should succeed");
+    let result = agent
+        .run(user_msg, &test_tool_context())
+        .await
+        .expect("run should succeed");
 
     assert_eq!(result.response, "Hello, world!");
     assert_eq!(result.turns, 1);
@@ -224,7 +225,10 @@ async fn test_run_with_tool_call_completes_in_two_turns() {
         content: vec![ContentBlock::Text("Echo hello".to_string())],
     };
 
-    let result = agent.run(user_msg, &test_tool_context()).await.expect("run should succeed");
+    let result = agent
+        .run(user_msg, &test_tool_context())
+        .await
+        .expect("run should succeed");
 
     assert_eq!(result.response, "The echo says: echo: hello");
     assert_eq!(result.turns, 2);
@@ -274,7 +278,12 @@ struct RecordingHook {
 impl RecordingHook {
     fn new() -> (Self, Arc<Mutex<Vec<String>>>) {
         let events = Arc::new(Mutex::new(Vec::new()));
-        (Self { events: events.clone() }, events)
+        (
+            Self {
+                events: events.clone(),
+            },
+            events,
+        )
     }
 }
 
@@ -322,7 +331,10 @@ async fn test_hooks_receive_pre_and_post_llm_events() {
         content: vec![ContentBlock::Text("Hello".to_string())],
     };
 
-    agent.run(user_msg, &test_tool_context()).await.expect("run should succeed");
+    agent
+        .run(user_msg, &test_tool_context())
+        .await
+        .expect("run should succeed");
 
     let recorded = events.lock().expect("lock");
     assert!(recorded.contains(&"PreLlmCall".to_string()));
@@ -351,7 +363,10 @@ async fn test_hooks_receive_tool_execution_events() {
         content: vec![ContentBlock::Text("Echo".to_string())],
     };
 
-    agent.run(user_msg, &test_tool_context()).await.expect("run should succeed");
+    agent
+        .run(user_msg, &test_tool_context())
+        .await
+        .expect("run should succeed");
 
     let recorded = events.lock().expect("lock");
     assert!(recorded.contains(&"PreToolExecution:echo".to_string()));
@@ -437,7 +452,10 @@ async fn test_hook_skip_returns_rejection_message() {
         content: vec![ContentBlock::Text("Echo".to_string())],
     };
 
-    let result = agent.run(user_msg, &test_tool_context()).await.expect("run should succeed");
+    let result = agent
+        .run(user_msg, &test_tool_context())
+        .await
+        .expect("run should succeed");
     assert_eq!(result.response, "OK, tool was skipped");
 
     // Check that the tool result message contains the skip reason
@@ -445,14 +463,17 @@ async fn test_hook_skip_returns_rejection_message() {
         .messages
         .iter()
         .find(|m| {
-            m.content.iter().any(|b| {
-                matches!(b, ContentBlock::ToolResult { is_error: true, .. })
-            })
+            m.content
+                .iter()
+                .any(|b| matches!(b, ContentBlock::ToolResult { is_error: true, .. }))
         })
         .expect("should have a tool result message with error");
 
     let has_skip_text = tool_result_msg.content.iter().any(|b| {
-        if let ContentBlock::ToolResult { content, is_error, .. } = b {
+        if let ContentBlock::ToolResult {
+            content, is_error, ..
+        } = b
+        {
             *is_error
                 && content.iter().any(|c| {
                     if let ContentItem::Text(t) = c {
@@ -506,7 +527,8 @@ async fn test_context_compaction_triggered_by_token_threshold() {
     let user_msg = Message {
         role: Role::User,
         content: vec![ContentBlock::Text(
-            "Start with a reasonably long message so tokens accumulate quickly for testing".to_string(),
+            "Start with a reasonably long message so tokens accumulate quickly for testing"
+                .to_string(),
         )],
     };
 
@@ -626,11 +648,10 @@ impl DurableContext for MockDurable {
 #[tokio::test]
 async fn test_durable_context_routes_llm_calls() {
     // Provider should NOT be called when durability is set
-    let provider = MockProvider::new(vec![]);  // Empty — would panic if called
+    let provider = MockProvider::new(vec![]); // Empty — would panic if called
 
-    let (durable, llm_calls, tool_calls) = MockDurable::new(vec![
-        text_response("Durable response"),
-    ]);
+    let (durable, llm_calls, tool_calls) =
+        MockDurable::new(vec![text_response("Durable response")]);
 
     let tools = ToolRegistry::new();
     let context = SlidingWindowStrategy::new(10, 100_000);
@@ -644,7 +665,10 @@ async fn test_durable_context_routes_llm_calls() {
         content: vec![ContentBlock::Text("Hello".to_string())],
     };
 
-    let result = agent.run(user_msg, &test_tool_context()).await.expect("run should succeed");
+    let result = agent
+        .run(user_msg, &test_tool_context())
+        .await
+        .expect("run should succeed");
     assert_eq!(result.response, "Durable response");
 
     let llm = llm_calls.lock().expect("lock");
@@ -678,7 +702,10 @@ async fn test_durable_context_routes_tool_calls() {
         content: vec![ContentBlock::Text("Echo".to_string())],
     };
 
-    let result = agent.run(user_msg, &test_tool_context()).await.expect("run should succeed");
+    let result = agent
+        .run(user_msg, &test_tool_context())
+        .await
+        .expect("run should succeed");
     assert_eq!(result.response, "Done via durable");
 
     let llm = llm_calls.lock().expect("lock");
@@ -705,7 +732,10 @@ async fn test_without_durability_calls_provider_directly() {
         content: vec![ContentBlock::Text("Hello".to_string())],
     };
 
-    let result = agent.run(user_msg, &test_tool_context()).await.expect("run should succeed");
+    let result = agent
+        .run(user_msg, &test_tool_context())
+        .await
+        .expect("run should succeed");
     assert_eq!(result.response, "Direct response");
 }
 
@@ -765,9 +795,7 @@ async fn test_run_step_yields_turn_results() {
 #[tokio::test]
 async fn test_run_step_inject_message() {
     // Provider returns text after seeing injected message
-    let provider = MockProvider::new(vec![
-        text_response("I see you injected something"),
-    ]);
+    let provider = MockProvider::new(vec![text_response("I see you injected something")]);
 
     let tools = ToolRegistry::new();
     let context = SlidingWindowStrategy::new(10, 100_000);
@@ -895,7 +923,10 @@ async fn test_loop_iteration_event_fired_in_run() {
         content: vec![ContentBlock::Text("Hi".to_string())],
     };
 
-    agent.run(user_msg, &test_tool_context()).await.expect("run should succeed");
+    agent
+        .run(user_msg, &test_tool_context())
+        .await
+        .expect("run should succeed");
 
     let recorded = events.lock().expect("lock");
     assert!(
@@ -1070,9 +1101,8 @@ async fn test_run_stream_fires_tool_hooks() {
 async fn test_run_stream_routes_through_durable_context() {
     let provider = MockStreamProvider::new(vec![]); // empty, should not be called
 
-    let (durable, llm_calls, _tool_calls) = MockDurable::new(vec![
-        text_response("Durable streamed"),
-    ]);
+    let (durable, llm_calls, _tool_calls) =
+        MockDurable::new(vec![text_response("Durable streamed")]);
 
     let tools = ToolRegistry::new();
     let context = SlidingWindowStrategy::new(10, 100_000);
@@ -1090,11 +1120,7 @@ async fn test_run_stream_routes_through_durable_context() {
     while let Some(_event) = rx.recv().await {}
 
     let llm = llm_calls.lock().expect("lock");
-    assert_eq!(
-        llm.len(),
-        1,
-        "expected 1 durable LLM call, got: {llm:?}"
-    );
+    assert_eq!(llm.len(), 1, "expected 1 durable LLM call, got: {llm:?}");
 }
 
 // --- Additional test coverage: hook actions in run_stream ---
@@ -1209,7 +1235,9 @@ async fn test_run_stream_skip_tool_sends_rejection() {
     // Should have a MessageComplete with the final text response
     let has_final_response = events.iter().any(|e| {
         if let StreamEvent::MessageComplete(msg) = e {
-            msg.content.iter().any(|b| matches!(b, ContentBlock::Text(t) if t == "OK, tool was skipped"))
+            msg.content
+                .iter()
+                .any(|b| matches!(b, ContentBlock::Text(t) if t == "OK, tool was skipped"))
         } else {
             false
         }
@@ -1292,7 +1320,10 @@ async fn test_loop_iteration_fires_every_turn_multi_turn() {
         content: vec![ContentBlock::Text("Go multi-turn".to_string())],
     };
 
-    let result = agent.run(user_msg, &test_tool_context()).await.expect("run should succeed");
+    let result = agent
+        .run(user_msg, &test_tool_context())
+        .await
+        .expect("run should succeed");
     assert_eq!(result.turns, 3);
 
     let turns = turns_log.lock().expect("lock");
@@ -1352,9 +1383,7 @@ async fn test_context_compaction_fires_during_streaming() {
 // --- Batch 1 tests: CancellationToken + Parallel Tool Execution ---
 
 /// Helper to create a CompletionResponse with multiple tool calls.
-fn multi_tool_use_response(
-    tools: &[(&str, &str, serde_json::Value)],
-) -> CompletionResponse {
+fn multi_tool_use_response(tools: &[(&str, &str, serde_json::Value)]) -> CompletionResponse {
     let content = tools
         .iter()
         .map(|(id, name, input)| ContentBlock::ToolUse {
@@ -1378,7 +1407,6 @@ fn multi_tool_use_response(
         stop_reason: StopReason::ToolUse,
     }
 }
-
 
 #[tokio::test]
 async fn test_cancellation_stops_loop() {
@@ -1417,9 +1445,11 @@ async fn test_cancellation_stops_loop() {
 async fn test_cancellation_during_tool_execution() {
     // Provider returns a tool call, but the token is already cancelled
     // so the check before the tool for-loop catches it.
-    let provider = MockProvider::new(vec![
-        tool_use_response("call-1", "echo", serde_json::json!({"text": "hello"})),
-    ]);
+    let provider = MockProvider::new(vec![tool_use_response(
+        "call-1",
+        "echo",
+        serde_json::json!({"text": "hello"}),
+    )]);
 
     let mut tools = ToolRegistry::new();
     tools.register(EchoTool);
@@ -1513,7 +1543,9 @@ async fn test_parallel_tool_execution_all_results() {
         .iter()
         .find(|m| {
             m.role == Role::User
-                && m.content.iter().any(|b| matches!(b, ContentBlock::ToolResult { .. }))
+                && m.content
+                    .iter()
+                    .any(|b| matches!(b, ContentBlock::ToolResult { .. }))
         })
         .expect("should have a tool result message");
 
@@ -1572,7 +1604,9 @@ async fn test_sequential_tool_execution_order() {
         }
     }
 
-    agent.add_hook(OrderTracker { order: call_order_clone });
+    agent.add_hook(OrderTracker {
+        order: call_order_clone,
+    });
 
     let user_msg = Message {
         role: Role::User,
@@ -1589,7 +1623,11 @@ async fn test_sequential_tool_execution_order() {
     let log = call_order.lock().expect("lock");
     assert_eq!(
         *log,
-        vec!["first".to_string(), "second".to_string(), "third".to_string()],
+        vec![
+            "first".to_string(),
+            "second".to_string(),
+            "third".to_string()
+        ],
         "tools should execute in order when parallel_tool_execution is false"
     );
 }

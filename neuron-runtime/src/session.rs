@@ -115,10 +115,7 @@ pub trait SessionStorage: WasmCompatSend + WasmCompatSync {
     ) -> impl Future<Output = Result<Vec<SessionSummary>, StorageError>> + WasmCompatSend;
 
     /// Delete a session by ID.
-    fn delete(
-        &self,
-        id: &str,
-    ) -> impl Future<Output = Result<(), StorageError>> + WasmCompatSend;
+    fn delete(&self, id: &str) -> impl Future<Output = Result<(), StorageError>> + WasmCompatSend;
 }
 
 /// In-memory session storage backed by a concurrent hash map.
@@ -213,8 +210,8 @@ impl SessionStorage for FileSessionStorage {
                 StorageError::Io(e)
             }
         })?;
-        let session: Session = serde_json::from_str(&data)
-            .map_err(|e| StorageError::Serialization(e.to_string()))?;
+        let session: Session =
+            serde_json::from_str(&data).map_err(|e| StorageError::Serialization(e.to_string()))?;
         Ok(session)
     }
 

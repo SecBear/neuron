@@ -5,8 +5,8 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use neuron_tool::{neuron_tool, tool_middleware_fn, ToolRegistry};
-use neuron_types::{ToolContext, ToolError, ContentItem};
+use neuron_tool::{ToolRegistry, neuron_tool, tool_middleware_fn};
+use neuron_types::{ContentItem, ToolContext, ToolError};
 use tokio_util::sync::CancellationToken;
 
 // --- Output and error types for the calculator tool ---
@@ -24,7 +24,10 @@ enum CalcError {
 
 // --- Define the tool using the #[neuron_tool] macro ---
 
-#[neuron_tool(name = "calculate", description = "Perform basic arithmetic on two numbers")]
+#[neuron_tool(
+    name = "calculate",
+    description = "Perform basic arithmetic on two numbers"
+)]
 async fn calculate(
     /// The left-hand operand
     left: f64,
@@ -53,7 +56,10 @@ async fn main() {
     // 2. Add a GLOBAL logging middleware (runs on every tool call)
     registry.add_middleware(tool_middleware_fn(|call, ctx, next| {
         Box::pin(async move {
-            println!("[log] >>> calling tool '{}' with input: {}", call.name, call.input);
+            println!(
+                "[log] >>> calling tool '{}' with input: {}",
+                call.name, call.input
+            );
             let result = next.run(call, ctx).await;
             match &result {
                 Ok(output) => {

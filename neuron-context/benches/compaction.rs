@@ -1,11 +1,15 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use neuron_context::TokenCounter;
 use neuron_types::*;
 
 fn make_conversation(n: usize) -> Vec<Message> {
     (0..n)
         .map(|i| Message {
-            role: if i % 2 == 0 { Role::User } else { Role::Assistant },
+            role: if i % 2 == 0 {
+                Role::User
+            } else {
+                Role::Assistant
+            },
             content: vec![ContentBlock::Text(format!(
                 "Message {i}: This is a moderately sized message with enough content \
                  to be realistic for token counting benchmarks."
