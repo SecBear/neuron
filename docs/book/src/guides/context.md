@@ -96,7 +96,7 @@ After compaction with SlidingWindowStrategy::new(2, 500):
 The first four non-system messages are dropped entirely. The system message
 survives because the implementation unconditionally retains all system messages
 before applying the sliding window to the remaining conversation. See
-[`neuron-context/examples/compaction.rs`](https://github.com/DarkBear0/neuron/blob/main/neuron-context/examples/compaction.rs)
+[`neuron-context/examples/compaction.rs`](https://github.com/SecBear/neuron/blob/main/neuron-context/examples/compaction.rs)
 for a runnable demo.
 
 ### `ToolResultClearingStrategy`
