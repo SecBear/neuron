@@ -1,0 +1,3 @@
+[default]
+# Proc macros cannot be instrumented by tarpaulin
+exclude = ["neuron-tool-macros"]

@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::future::Future;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct ReadFileArgs {
@@ -104,4 +105,45 @@ async fn get_returns_tool() {
     registry.register(ReadFileTool);
     assert!(registry.get("read_file").is_some());
     assert!(registry.get("nonexistent").is_none());
+}
+
+// --- register_dyn test ---
+
+#[tokio::test]
+async fn register_dyn_and_execute() {
+    // Create a ToolDyn manually (using the blanket impl from Tool)
+    let tool: Arc<dyn ToolDyn> = Arc::new(ReadFileTool);
+    assert_eq!(tool.name(), "read_file");
+
+    let mut registry = ToolRegistry::new();
+    registry.register_dyn(tool);
+
+    // Verify it appears in definitions
+    let defs = registry.definitions();
+    assert_eq!(defs.len(), 1);
+    assert_eq!(defs[0].name, "read_file");
+
+    // Verify it can be looked up
+    assert!(registry.get("read_file").is_some());
+
+    // Verify execution works
+    let ctx = test_ctx();
+    let result = registry
+        .execute(
+            "read_file",
+            serde_json::json!({"path": "/tmp/dyn_test"}),
+            &ctx,
+        )
+        .await
+        .unwrap();
+    assert!(!result.is_error);
+
+    if let Some(ContentItem::Text(text)) = result.content.first() {
+        assert!(
+            text.contains("contents of /tmp/dyn_test"),
+            "expected tool output, got: {text}"
+        );
+    } else {
+        panic!("expected text content");
+    }
 }

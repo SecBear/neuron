@@ -206,3 +206,181 @@ fn from_env_missing_key() {
     let result = Anthropic::from_env();
     assert!(result.is_err());
 }
+
+#[tokio::test]
+async fn complete_parses_thinking_response() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "id": "msg_thinking",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-sonnet-4-20250514",
+            "content": [
+                {
+                    "type": "thinking",
+                    "thinking": "Let me reason about this...",
+                    "signature": "sig_abc"
+                },
+                { "type": "text", "text": "The answer is 42." }
+            ],
+            "stop_reason": "end_turn",
+            "usage": { "input_tokens": 30, "output_tokens": 50 }
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let provider = Anthropic::new("key").base_url(mock_server.uri());
+    let resp = provider.complete(minimal_request()).await.unwrap();
+
+    assert_eq!(resp.message.content.len(), 2);
+    assert!(matches!(
+        &resp.message.content[0],
+        ContentBlock::Thinking { thinking, signature }
+        if thinking == "Let me reason about this..." && signature == "sig_abc"
+    ));
+    assert!(matches!(
+        &resp.message.content[1],
+        ContentBlock::Text(t) if t == "The answer is 42."
+    ));
+}
+
+#[tokio::test]
+async fn complete_parses_tool_use_response() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "id": "msg_tool",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-sonnet-4-20250514",
+            "content": [{
+                "type": "tool_use",
+                "id": "toolu_01A",
+                "name": "get_weather",
+                "input": { "location": "San Francisco" }
+            }],
+            "stop_reason": "tool_use",
+            "usage": { "input_tokens": 20, "output_tokens": 30 }
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let provider = Anthropic::new("key").base_url(mock_server.uri());
+    let resp = provider.complete(minimal_request()).await.unwrap();
+
+    assert_eq!(resp.stop_reason, neuron_types::StopReason::ToolUse);
+    assert!(matches!(
+        &resp.message.content[0],
+        ContentBlock::ToolUse { id, name, input }
+        if id == "toolu_01A" && name == "get_weather" && input["location"] == "San Francisco"
+    ));
+}
+
+#[tokio::test]
+async fn complete_returns_server_error_on_500() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .respond_with(ResponseTemplate::new(500).set_body_json(serde_json::json!({
+            "type": "error",
+            "error": { "type": "api_error", "message": "Internal server error" }
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let provider = Anthropic::new("key").base_url(mock_server.uri());
+    let err = provider.complete(minimal_request()).await.unwrap_err();
+
+    assert!(
+        matches!(err, ProviderError::ServiceUnavailable(_)),
+        "expected ServiceUnavailable for 500, got: {err:?}"
+    );
+    assert!(err.is_retryable());
+}
+
+#[tokio::test]
+async fn complete_handles_unexpected_status_code() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .respond_with(ResponseTemplate::new(418).set_body_string("I'm a teapot"))
+        .mount(&mock_server)
+        .await;
+
+    let provider = Anthropic::new("key").base_url(mock_server.uri());
+    let err = provider.complete(minimal_request()).await.unwrap_err();
+
+    assert!(
+        matches!(err, ProviderError::InvalidRequest(ref msg) if msg.contains("418")),
+        "expected InvalidRequest with status code, got: {err:?}"
+    );
+}
+
+#[tokio::test]
+async fn complete_parses_compaction_response() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "id": "msg_compaction",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-sonnet-4-20250514",
+            "content": [{
+                "type": "compaction",
+                "content": "Previous conversation summary."
+            }],
+            "stop_reason": "compaction",
+            "usage": {
+                "input_tokens": 500,
+                "output_tokens": 100,
+                "iterations": [
+                    { "input_tokens": 300, "output_tokens": 60 },
+                    { "input_tokens": 200, "output_tokens": 40 }
+                ]
+            }
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let provider = Anthropic::new("key").base_url(mock_server.uri());
+    let resp = provider.complete(minimal_request()).await.unwrap();
+
+    assert_eq!(resp.stop_reason, neuron_types::StopReason::Compaction);
+    assert!(matches!(
+        &resp.message.content[0],
+        ContentBlock::Compaction { content } if content == "Previous conversation summary."
+    ));
+
+    let iterations = resp.usage.iterations.as_ref().unwrap();
+    assert_eq!(iterations.len(), 2);
+    assert_eq!(iterations[0].input_tokens, 300);
+    assert_eq!(iterations[1].output_tokens, 40);
+}
+
+#[tokio::test]
+async fn complete_returns_error_on_invalid_json_response() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .respond_with(ResponseTemplate::new(200).set_body_string("not json at all"))
+        .mount(&mock_server)
+        .await;
+
+    let provider = Anthropic::new("key").base_url(mock_server.uri());
+    let err = provider.complete(minimal_request()).await.unwrap_err();
+
+    assert!(
+        matches!(err, ProviderError::InvalidRequest(ref msg) if msg.contains("invalid JSON")),
+        "expected InvalidRequest for bad JSON, got: {err:?}"
+    );
+}

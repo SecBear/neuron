@@ -822,4 +822,405 @@ mod tests {
         assert_eq!(stop[0], "END");
         assert_eq!(stop[1], "STOP");
     }
+
+    // ─── ResponseFormat variants ──────────────────────────────────────────
+
+    #[test]
+    fn response_format_text_mapped() {
+        let mut req = minimal_request();
+        req.response_format = Some(ResponseFormat::Text);
+        let body = to_api_request(&req, "m");
+        assert_eq!(body["response_format"]["type"], "text");
+    }
+
+    #[test]
+    fn response_format_json_object_mapped() {
+        let mut req = minimal_request();
+        req.response_format = Some(ResponseFormat::JsonObject);
+        let body = to_api_request(&req, "m");
+        assert_eq!(body["response_format"]["type"], "json_object");
+    }
+
+    // ─── ReasoningEffort variants ─────────────────────────────────────────
+
+    #[test]
+    fn reasoning_effort_none_mapped() {
+        let mut req = minimal_request();
+        req.reasoning_effort = Some(ReasoningEffort::None);
+        let body = to_api_request(&req, "m");
+        assert_eq!(body["reasoning_effort"], "none");
+    }
+
+    #[test]
+    fn reasoning_effort_low_mapped() {
+        let mut req = minimal_request();
+        req.reasoning_effort = Some(ReasoningEffort::Low);
+        let body = to_api_request(&req, "m");
+        assert_eq!(body["reasoning_effort"], "low");
+    }
+
+    #[test]
+    fn reasoning_effort_medium_mapped() {
+        let mut req = minimal_request();
+        req.reasoning_effort = Some(ReasoningEffort::Medium);
+        let body = to_api_request(&req, "m");
+        assert_eq!(body["reasoning_effort"], "medium");
+    }
+
+    // ─── Image content blocks ─────────────────────────────────────────────
+
+    #[test]
+    fn image_base64_mapped_to_image_url_with_data_uri() {
+        let mut req = minimal_request();
+        req.messages = vec![Message {
+            role: Role::User,
+            content: vec![ContentBlock::Image {
+                source: neuron_types::ImageSource::Base64 {
+                    media_type: "image/png".into(),
+                    data: "iVBORw0KGgo=".into(),
+                },
+            }],
+        }];
+        let body = to_api_request(&req, "m");
+        let messages = body["messages"].as_array().unwrap();
+        // Single image block produces array form content
+        let content = messages[0]["content"].as_array().unwrap();
+        assert_eq!(content[0]["type"], "image_url");
+        assert_eq!(
+            content[0]["image_url"]["url"],
+            "data:image/png;base64,iVBORw0KGgo="
+        );
+    }
+
+    #[test]
+    fn image_url_mapped_to_image_url() {
+        let mut req = minimal_request();
+        req.messages = vec![Message {
+            role: Role::User,
+            content: vec![ContentBlock::Image {
+                source: neuron_types::ImageSource::Url {
+                    url: "https://example.com/photo.jpg".into(),
+                },
+            }],
+        }];
+        let body = to_api_request(&req, "m");
+        let messages = body["messages"].as_array().unwrap();
+        let content = messages[0]["content"].as_array().unwrap();
+        assert_eq!(content[0]["type"], "image_url");
+        assert_eq!(
+            content[0]["image_url"]["url"],
+            "https://example.com/photo.jpg"
+        );
+    }
+
+    // ─── Multi-content user messages ──────────────────────────────────────
+
+    #[test]
+    fn multi_content_user_message_generates_array_form() {
+        let mut req = minimal_request();
+        req.messages = vec![Message {
+            role: Role::User,
+            content: vec![
+                ContentBlock::Text("Describe this image:".into()),
+                ContentBlock::Image {
+                    source: neuron_types::ImageSource::Url {
+                        url: "https://example.com/cat.png".into(),
+                    },
+                },
+            ],
+        }];
+        let body = to_api_request(&req, "m");
+        let messages = body["messages"].as_array().unwrap();
+        // Multi-content produces array form
+        let content = messages[0]["content"].as_array().unwrap();
+        assert_eq!(content.len(), 2);
+        assert_eq!(content[0]["type"], "text");
+        assert_eq!(content[0]["text"], "Describe this image:");
+        assert_eq!(content[1]["type"], "image_url");
+        assert_eq!(
+            content[1]["image_url"]["url"],
+            "https://example.com/cat.png"
+        );
+    }
+
+    // ─── Assistant messages with mixed content ────────────────────────────
+
+    #[test]
+    fn assistant_text_and_tool_use_combined() {
+        let mut req = minimal_request();
+        req.messages.push(Message {
+            role: Role::Assistant,
+            content: vec![
+                ContentBlock::Text("Let me search for that.".into()),
+                ContentBlock::ToolUse {
+                    id: "call_1".into(),
+                    name: "search".into(),
+                    input: serde_json::json!({ "q": "rust" }),
+                },
+            ],
+        });
+        let body = to_api_request(&req, "m");
+        let messages = body["messages"].as_array().unwrap();
+        let assistant_msg = &messages[1];
+        assert_eq!(assistant_msg["content"], "Let me search for that.");
+        let tool_calls = assistant_msg["tool_calls"].as_array().unwrap();
+        assert_eq!(tool_calls.len(), 1);
+        assert_eq!(tool_calls[0]["function"]["name"], "search");
+    }
+
+    #[test]
+    fn assistant_tool_use_with_string_input() {
+        let mut req = minimal_request();
+        req.messages.push(Message {
+            role: Role::Assistant,
+            content: vec![ContentBlock::ToolUse {
+                id: "call_str".into(),
+                name: "eval".into(),
+                input: serde_json::Value::String("{\"code\":\"1+1\"}".into()),
+            }],
+        });
+        let body = to_api_request(&req, "m");
+        let messages = body["messages"].as_array().unwrap();
+        let tc = &messages[1]["tool_calls"].as_array().unwrap()[0];
+        // String input should pass through directly, not re-stringify
+        assert_eq!(tc["function"]["arguments"], "{\"code\":\"1+1\"}");
+    }
+
+    #[test]
+    fn assistant_without_text_has_null_content() {
+        let mut req = minimal_request();
+        req.messages.push(Message {
+            role: Role::Assistant,
+            content: vec![ContentBlock::ToolUse {
+                id: "call_1".into(),
+                name: "search".into(),
+                input: serde_json::json!({}),
+            }],
+        });
+        let body = to_api_request(&req, "m");
+        let messages = body["messages"].as_array().unwrap();
+        assert!(messages[1]["content"].is_null());
+    }
+
+    #[test]
+    fn assistant_thinking_blocks_are_skipped() {
+        let mut req = minimal_request();
+        req.messages.push(Message {
+            role: Role::Assistant,
+            content: vec![
+                ContentBlock::Thinking {
+                    thinking: "hmm...".into(),
+                    signature: "sig".into(),
+                },
+                ContentBlock::Text("Answer.".into()),
+            ],
+        });
+        let body = to_api_request(&req, "m");
+        let messages = body["messages"].as_array().unwrap();
+        let assistant_msg = &messages[1];
+        // Only text should be present, thinking should be skipped
+        assert_eq!(assistant_msg["content"], "Answer.");
+        assert!(assistant_msg.get("tool_calls").is_none() || assistant_msg["tool_calls"].is_null());
+    }
+
+    // ─── Tool result with multiple text items ─────────────────────────────
+
+    #[test]
+    fn tool_result_joins_multiple_text_items() {
+        let mut req = minimal_request();
+        req.messages.push(Message {
+            role: Role::User,
+            content: vec![ContentBlock::ToolResult {
+                tool_use_id: "call_1".into(),
+                content: vec![
+                    ContentItem::Text("line one".into()),
+                    ContentItem::Text("line two".into()),
+                ],
+                is_error: false,
+            }],
+        });
+        let body = to_api_request(&req, "m");
+        let messages = body["messages"].as_array().unwrap();
+        let tool_msg = &messages[1];
+        assert_eq!(tool_msg["role"], "tool");
+        assert_eq!(tool_msg["content"], "line one\nline two");
+    }
+
+    // ─── Response parsing edge cases ──────────────────────────────────────
+
+    #[test]
+    fn parse_response_missing_id_errors() {
+        let body = serde_json::json!({
+            "model": "gpt-4o",
+            "choices": [{
+                "index": 0,
+                "message": { "role": "assistant", "content": "Hi" },
+                "finish_reason": "stop"
+            }],
+            "usage": { "prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2 }
+        });
+        let err = from_api_response(&body).unwrap_err();
+        assert!(matches!(err, ProviderError::InvalidRequest(_)));
+    }
+
+    #[test]
+    fn parse_response_missing_model_errors() {
+        let body = serde_json::json!({
+            "id": "chatcmpl-abc",
+            "choices": [{
+                "index": 0,
+                "message": { "role": "assistant", "content": "Hi" },
+                "finish_reason": "stop"
+            }],
+            "usage": { "prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2 }
+        });
+        let err = from_api_response(&body).unwrap_err();
+        assert!(matches!(err, ProviderError::InvalidRequest(_)));
+    }
+
+    #[test]
+    fn parse_response_missing_choices_errors() {
+        let body = serde_json::json!({
+            "id": "chatcmpl-abc",
+            "model": "gpt-4o"
+        });
+        let err = from_api_response(&body).unwrap_err();
+        assert!(matches!(err, ProviderError::InvalidRequest(_)));
+    }
+
+    #[test]
+    fn parse_response_empty_choices_errors() {
+        let body = serde_json::json!({
+            "id": "chatcmpl-abc",
+            "model": "gpt-4o",
+            "choices": [],
+            "usage": { "prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0 }
+        });
+        let err = from_api_response(&body).unwrap_err();
+        assert!(matches!(err, ProviderError::InvalidRequest(_)));
+    }
+
+    #[test]
+    fn parse_finish_reason_unknown_defaults_to_end_turn() {
+        let body = serde_json::json!({
+            "id": "chatcmpl-unk",
+            "model": "gpt-4o",
+            "choices": [{
+                "index": 0,
+                "message": { "role": "assistant", "content": "Hi" },
+                "finish_reason": "some_unknown_reason"
+            }],
+            "usage": { "prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2 }
+        });
+        let resp = from_api_response(&body).unwrap();
+        assert_eq!(resp.stop_reason, StopReason::EndTurn);
+    }
+
+    #[test]
+    fn parse_finish_reason_null_defaults_to_end_turn() {
+        let body = serde_json::json!({
+            "id": "chatcmpl-null",
+            "model": "gpt-4o",
+            "choices": [{
+                "index": 0,
+                "message": { "role": "assistant", "content": "Hi" },
+                "finish_reason": null
+            }],
+            "usage": { "prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2 }
+        });
+        let resp = from_api_response(&body).unwrap();
+        assert_eq!(resp.stop_reason, StopReason::EndTurn);
+    }
+
+    #[test]
+    fn parse_usage_missing_fields_default_to_zero() {
+        let body = serde_json::json!({
+            "id": "chatcmpl-nousage",
+            "model": "gpt-4o",
+            "choices": [{
+                "index": 0,
+                "message": { "role": "assistant", "content": "Hi" },
+                "finish_reason": "stop"
+            }],
+            "usage": {}
+        });
+        let resp = from_api_response(&body).unwrap();
+        assert_eq!(resp.usage.input_tokens, 0);
+        assert_eq!(resp.usage.output_tokens, 0);
+        assert!(resp.usage.cache_read_tokens.is_none());
+        assert!(resp.usage.reasoning_tokens.is_none());
+    }
+
+    #[test]
+    fn parse_response_tool_call_with_invalid_json_arguments() {
+        let body = serde_json::json!({
+            "id": "chatcmpl-bad-args",
+            "model": "gpt-4o",
+            "choices": [{
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": null,
+                    "tool_calls": [{
+                        "id": "call_bad",
+                        "type": "function",
+                        "function": {
+                            "name": "search",
+                            "arguments": "not-valid-json"
+                        }
+                    }]
+                },
+                "finish_reason": "tool_calls"
+            }],
+            "usage": { "prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2 }
+        });
+        // Should not error — falls back to empty object
+        let resp = from_api_response(&body).unwrap();
+        assert!(matches!(
+            &resp.message.content[0],
+            ContentBlock::ToolUse { input, .. } if input.is_object()
+        ));
+    }
+
+    #[test]
+    fn temperature_and_top_p_mapped() {
+        let mut req = minimal_request();
+        req.temperature = Some(0.5);
+        req.top_p = Some(1.0);
+        let body = to_api_request(&req, "m");
+        // Use values that are exactly representable in f32 to avoid precision issues
+        assert_eq!(body["temperature"], 0.5);
+        assert_eq!(body["top_p"], 1.0);
+    }
+
+    #[test]
+    fn user_message_with_unsupported_block_is_skipped() {
+        let mut req = minimal_request();
+        req.messages = vec![Message {
+            role: Role::User,
+            content: vec![
+                ContentBlock::Text("Hello".into()),
+                // ToolUse on user role — should be skipped
+                ContentBlock::ToolUse {
+                    id: "id".into(),
+                    name: "name".into(),
+                    input: serde_json::json!({}),
+                },
+            ],
+        }];
+        let body = to_api_request(&req, "m");
+        let messages = body["messages"].as_array().unwrap();
+        // Should only produce the text content (string form since single text)
+        assert_eq!(messages[0]["content"], "Hello");
+    }
+
+    #[test]
+    fn extra_non_object_is_ignored() {
+        let mut req = minimal_request();
+        req.extra = Some(serde_json::json!("a string, not an object"));
+        let body = to_api_request(&req, "m");
+        // Should not crash, and body should still have model and messages
+        assert_eq!(body["model"], "m");
+        assert!(body["messages"].as_array().is_some());
+    }
 }

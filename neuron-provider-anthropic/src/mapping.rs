@@ -437,7 +437,8 @@ fn parse_stop_reason(reason: &str) -> StopReason {
 #[cfg(test)]
 mod tests {
     use neuron_types::{
-        CacheControl, ContentBlock, Message, Role, SystemBlock, SystemPrompt, ToolDefinition,
+        CacheControl, ContentBlock, ContentItem, ContextEdit, ContextManagement, DocumentSource,
+        ImageSource, Message, Role, SystemBlock, SystemPrompt, ThinkingConfig, ToolDefinition,
     };
 
     use super::*;
@@ -688,5 +689,638 @@ mod tests {
         assert_eq!(val["type"], "thinking");
         assert_eq!(val["thinking"], "I am thinking...");
         assert_eq!(val["signature"], "sig123");
+    }
+
+    // ─── Priority 1: Content block mapping tests ─────────────────────────────
+
+    #[test]
+    fn image_base64_content_block_maps_correctly() {
+        let block = ContentBlock::Image {
+            source: ImageSource::Base64 {
+                media_type: "image/png".into(),
+                data: "iVBORw0KGgo=".into(),
+            },
+        };
+        let val = map_content_block(&block);
+        assert_eq!(val["type"], "image");
+        assert_eq!(val["source"]["type"], "base64");
+        assert_eq!(val["source"]["media_type"], "image/png");
+        assert_eq!(val["source"]["data"], "iVBORw0KGgo=");
+    }
+
+    #[test]
+    fn image_url_content_block_maps_correctly() {
+        let block = ContentBlock::Image {
+            source: ImageSource::Url {
+                url: "https://example.com/image.png".into(),
+            },
+        };
+        let val = map_content_block(&block);
+        assert_eq!(val["type"], "image");
+        assert_eq!(val["source"]["type"], "url");
+        assert_eq!(val["source"]["url"], "https://example.com/image.png");
+    }
+
+    #[test]
+    fn document_base64_pdf_maps_correctly() {
+        let block = ContentBlock::Document {
+            source: DocumentSource::Base64Pdf {
+                data: "JVBERi0xLjQ=".into(),
+            },
+        };
+        let val = map_content_block(&block);
+        assert_eq!(val["type"], "document");
+        assert_eq!(val["source"]["type"], "base64");
+        assert_eq!(val["source"]["media_type"], "application/pdf");
+        assert_eq!(val["source"]["data"], "JVBERi0xLjQ=");
+    }
+
+    #[test]
+    fn document_plain_text_maps_correctly() {
+        let block = ContentBlock::Document {
+            source: DocumentSource::PlainText {
+                data: "Hello, plain text document.".into(),
+            },
+        };
+        let val = map_content_block(&block);
+        assert_eq!(val["type"], "document");
+        assert_eq!(val["source"]["type"], "text");
+        assert_eq!(val["source"]["data"], "Hello, plain text document.");
+    }
+
+    #[test]
+    fn document_url_maps_correctly() {
+        let block = ContentBlock::Document {
+            source: DocumentSource::Url {
+                url: "https://example.com/doc.pdf".into(),
+            },
+        };
+        let val = map_content_block(&block);
+        assert_eq!(val["type"], "document");
+        assert_eq!(val["source"]["type"], "url");
+        assert_eq!(val["source"]["url"], "https://example.com/doc.pdf");
+    }
+
+    #[test]
+    fn compaction_content_block_maps_correctly() {
+        let block = ContentBlock::Compaction {
+            content: "Compacted summary of the conversation.".into(),
+        };
+        let val = map_content_block(&block);
+        assert_eq!(val["type"], "compaction");
+        assert_eq!(val["content"], "Compacted summary of the conversation.");
+    }
+
+    #[test]
+    fn redacted_thinking_block_maps_correctly() {
+        let block = ContentBlock::RedactedThinking {
+            data: "opaque-redacted-data".into(),
+        };
+        let val = map_content_block(&block);
+        assert_eq!(val["type"], "redacted_thinking");
+        assert_eq!(val["data"], "opaque-redacted-data");
+    }
+
+    #[test]
+    fn image_in_tool_result_content_maps_correctly() {
+        let block = ContentBlock::ToolResult {
+            tool_use_id: "toolu_img".into(),
+            content: vec![
+                ContentItem::Text("Here is the image:".into()),
+                ContentItem::Image {
+                    source: ImageSource::Base64 {
+                        media_type: "image/jpeg".into(),
+                        data: "/9j/4AAQ=".into(),
+                    },
+                },
+            ],
+            is_error: false,
+        };
+        let val = map_content_block(&block);
+        assert_eq!(val["type"], "tool_result");
+        assert_eq!(val["tool_use_id"], "toolu_img");
+
+        let content = val["content"].as_array().unwrap();
+        assert_eq!(content.len(), 2);
+        assert_eq!(content[0]["type"], "text");
+        assert_eq!(content[0]["text"], "Here is the image:");
+        assert_eq!(content[1]["type"], "image");
+        assert_eq!(content[1]["source"]["type"], "base64");
+        assert_eq!(content[1]["source"]["media_type"], "image/jpeg");
+        assert_eq!(content[1]["source"]["data"], "/9j/4AAQ=");
+    }
+
+    #[test]
+    fn context_management_maps_correctly() {
+        let mut req = minimal_request();
+        req.context_management = Some(ContextManagement {
+            edits: vec![ContextEdit::Compact {
+                strategy: "compact_20260112".into(),
+            }],
+        });
+        let body = to_api_request(&req, "m");
+        let ctx = &body["context_management"];
+        let edits = ctx["edits"].as_array().unwrap();
+        assert_eq!(edits.len(), 1);
+        assert_eq!(edits[0]["type"], "auto");
+        assert_eq!(edits[0]["trigger"], "compact_20260112");
+    }
+
+    #[test]
+    fn context_management_with_multiple_edits() {
+        let mut req = minimal_request();
+        req.context_management = Some(ContextManagement {
+            edits: vec![
+                ContextEdit::Compact {
+                    strategy: "strategy_a".into(),
+                },
+                ContextEdit::Compact {
+                    strategy: "strategy_b".into(),
+                },
+            ],
+        });
+        let body = to_api_request(&req, "m");
+        let edits = body["context_management"]["edits"].as_array().unwrap();
+        assert_eq!(edits.len(), 2);
+        assert_eq!(edits[0]["trigger"], "strategy_a");
+        assert_eq!(edits[1]["trigger"], "strategy_b");
+    }
+
+    #[test]
+    fn extra_fields_merged_into_body() {
+        let mut req = minimal_request();
+        req.extra = Some(serde_json::json!({
+            "metadata": { "user_id": "user_123" },
+            "custom_key": "custom_value",
+        }));
+        let body = to_api_request(&req, "m");
+        assert_eq!(body["metadata"]["user_id"], "user_123");
+        assert_eq!(body["custom_key"], "custom_value");
+        // Original fields should still be present
+        assert_eq!(body["model"], "m");
+    }
+
+    #[test]
+    fn extra_fields_can_override_defaults() {
+        let mut req = minimal_request();
+        req.extra = Some(serde_json::json!({
+            "max_tokens": 8192,
+        }));
+        let body = to_api_request(&req, "m");
+        // Extra should override the default max_tokens
+        assert_eq!(body["max_tokens"], 8192);
+    }
+
+    #[test]
+    fn thinking_config_disabled_maps_correctly() {
+        let mut req = minimal_request();
+        req.thinking = Some(ThinkingConfig::Disabled);
+        let body = to_api_request(&req, "m");
+        assert_eq!(body["thinking"]["type"], "disabled");
+    }
+
+    #[test]
+    fn thinking_config_adaptive_omits_thinking_field() {
+        let mut req = minimal_request();
+        req.thinking = Some(ThinkingConfig::Adaptive);
+        let body = to_api_request(&req, "m");
+        // Adaptive returns None from map_thinking_config, so "thinking" should not be in the body
+        assert!(body.get("thinking").is_none() || body["thinking"].is_null());
+    }
+
+    #[test]
+    fn thinking_config_enabled_maps_correctly() {
+        let mut req = minimal_request();
+        req.thinking = Some(ThinkingConfig::Enabled {
+            budget_tokens: 10000,
+        });
+        let body = to_api_request(&req, "m");
+        assert_eq!(body["thinking"]["type"], "enabled");
+        assert_eq!(body["thinking"]["budget_tokens"], 10000);
+    }
+
+    // ─── Priority 2: Response parsing edge cases ─────────────────────────────
+
+    #[test]
+    fn parse_response_redacted_thinking() {
+        let body = serde_json::json!({
+            "id": "msg_redacted",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-sonnet-4-20250514",
+            "content": [
+                { "type": "redacted_thinking", "data": "opaque-blob-abc123" },
+                { "type": "text", "text": "Here is my answer." }
+            ],
+            "stop_reason": "end_turn",
+            "usage": { "input_tokens": 50, "output_tokens": 30 }
+        });
+        let resp = from_api_response(&body).unwrap();
+        assert_eq!(resp.message.content.len(), 2);
+        assert!(
+            matches!(&resp.message.content[0], ContentBlock::RedactedThinking { data } if data == "opaque-blob-abc123")
+        );
+        assert!(
+            matches!(&resp.message.content[1], ContentBlock::Text(t) if t == "Here is my answer.")
+        );
+    }
+
+    #[test]
+    fn parse_response_compaction_block() {
+        let body = serde_json::json!({
+            "id": "msg_compact",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-sonnet-4-20250514",
+            "content": [{
+                "type": "compaction",
+                "content": "Summary of previous context."
+            }],
+            "stop_reason": "compaction",
+            "usage": { "input_tokens": 100, "output_tokens": 20 }
+        });
+        let resp = from_api_response(&body).unwrap();
+        assert_eq!(resp.stop_reason, StopReason::Compaction);
+        assert!(
+            matches!(&resp.message.content[0], ContentBlock::Compaction { content } if content == "Summary of previous context.")
+        );
+    }
+
+    #[test]
+    fn parse_response_unknown_content_block_type_returns_error() {
+        let body = serde_json::json!({
+            "id": "msg_unknown",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-sonnet-4-20250514",
+            "content": [{ "type": "some_new_type", "data": "whatever" }],
+            "stop_reason": "end_turn",
+            "usage": { "input_tokens": 5, "output_tokens": 2 }
+        });
+        let err = from_api_response(&body).unwrap_err();
+        assert!(
+            matches!(&err, ProviderError::InvalidRequest(msg) if msg.contains("unknown content block type: some_new_type")),
+            "expected InvalidRequest with unknown type, got: {err:?}"
+        );
+    }
+
+    #[test]
+    fn parse_stop_reason_stop_sequence() {
+        let body = serde_json::json!({
+            "id": "msg_stop_seq",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-sonnet-4-20250514",
+            "content": [{ "type": "text", "text": "Partial output" }],
+            "stop_reason": "stop_sequence",
+            "usage": { "input_tokens": 10, "output_tokens": 5 }
+        });
+        let resp = from_api_response(&body).unwrap();
+        assert_eq!(resp.stop_reason, StopReason::StopSequence);
+    }
+
+    #[test]
+    fn parse_stop_reason_max_tokens() {
+        let body = serde_json::json!({
+            "id": "msg_max_tok",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-sonnet-4-20250514",
+            "content": [{ "type": "text", "text": "Truncated" }],
+            "stop_reason": "max_tokens",
+            "usage": { "input_tokens": 10, "output_tokens": 4096 }
+        });
+        let resp = from_api_response(&body).unwrap();
+        assert_eq!(resp.stop_reason, StopReason::MaxTokens);
+    }
+
+    #[test]
+    fn parse_unknown_stop_reason_defaults_to_end_turn() {
+        let body = serde_json::json!({
+            "id": "msg_unknown_stop",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-sonnet-4-20250514",
+            "content": [{ "type": "text", "text": "Done" }],
+            "stop_reason": "some_future_reason",
+            "usage": { "input_tokens": 5, "output_tokens": 2 }
+        });
+        let resp = from_api_response(&body).unwrap();
+        assert_eq!(resp.stop_reason, StopReason::EndTurn);
+    }
+
+    #[test]
+    fn parse_null_stop_reason_defaults_to_end_turn() {
+        let body = serde_json::json!({
+            "id": "msg_null_stop",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-sonnet-4-20250514",
+            "content": [{ "type": "text", "text": "Done" }],
+            "stop_reason": null,
+            "usage": { "input_tokens": 5, "output_tokens": 2 }
+        });
+        let resp = from_api_response(&body).unwrap();
+        assert_eq!(resp.stop_reason, StopReason::EndTurn);
+    }
+
+    #[test]
+    fn parse_usage_with_iterations() {
+        let body = serde_json::json!({
+            "id": "msg_iter",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-sonnet-4-20250514",
+            "content": [{ "type": "text", "text": "Result after compaction" }],
+            "stop_reason": "end_turn",
+            "usage": {
+                "input_tokens": 200,
+                "output_tokens": 50,
+                "iterations": [
+                    {
+                        "input_tokens": 150,
+                        "output_tokens": 30,
+                        "cache_read_input_tokens": 100,
+                        "cache_creation_input_tokens": 50,
+                    },
+                    {
+                        "input_tokens": 50,
+                        "output_tokens": 20,
+                    }
+                ]
+            }
+        });
+        let resp = from_api_response(&body).unwrap();
+        assert_eq!(resp.usage.input_tokens, 200);
+        assert_eq!(resp.usage.output_tokens, 50);
+
+        let iterations = resp.usage.iterations.as_ref().unwrap();
+        assert_eq!(iterations.len(), 2);
+
+        assert_eq!(iterations[0].input_tokens, 150);
+        assert_eq!(iterations[0].output_tokens, 30);
+        assert_eq!(iterations[0].cache_read_tokens, Some(100));
+        assert_eq!(iterations[0].cache_creation_tokens, Some(50));
+
+        assert_eq!(iterations[1].input_tokens, 50);
+        assert_eq!(iterations[1].output_tokens, 20);
+        assert_eq!(iterations[1].cache_read_tokens, None);
+        assert_eq!(iterations[1].cache_creation_tokens, None);
+    }
+
+    #[test]
+    fn parse_usage_without_iterations() {
+        let body = serde_json::json!({
+            "id": "msg_no_iter",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-sonnet-4-20250514",
+            "content": [{ "type": "text", "text": "Hi" }],
+            "stop_reason": "end_turn",
+            "usage": {
+                "input_tokens": 10,
+                "output_tokens": 3,
+            }
+        });
+        let resp = from_api_response(&body).unwrap();
+        assert!(resp.usage.iterations.is_none());
+    }
+
+    #[test]
+    fn parse_response_thinking_block() {
+        let body = serde_json::json!({
+            "id": "msg_think",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-sonnet-4-20250514",
+            "content": [
+                {
+                    "type": "thinking",
+                    "thinking": "Let me consider this carefully...",
+                    "signature": "sig_abc123"
+                },
+                { "type": "text", "text": "Here is my answer." }
+            ],
+            "stop_reason": "end_turn",
+            "usage": { "input_tokens": 30, "output_tokens": 50 }
+        });
+        let resp = from_api_response(&body).unwrap();
+        assert_eq!(resp.message.content.len(), 2);
+        assert!(
+            matches!(&resp.message.content[0], ContentBlock::Thinking { thinking, signature } if thinking == "Let me consider this carefully..." && signature == "sig_abc123")
+        );
+    }
+
+    #[test]
+    fn parse_response_missing_id_returns_error() {
+        let body = serde_json::json!({
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-sonnet-4-20250514",
+            "content": [{ "type": "text", "text": "Hi" }],
+            "stop_reason": "end_turn",
+            "usage": { "input_tokens": 5, "output_tokens": 2 }
+        });
+        let err = from_api_response(&body).unwrap_err();
+        assert!(matches!(err, ProviderError::InvalidRequest(msg) if msg.contains("id")));
+    }
+
+    #[test]
+    fn parse_response_missing_model_returns_error() {
+        let body = serde_json::json!({
+            "id": "msg_001",
+            "type": "message",
+            "role": "assistant",
+            "content": [{ "type": "text", "text": "Hi" }],
+            "stop_reason": "end_turn",
+            "usage": { "input_tokens": 5, "output_tokens": 2 }
+        });
+        let err = from_api_response(&body).unwrap_err();
+        assert!(matches!(err, ProviderError::InvalidRequest(msg) if msg.contains("model")));
+    }
+
+    #[test]
+    fn parse_response_missing_content_array_returns_error() {
+        let body = serde_json::json!({
+            "id": "msg_001",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-sonnet-4-20250514",
+            "stop_reason": "end_turn",
+            "usage": { "input_tokens": 5, "output_tokens": 2 }
+        });
+        let err = from_api_response(&body).unwrap_err();
+        assert!(matches!(err, ProviderError::InvalidRequest(msg) if msg.contains("content")));
+    }
+
+    #[test]
+    fn parse_content_block_missing_type_returns_error() {
+        let body = serde_json::json!({
+            "id": "msg_001",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-sonnet-4-20250514",
+            "content": [{ "text": "no type field" }],
+            "stop_reason": "end_turn",
+            "usage": { "input_tokens": 5, "output_tokens": 2 }
+        });
+        let err = from_api_response(&body).unwrap_err();
+        assert!(matches!(err, ProviderError::InvalidRequest(msg) if msg.contains("type")));
+    }
+
+    #[test]
+    fn parse_tool_use_block_missing_id_returns_error() {
+        let body = serde_json::json!({
+            "id": "msg_001",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-sonnet-4-20250514",
+            "content": [{
+                "type": "tool_use",
+                "name": "search",
+                "input": {}
+            }],
+            "stop_reason": "end_turn",
+            "usage": { "input_tokens": 5, "output_tokens": 2 }
+        });
+        let err = from_api_response(&body).unwrap_err();
+        assert!(matches!(err, ProviderError::InvalidRequest(msg) if msg.contains("id")));
+    }
+
+    #[test]
+    fn parse_tool_use_block_missing_name_returns_error() {
+        let body = serde_json::json!({
+            "id": "msg_001",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-sonnet-4-20250514",
+            "content": [{
+                "type": "tool_use",
+                "id": "toolu_01",
+                "input": {}
+            }],
+            "stop_reason": "end_turn",
+            "usage": { "input_tokens": 5, "output_tokens": 2 }
+        });
+        let err = from_api_response(&body).unwrap_err();
+        assert!(matches!(err, ProviderError::InvalidRequest(msg) if msg.contains("name")));
+    }
+
+    #[test]
+    fn parse_text_block_missing_text_returns_error() {
+        let body = serde_json::json!({
+            "id": "msg_001",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-sonnet-4-20250514",
+            "content": [{ "type": "text" }],
+            "stop_reason": "end_turn",
+            "usage": { "input_tokens": 5, "output_tokens": 2 }
+        });
+        let err = from_api_response(&body).unwrap_err();
+        assert!(matches!(err, ProviderError::InvalidRequest(msg) if msg.contains("text")));
+    }
+
+    // ─── Request mapping: optional parameters ────────────────────────────────
+
+    #[test]
+    fn temperature_maps_correctly() {
+        let mut req = minimal_request();
+        req.temperature = Some(0.7);
+        let body = to_api_request(&req, "m");
+        let temp = body["temperature"].as_f64().unwrap();
+        assert!((temp - 0.7).abs() < 0.001, "expected ~0.7, got {temp}");
+    }
+
+    #[test]
+    fn top_p_maps_correctly() {
+        let mut req = minimal_request();
+        req.top_p = Some(0.9);
+        let body = to_api_request(&req, "m");
+        let top_p = body["top_p"].as_f64().unwrap();
+        assert!((top_p - 0.9).abs() < 0.001, "expected ~0.9, got {top_p}");
+    }
+
+    #[test]
+    fn stop_sequences_map_correctly() {
+        let mut req = minimal_request();
+        req.stop_sequences = vec!["STOP".into(), "END".into()];
+        let body = to_api_request(&req, "m");
+        let seqs = body["stop_sequences"].as_array().unwrap();
+        assert_eq!(seqs.len(), 2);
+        assert_eq!(seqs[0], "STOP");
+        assert_eq!(seqs[1], "END");
+    }
+
+    #[test]
+    fn max_tokens_defaults_to_4096() {
+        let req = minimal_request();
+        let body = to_api_request(&req, "m");
+        assert_eq!(body["max_tokens"], 4096);
+    }
+
+    #[test]
+    fn max_tokens_override() {
+        let mut req = minimal_request();
+        req.max_tokens = Some(1024);
+        let body = to_api_request(&req, "m");
+        assert_eq!(body["max_tokens"], 1024);
+    }
+
+    #[test]
+    fn tool_definition_with_cache_control() {
+        let mut req = minimal_request();
+        req.tools = vec![ToolDefinition {
+            name: "cached_tool".into(),
+            title: None,
+            description: "A cached tool".into(),
+            input_schema: serde_json::json!({ "type": "object" }),
+            output_schema: None,
+            annotations: None,
+            cache_control: Some(CacheControl {
+                ttl: Some(neuron_types::CacheTtl::FiveMinutes),
+            }),
+        }];
+        let body = to_api_request(&req, "m");
+        let tools = body["tools"].as_array().unwrap();
+        assert_eq!(tools[0]["cache_control"]["type"], "ephemeral");
+    }
+
+    #[test]
+    fn system_block_without_cache_control() {
+        let mut req = minimal_request();
+        req.system = Some(SystemPrompt::Blocks(vec![SystemBlock {
+            text: "No cache.".into(),
+            cache_control: None,
+        }]));
+        let body = to_api_request(&req, "m");
+        let system = body["system"].as_array().unwrap();
+        assert_eq!(system[0]["text"], "No cache.");
+        assert!(system[0].get("cache_control").is_none());
+    }
+
+    #[test]
+    fn multiple_messages_preserve_order() {
+        let mut req = minimal_request();
+        req.messages = vec![
+            Message {
+                role: Role::User,
+                content: vec![ContentBlock::Text("First".into())],
+            },
+            Message {
+                role: Role::Assistant,
+                content: vec![ContentBlock::Text("Response".into())],
+            },
+            Message {
+                role: Role::User,
+                content: vec![ContentBlock::Text("Second".into())],
+            },
+        ];
+        let body = to_api_request(&req, "m");
+        let messages = body["messages"].as_array().unwrap();
+        assert_eq!(messages.len(), 3);
+        assert_eq!(messages[0]["role"], "user");
+        assert_eq!(messages[1]["role"], "assistant");
+        assert_eq!(messages[2]["role"], "user");
     }
 }

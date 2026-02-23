@@ -254,4 +254,68 @@ mod tests {
         let err = parse_embedding_response(&json, "test").unwrap_err();
         assert!(matches!(err, EmbeddingError::InvalidRequest(_)));
     }
+
+    #[test]
+    fn parse_response_missing_embedding_array_is_error() {
+        let json = serde_json::json!({
+            "data": [{ "index": 0 }],
+            "model": "test",
+            "usage": { "prompt_tokens": 1, "total_tokens": 1 }
+        });
+        let err = parse_embedding_response(&json, "test").unwrap_err();
+        assert!(matches!(err, EmbeddingError::InvalidRequest(_)));
+    }
+
+    #[test]
+    fn parse_response_non_numeric_embedding_value_is_error() {
+        let json = serde_json::json!({
+            "data": [{ "embedding": [0.1, "not_a_number", 0.3], "index": 0 }],
+            "model": "test",
+            "usage": { "prompt_tokens": 1, "total_tokens": 1 }
+        });
+        let err = parse_embedding_response(&json, "test").unwrap_err();
+        assert!(matches!(err, EmbeddingError::InvalidRequest(_)));
+    }
+
+    #[test]
+    fn parse_response_missing_usage_defaults_to_zero() {
+        let json = serde_json::json!({
+            "data": [{ "embedding": [1.0, 2.0], "index": 0 }],
+            "model": "test"
+        });
+        let resp = parse_embedding_response(&json, "test").unwrap();
+        assert_eq!(resp.usage.prompt_tokens, 0);
+        assert_eq!(resp.usage.total_tokens, 0);
+    }
+
+    #[test]
+    fn parse_retry_after_extracts_seconds() {
+        let result = parse_retry_after("Rate limit exceeded. Please retry after 45 seconds.");
+        assert_eq!(result, Some(std::time::Duration::from_secs(45)));
+    }
+
+    #[test]
+    fn parse_retry_after_returns_none_when_not_present() {
+        let result = parse_retry_after("Generic error with no retry info");
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn parse_retry_after_case_insensitive() {
+        let result = parse_retry_after("RETRY AFTER 30 seconds");
+        assert_eq!(result, Some(std::time::Duration::from_secs(30)));
+    }
+
+    #[test]
+    fn map_429_with_retry_after_in_message() {
+        let err = map_embedding_http_status(
+            reqwest::StatusCode::TOO_MANY_REQUESTS,
+            "Please retry after 60 seconds",
+        );
+        if let EmbeddingError::RateLimit { retry_after } = err {
+            assert_eq!(retry_after, Some(std::time::Duration::from_secs(60)));
+        } else {
+            panic!("expected RateLimit, got: {err:?}");
+        }
+    }
 }

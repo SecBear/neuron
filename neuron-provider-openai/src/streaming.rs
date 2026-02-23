@@ -481,4 +481,132 @@ data: [DONE]
         let msg = state.take_final_message().unwrap();
         assert_eq!(msg.content.len(), 2);
     }
+
+    #[test]
+    fn invalid_json_in_data_produces_error_event() {
+        let mut state = make_state();
+        let sse = "data: {not valid json}\n";
+        let events = feed_sse(&mut state, sse);
+        let has_error = events.iter().any(
+            |e| matches!(e, StreamEvent::Error(err) if err.message.contains("JSON parse error")),
+        );
+        assert!(has_error, "expected Error event for invalid JSON");
+    }
+
+    #[test]
+    fn empty_data_produces_no_events() {
+        let mut state = make_state();
+        // Just blank lines
+        let events = feed_sse(&mut state, "\n\n");
+        assert!(events.is_empty());
+    }
+
+    #[test]
+    fn comment_lines_are_ignored() {
+        let mut state = make_state();
+        let sse = ": this is a comment\ndata: {\"id\":\"chatcmpl-abc\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Hi\"},\"finish_reason\":null}]}\n";
+        let events = feed_sse(&mut state, sse);
+        let has_text = events
+            .iter()
+            .any(|e| matches!(e, StreamEvent::TextDelta(t) if t == "Hi"));
+        assert!(has_text, "expected TextDelta after comment line");
+    }
+
+    #[test]
+    fn usage_with_reasoning_tokens_parsed() {
+        let mut state = make_state();
+        let sse = "\
+data: {\"id\":\"chatcmpl-r\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Ok\"},\"finish_reason\":null}]}
+
+data: {\"id\":\"chatcmpl-r\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":50,\"completion_tokens\":100,\"total_tokens\":150,\"completion_tokens_details\":{\"reasoning_tokens\":80},\"prompt_tokens_details\":{\"cached_tokens\":20}}}
+
+data: [DONE]
+";
+        let events = feed_sse(&mut state, sse);
+        let usage = events.iter().find_map(|e| {
+            if let StreamEvent::Usage(u) = e {
+                Some(u)
+            } else {
+                None
+            }
+        });
+        assert!(usage.is_some(), "expected Usage event");
+        let u = usage.unwrap();
+        assert_eq!(u.input_tokens, 50);
+        assert_eq!(u.output_tokens, 100);
+        assert_eq!(u.reasoning_tokens, Some(80));
+        assert_eq!(u.cache_read_tokens, Some(20));
+    }
+
+    #[test]
+    fn take_final_message_with_invalid_tool_input_returns_null() {
+        let mut state = make_state();
+        state.tool_uses.insert(
+            0,
+            ToolUseInProgress {
+                id: "call_bad".into(),
+                name: "search".into(),
+                input_buf: "not-valid-json".into(),
+            },
+        );
+        let msg = state.take_final_message().unwrap();
+        assert!(matches!(
+            &msg.content[0],
+            ContentBlock::ToolUse { input, .. } if input.is_null()
+        ));
+    }
+
+    #[test]
+    fn text_and_tool_use_combined_in_final_message() {
+        let mut state = make_state();
+        state.text_buf = "I'll search for that.".into();
+        state.tool_uses.insert(
+            0,
+            ToolUseInProgress {
+                id: "call_combo".into(),
+                name: "search".into(),
+                input_buf: r#"{"q":"test"}"#.into(),
+            },
+        );
+        let msg = state.take_final_message().unwrap();
+        assert_eq!(msg.content.len(), 2);
+        assert!(matches!(&msg.content[0], ContentBlock::Text(t) if t == "I'll search for that."));
+        assert!(matches!(&msg.content[1], ContentBlock::ToolUse { name, .. } if name == "search"));
+    }
+
+    #[test]
+    fn finish_reason_stop_emits_tool_use_end_for_in_progress_tools() {
+        let mut state = make_state();
+        // Start a tool call
+        let sse = "\
+data: {\"id\":\"chatcmpl-abc\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":null,\"tool_calls\":[{\"index\":0,\"id\":\"call_stop\",\"type\":\"function\",\"function\":{\"name\":\"calc\",\"arguments\":\"\"}}]},\"finish_reason\":null}]}
+
+data: {\"id\":\"chatcmpl-abc\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"{\\\"x\\\":1}\"}}]},\"finish_reason\":null}]}
+
+data: {\"id\":\"chatcmpl-abc\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}
+
+data: [DONE]
+";
+        let events = feed_sse(&mut state, sse);
+        // Even with finish_reason "stop" (not "tool_calls"), tool_use_end should be emitted
+        let has_end = events
+            .iter()
+            .any(|e| matches!(e, StreamEvent::ToolUseEnd { id } if id == "call_stop"));
+        assert!(has_end, "expected ToolUseEnd even with stop finish_reason");
+    }
+
+    #[test]
+    fn multiline_data_accumulated_before_dispatch() {
+        let mut state = make_state();
+        // SSE spec allows multi-line data (consecutive data: lines without blank line)
+        let events = state.process_line("data: {\"id\":\"chatcmpl-abc\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"multi\"},\"finish_reason\":null}]}");
+        // No events yet because no blank line to trigger dispatch
+        assert!(events.is_empty());
+        // Now a blank line dispatches
+        let events = state.process_line("");
+        let has_text = events
+            .iter()
+            .any(|e| matches!(e, StreamEvent::TextDelta(t) if t == "multi"));
+        assert!(has_text, "expected TextDelta after dispatch");
+    }
 }

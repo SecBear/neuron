@@ -475,4 +475,356 @@ data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usa
             .any(|e| matches!(e, StreamEvent::Usage(u) if u.output_tokens == 42));
         assert!(has_usage, "expected Usage event");
     }
+
+    // ─── Priority 3: Streaming edge cases ────────────────────────────────────
+
+    #[test]
+    fn parse_signature_delta() {
+        let mut state = make_state();
+        let sse = "\
+event: content_block_start
+data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"thinking\",\"thinking\":\"\"}}
+
+event: content_block_delta
+data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\"Thinking...\"}}
+
+event: content_block_delta
+data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"signature_delta\",\"signature\":\"sig_xyz789\"}}
+
+event: content_block_stop
+data: {\"type\":\"content_block_stop\",\"index\":0}
+";
+        let events = feed_sse(&mut state, sse);
+        let has_signature = events
+            .iter()
+            .any(|e| matches!(e, StreamEvent::SignatureDelta(s) if s == "sig_xyz789"));
+        assert!(has_signature, "expected SignatureDelta event");
+    }
+
+    #[test]
+    fn parse_error_event() {
+        let mut state = make_state();
+        let sse = "\
+event: error
+data: {\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"Overloaded\"}}
+";
+        let events = feed_sse(&mut state, sse);
+        let has_error = events.iter().any(
+            |e| matches!(e, StreamEvent::Error(err) if err.message == "Overloaded" && !err.is_retryable),
+        );
+        assert!(has_error, "expected Error event with 'Overloaded' message");
+    }
+
+    #[test]
+    fn error_event_with_missing_message_uses_default() {
+        let mut state = make_state();
+        let sse = "\
+event: error
+data: {\"type\":\"error\",\"error\":{\"type\":\"some_error\"}}
+";
+        let events = feed_sse(&mut state, sse);
+        let has_error = events.iter().any(
+            |e| matches!(e, StreamEvent::Error(err) if err.message == "unknown streaming error"),
+        );
+        assert!(
+            has_error,
+            "expected Error event with default 'unknown streaming error'"
+        );
+    }
+
+    #[test]
+    fn incomplete_sse_line_at_end_of_stream() {
+        // Simulate receiving data that ends mid-event (no trailing newline to complete)
+        let mut state = make_state();
+
+        // First send a complete event
+        let events1 = state.process_line("event: content_block_delta");
+        assert!(events1.is_empty());
+
+        let events2 = state.process_line(
+            "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Hello\"}}",
+        );
+        assert!(events2.is_empty());
+
+        // Dispatch on blank line
+        let events3 = state.process_line("");
+        let has_delta = events3
+            .iter()
+            .any(|e| matches!(e, StreamEvent::TextDelta(t) if t == "Hello"));
+        assert!(has_delta, "expected TextDelta from completed event");
+
+        // Now simulate an incomplete line that arrives as the last data
+        // This is the remaining content in line_buf when the stream ends
+        let events4 = state.process_line("event: content_block_delta");
+        assert!(events4.is_empty());
+        let events5 = state.process_line(
+            "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\" world\"}}",
+        );
+        assert!(events5.is_empty());
+
+        // Simulate end-of-stream: process remaining buffer line + dispatch
+        let events_final = state.process_line("");
+        let has_world = events_final
+            .iter()
+            .any(|e| matches!(e, StreamEvent::TextDelta(t) if t == " world"));
+        assert!(has_world, "expected TextDelta from final buffer flush");
+
+        // Verify the assembled message
+        let msg = state.take_final_message().unwrap();
+        assert!(matches!(&msg.content[0], ContentBlock::Text(t) if t == "Hello world"));
+    }
+
+    #[test]
+    fn ping_event_produces_no_output() {
+        let mut state = make_state();
+        let sse = "\
+event: ping
+data: {}
+";
+        let events = feed_sse(&mut state, sse);
+        assert!(events.is_empty(), "ping events should produce no output");
+    }
+
+    #[test]
+    fn message_start_event_produces_no_output() {
+        let mut state = make_state();
+        let sse = "\
+event: message_start
+data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_01\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-sonnet-4-20250514\",\"content\":[],\"stop_reason\":null,\"stop_sequence\":null,\"usage\":{\"input_tokens\":10,\"output_tokens\":0}}}
+";
+        let events = feed_sse(&mut state, sse);
+        assert!(
+            events.is_empty(),
+            "message_start events should produce no output"
+        );
+    }
+
+    #[test]
+    fn message_stop_event_produces_no_output() {
+        let mut state = make_state();
+        let sse = "\
+event: message_stop
+data: {\"type\":\"message_stop\"}
+";
+        let events = feed_sse(&mut state, sse);
+        assert!(
+            events.is_empty(),
+            "message_stop events should produce no output"
+        );
+    }
+
+    #[test]
+    fn unknown_event_type_ignored() {
+        let mut state = make_state();
+        let sse = "\
+event: some_future_event
+data: {\"type\":\"some_future_event\",\"foo\":\"bar\"}
+";
+        let events = feed_sse(&mut state, sse);
+        assert!(events.is_empty(), "unknown event types should be ignored");
+    }
+
+    #[test]
+    fn invalid_json_in_data_produces_error() {
+        let mut state = make_state();
+        let sse = "\
+event: content_block_delta
+data: {not valid json}
+";
+        let events = feed_sse(&mut state, sse);
+        let has_error = events.iter().any(
+            |e| matches!(e, StreamEvent::Error(err) if err.message.contains("JSON parse error")),
+        );
+        assert!(has_error, "expected Error event for invalid JSON");
+    }
+
+    #[test]
+    fn done_sentinel_produces_no_events() {
+        let mut state = make_state();
+        let sse = "\
+event: done
+data: [DONE]
+";
+        let events = feed_sse(&mut state, sse);
+        assert!(
+            events.is_empty(),
+            "[DONE] sentinel should produce no events"
+        );
+    }
+
+    #[test]
+    fn empty_data_produces_no_events() {
+        let mut state = make_state();
+        let sse = "\
+event: content_block_delta
+data:
+";
+        let events = feed_sse(&mut state, sse);
+        assert!(events.is_empty(), "empty data should produce no events");
+    }
+
+    #[test]
+    fn blank_line_with_no_accumulated_event_produces_nothing() {
+        let mut state = make_state();
+        let events = state.process_line("");
+        assert!(
+            events.is_empty(),
+            "blank line with no pending event should produce nothing"
+        );
+    }
+
+    #[test]
+    fn take_final_message_with_thinking_content() {
+        let mut state = make_state();
+        state.thinking_buf = "Deep thoughts".into();
+        let msg = state.take_final_message().unwrap();
+        assert!(
+            matches!(&msg.content[0], ContentBlock::Thinking { thinking, .. } if thinking == "Deep thoughts")
+        );
+    }
+
+    #[test]
+    fn take_final_message_returns_none_when_empty() {
+        let mut state = make_state();
+        assert!(state.take_final_message().is_none());
+    }
+
+    #[test]
+    fn take_final_message_assembles_mixed_content() {
+        let mut state = make_state();
+        state.text_buf = "Final answer".into();
+        state.thinking_buf = "My reasoning".into();
+        state.tool_uses.insert(
+            0,
+            ToolUseInProgress {
+                id: "toolu_01".into(),
+                name: "calc".into(),
+                input_buf: r#"{"expr":"2+2"}"#.into(),
+            },
+        );
+        let msg = state.take_final_message().unwrap();
+        assert_eq!(msg.content.len(), 3);
+        assert!(
+            msg.content
+                .iter()
+                .any(|b| matches!(b, ContentBlock::Text(t) if t == "Final answer"))
+        );
+        assert!(msg.content.iter().any(
+            |b| matches!(b, ContentBlock::Thinking { thinking, .. } if thinking == "My reasoning")
+        ));
+        assert!(
+            msg.content
+                .iter()
+                .any(|b| matches!(b, ContentBlock::ToolUse { name, .. } if name == "calc"))
+        );
+    }
+
+    #[test]
+    fn message_delta_without_usage_produces_nothing() {
+        let mut state = make_state();
+        let sse = "\
+event: message_delta
+data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"}}
+";
+        let events = feed_sse(&mut state, sse);
+        // No usage field means no events
+        assert!(
+            events.is_empty(),
+            "message_delta without usage should produce no events"
+        );
+    }
+
+    #[test]
+    fn content_block_stop_for_non_tool_block_produces_nothing() {
+        let mut state = make_state();
+        // Start a text block (not a tool use), then stop it
+        let sse = "\
+event: content_block_start
+data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}
+
+event: content_block_delta
+data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Hi\"}}
+
+event: content_block_stop
+data: {\"type\":\"content_block_stop\",\"index\":0}
+";
+        let events = feed_sse(&mut state, sse);
+        // Should have TextDelta but no ToolUseEnd
+        let has_text = events
+            .iter()
+            .any(|e| matches!(e, StreamEvent::TextDelta(t) if t == "Hi"));
+        assert!(has_text);
+        let has_tool_end = events
+            .iter()
+            .any(|e| matches!(e, StreamEvent::ToolUseEnd { .. }));
+        assert!(
+            !has_tool_end,
+            "content_block_stop on a text block should not emit ToolUseEnd"
+        );
+    }
+
+    #[test]
+    fn unknown_delta_type_produces_nothing() {
+        let mut state = make_state();
+        let sse = "\
+event: content_block_delta
+data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"some_future_delta\",\"data\":\"abc\"}}
+";
+        let events = feed_sse(&mut state, sse);
+        assert!(
+            events.is_empty(),
+            "unknown delta type should produce no events"
+        );
+    }
+
+    #[test]
+    fn unknown_content_block_start_type_produces_nothing() {
+        let mut state = make_state();
+        let sse = "\
+event: content_block_start
+data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"some_future_block\"}}
+";
+        let events = feed_sse(&mut state, sse);
+        assert!(
+            events.is_empty(),
+            "unknown block type in content_block_start should produce no events"
+        );
+    }
+
+    #[test]
+    fn input_json_delta_without_tool_use_start() {
+        let mut state = make_state();
+        // Receive an input_json_delta for an index that was never started
+        let sse = "\
+event: content_block_delta
+data: {\"type\":\"content_block_delta\",\"index\":5,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"key\\\":\\\"val\\\"}\"}}
+";
+        let events = feed_sse(&mut state, sse);
+        // Should still emit a ToolUseInputDelta, but with an empty id
+        let has_delta = events.iter().any(
+            |e| matches!(e, StreamEvent::ToolUseInputDelta { id, delta } if id.is_empty() && delta.contains("key")),
+        );
+        assert!(
+            has_delta,
+            "input_json_delta without matching start should emit with empty id"
+        );
+    }
+
+    #[test]
+    fn message_delta_with_cache_usage() {
+        let mut state = make_state();
+        let sse = "\
+event: message_delta
+data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"input_tokens\":100,\"output_tokens\":50,\"cache_read_input_tokens\":80,\"cache_creation_input_tokens\":20}}
+";
+        let events = feed_sse(&mut state, sse);
+        let usage_event = events.iter().find(|e| matches!(e, StreamEvent::Usage(_)));
+        assert!(usage_event.is_some(), "expected Usage event");
+        if let Some(StreamEvent::Usage(u)) = usage_event {
+            assert_eq!(u.input_tokens, 100);
+            assert_eq!(u.output_tokens, 50);
+            assert_eq!(u.cache_read_tokens, Some(80));
+            assert_eq!(u.cache_creation_tokens, Some(20));
+        }
+    }
 }
