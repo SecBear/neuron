@@ -376,4 +376,266 @@ mod tests {
         let msg = state.take_final_message().expect("should have message");
         assert!(matches!(&msg.content[0], ContentBlock::Text(t) if t == "Hello world"));
     }
+
+    // ─── Additional streaming unit tests ──────────────────────
+
+    #[test]
+    fn take_final_message_with_text_and_tool_calls() {
+        let mut state = make_state();
+        state.text_buf = "Let me help.".into();
+        state.tool_calls.push(ToolCallInProgress {
+            id: "ollama_test_1".into(),
+            name: "search".into(),
+            arguments: serde_json::json!({"q": "rust"}),
+        });
+        let msg = state.take_final_message().expect("should have message");
+        assert_eq!(msg.content.len(), 2);
+        assert!(matches!(&msg.content[0], ContentBlock::Text(t) if t == "Let me help."));
+        assert!(matches!(&msg.content[1], ContentBlock::ToolUse { name, .. } if name == "search"));
+    }
+
+    #[test]
+    fn take_final_message_with_multiple_tool_calls() {
+        let mut state = make_state();
+        state.tool_calls.push(ToolCallInProgress {
+            id: "ollama_tc_1".into(),
+            name: "search".into(),
+            arguments: serde_json::json!({"q": "rust"}),
+        });
+        state.tool_calls.push(ToolCallInProgress {
+            id: "ollama_tc_2".into(),
+            name: "read_file".into(),
+            arguments: serde_json::json!({"path": "/tmp/test"}),
+        });
+        let msg = state.take_final_message().expect("should have message");
+        assert_eq!(msg.content.len(), 2);
+        assert!(
+            matches!(&msg.content[0], ContentBlock::ToolUse { name, id, .. } if name == "search" && id == "ollama_tc_1")
+        );
+        assert!(
+            matches!(&msg.content[1], ContentBlock::ToolUse { name, id, .. } if name == "read_file" && id == "ollama_tc_2")
+        );
+    }
+
+    #[test]
+    fn take_final_message_clears_text_buffer() {
+        let mut state = make_state();
+        state.text_buf = "some text".into();
+        let _msg = state.take_final_message();
+        assert!(
+            state.text_buf.is_empty(),
+            "text buffer should be cleared after take_final_message"
+        );
+    }
+
+    #[test]
+    fn model_name_updated_across_chunks() {
+        let mut state = make_state();
+        state.process_line(
+            r#"{"model":"mistral","message":{"role":"assistant","content":"Hi"},"done":false}"#,
+        );
+        assert_eq!(state.model, "mistral");
+        state.process_line(
+            r#"{"model":"llama3.2","message":{"role":"assistant","content":"!"},"done":false}"#,
+        );
+        assert_eq!(state.model, "llama3.2");
+    }
+
+    #[test]
+    fn done_without_usage_fields_yields_zero_usage() {
+        let mut state = make_state();
+        let events = state.process_line(
+            r#"{"model":"llama3.2","message":{"role":"assistant","content":""},"done":true,"done_reason":"stop"}"#,
+        );
+        let usage_events: Vec<_> = events
+            .iter()
+            .filter(|e| matches!(e, StreamEvent::Usage(_)))
+            .collect();
+        assert_eq!(usage_events.len(), 1);
+        assert!(
+            matches!(&usage_events[0], StreamEvent::Usage(u) if u.input_tokens == 0 && u.output_tokens == 0)
+        );
+    }
+
+    #[test]
+    fn done_message_with_content_emits_both_delta_and_usage() {
+        let mut state = make_state();
+        let events = state.process_line(
+            r#"{"model":"llama3.2","message":{"role":"assistant","content":"final"},"done":true,"done_reason":"stop","eval_count":5,"prompt_eval_count":10}"#,
+        );
+        let has_text_delta = events
+            .iter()
+            .any(|e| matches!(e, StreamEvent::TextDelta(t) if t == "final"));
+        let has_usage = events.iter().any(|e| matches!(e, StreamEvent::Usage(_)));
+        assert!(has_text_delta, "expected TextDelta for final content");
+        assert!(has_usage, "expected Usage event on done");
+    }
+
+    #[test]
+    fn multiple_tool_calls_in_single_line() {
+        let mut state = make_state();
+        let events = state.process_line(
+            r#"{"model":"llama3.2","message":{"role":"assistant","content":"","tool_calls":[{"function":{"name":"search","arguments":{"q":"a"}}},{"function":{"name":"read","arguments":{"path":"/b"}}}]},"done":true,"done_reason":"tool_calls","eval_count":1,"prompt_eval_count":2}"#,
+        );
+
+        let tool_starts: Vec<_> = events
+            .iter()
+            .filter(|e| matches!(e, StreamEvent::ToolUseStart { .. }))
+            .collect();
+        assert_eq!(tool_starts.len(), 2);
+
+        let tool_ends: Vec<_> = events
+            .iter()
+            .filter(|e| matches!(e, StreamEvent::ToolUseEnd { .. }))
+            .collect();
+        assert_eq!(tool_ends.len(), 2);
+
+        let tool_inputs: Vec<_> = events
+            .iter()
+            .filter(|e| matches!(e, StreamEvent::ToolUseInputDelta { .. }))
+            .collect();
+        assert_eq!(tool_inputs.len(), 2);
+
+        // Verify tool call IDs are unique
+        let ids: Vec<String> = events
+            .iter()
+            .filter_map(|e| match e {
+                StreamEvent::ToolUseStart { id, .. } => Some(id.clone()),
+                _ => None,
+            })
+            .collect();
+        assert_ne!(ids[0], ids[1], "tool call IDs should be unique");
+    }
+
+    #[test]
+    fn tool_use_events_have_consistent_ids() {
+        let mut state = make_state();
+        let events = state.process_line(
+            r#"{"model":"llama3.2","message":{"role":"assistant","content":"","tool_calls":[{"function":{"name":"search","arguments":{"q":"rust"}}}]},"done":true,"done_reason":"tool_calls"}"#,
+        );
+
+        let start_id = events.iter().find_map(|e| match e {
+            StreamEvent::ToolUseStart { id, .. } => Some(id.clone()),
+            _ => None,
+        });
+        let input_id = events.iter().find_map(|e| match e {
+            StreamEvent::ToolUseInputDelta { id, .. } => Some(id.clone()),
+            _ => None,
+        });
+        let end_id = events.iter().find_map(|e| match e {
+            StreamEvent::ToolUseEnd { id, .. } => Some(id.clone()),
+            _ => None,
+        });
+
+        assert_eq!(start_id, input_id, "start and input IDs should match");
+        assert_eq!(input_id, end_id, "input and end IDs should match");
+    }
+
+    #[test]
+    fn tool_call_id_has_ollama_prefix() {
+        let mut state = make_state();
+        let events = state.process_line(
+            r#"{"model":"llama3.2","message":{"role":"assistant","content":"","tool_calls":[{"function":{"name":"test","arguments":{}}}]},"done":true,"done_reason":"tool_calls"}"#,
+        );
+        let id = events.iter().find_map(|e| match e {
+            StreamEvent::ToolUseStart { id, .. } => Some(id.clone()),
+            _ => None,
+        });
+        assert!(
+            id.as_ref().is_some_and(|id| id.starts_with("ollama_")),
+            "expected 'ollama_' prefix on tool ID"
+        );
+    }
+
+    #[test]
+    fn done_false_does_not_emit_usage() {
+        let mut state = make_state();
+        let events = state.process_line(
+            r#"{"model":"llama3.2","message":{"role":"assistant","content":"Hi"},"done":false}"#,
+        );
+        let usage_events: Vec<_> = events
+            .iter()
+            .filter(|e| matches!(e, StreamEvent::Usage(_)))
+            .collect();
+        assert!(
+            usage_events.is_empty(),
+            "should not emit Usage when done is false"
+        );
+    }
+
+    #[test]
+    fn usage_stored_in_state() {
+        let mut state = make_state();
+        assert!(state.usage.is_none());
+        state.process_line(
+            r#"{"model":"llama3.2","message":{"role":"assistant","content":""},"done":true,"eval_count":42,"prompt_eval_count":100}"#,
+        );
+        let usage = state.usage.as_ref().expect("usage should be set");
+        assert_eq!(usage.input_tokens, 100);
+        assert_eq!(usage.output_tokens, 42);
+    }
+
+    #[test]
+    fn missing_done_field_treated_as_false() {
+        let mut state = make_state();
+        let events = state
+            .process_line(r#"{"model":"llama3.2","message":{"role":"assistant","content":"Hi"}}"#);
+        // Should get a text delta but no usage
+        let has_text = events
+            .iter()
+            .any(|e| matches!(e, StreamEvent::TextDelta(t) if t == "Hi"));
+        assert!(has_text);
+        let has_usage = events.iter().any(|e| matches!(e, StreamEvent::Usage(_)));
+        assert!(
+            !has_usage,
+            "should not emit Usage when done field is missing"
+        );
+    }
+
+    #[test]
+    fn new_state_has_empty_fields() {
+        let state = NdjsonParserState::new();
+        assert!(state.text_buf.is_empty());
+        assert!(state.tool_calls.is_empty());
+        assert!(state.model.is_empty());
+        assert!(state.usage.is_none());
+    }
+
+    #[test]
+    fn json_parse_error_is_non_retryable() {
+        let mut state = make_state();
+        let events = state.process_line("{invalid");
+        assert_eq!(events.len(), 1);
+        match &events[0] {
+            StreamEvent::Error(err) => {
+                assert!(
+                    !err.is_retryable,
+                    "JSON parse errors should not be retryable"
+                );
+                assert!(
+                    err.message.contains("JSON parse error"),
+                    "message should describe JSON parse error: {}",
+                    err.message
+                );
+            }
+            other => panic!("expected Error event, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn tool_input_delta_contains_arguments_json() {
+        let mut state = make_state();
+        let events = state.process_line(
+            r#"{"model":"llama3.2","message":{"role":"assistant","content":"","tool_calls":[{"function":{"name":"calc","arguments":{"expr":"2+2"}}}]},"done":true,"done_reason":"tool_calls"}"#,
+        );
+        let delta = events.iter().find_map(|e| match e {
+            StreamEvent::ToolUseInputDelta { delta, .. } => Some(delta.clone()),
+            _ => None,
+        });
+        let delta = delta.expect("expected ToolUseInputDelta");
+        assert!(
+            delta.contains("2+2"),
+            "expected arguments in delta: {delta}"
+        );
+    }
 }

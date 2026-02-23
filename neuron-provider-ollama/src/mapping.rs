@@ -298,29 +298,15 @@ fn parse_stop_reason(body: &serde_json::Value) -> StopReason {
 
 #[cfg(test)]
 mod tests {
-    use neuron_types::{ContentBlock, Message, Role, SystemPrompt, ToolDefinition};
-
     use super::*;
 
     fn minimal_request() -> CompletionRequest {
         CompletionRequest {
-            model: String::new(),
             messages: vec![Message {
                 role: Role::User,
                 content: vec![ContentBlock::Text("Hello".into())],
             }],
-            system: None,
-            tools: vec![],
-            max_tokens: None,
-            temperature: None,
-            top_p: None,
-            stop_sequences: vec![],
-            tool_choice: None,
-            response_format: None,
-            thinking: None,
-            reasoning_effort: None,
-            extra: None,
-            context_management: None,
+            ..Default::default()
         }
     }
 
@@ -614,18 +600,7 @@ mod tests {
                     input: serde_json::json!({"q": "test"}),
                 }],
             }],
-            system: None,
-            tools: vec![],
-            max_tokens: None,
-            temperature: None,
-            top_p: None,
-            stop_sequences: vec![],
-            tool_choice: None,
-            response_format: None,
-            thinking: None,
-            reasoning_effort: None,
-            extra: None,
-            context_management: None,
+            ..Default::default()
         };
         let body = to_api_request(&req, "m", None);
         let messages = body["messages"].as_array().expect("should be array");
@@ -635,5 +610,624 @@ mod tests {
         assert_eq!(tc.len(), 1);
         assert_eq!(tc[0]["function"]["name"], "search");
         assert_eq!(tc[0]["function"]["arguments"]["q"], "test");
+    }
+
+    // ─── Additional request mapping tests ──────────────────────
+
+    #[test]
+    fn system_role_message_maps_to_system() {
+        let req = CompletionRequest {
+            messages: vec![Message {
+                role: Role::System,
+                content: vec![ContentBlock::Text("system msg".into())],
+            }],
+            ..Default::default()
+        };
+        let body = to_api_request(&req, "m", None);
+        let messages = body["messages"].as_array().expect("should be array");
+        assert_eq!(messages[0]["role"], "system");
+        assert_eq!(messages[0]["content"], "system msg");
+    }
+
+    #[test]
+    fn assistant_role_maps_correctly() {
+        let req = CompletionRequest {
+            messages: vec![Message {
+                role: Role::Assistant,
+                content: vec![ContentBlock::Text("I will help.".into())],
+            }],
+            ..Default::default()
+        };
+        let body = to_api_request(&req, "m", None);
+        let messages = body["messages"].as_array().expect("should be array");
+        assert_eq!(messages[0]["role"], "assistant");
+        assert_eq!(messages[0]["content"], "I will help.");
+    }
+
+    #[test]
+    fn empty_messages_produces_empty_array() {
+        let req = CompletionRequest {
+            messages: vec![],
+            ..Default::default()
+        };
+        let body = to_api_request(&req, "m", None);
+        let messages = body["messages"].as_array().expect("should be array");
+        assert!(messages.is_empty());
+    }
+
+    #[test]
+    fn multiple_messages_preserves_order() {
+        let req = CompletionRequest {
+            messages: vec![
+                Message {
+                    role: Role::User,
+                    content: vec![ContentBlock::Text("first".into())],
+                },
+                Message {
+                    role: Role::Assistant,
+                    content: vec![ContentBlock::Text("second".into())],
+                },
+                Message {
+                    role: Role::User,
+                    content: vec![ContentBlock::Text("third".into())],
+                },
+            ],
+            ..Default::default()
+        };
+        let body = to_api_request(&req, "m", None);
+        let messages = body["messages"].as_array().expect("should be array");
+        assert_eq!(messages.len(), 3);
+        assert_eq!(messages[0]["role"], "user");
+        assert_eq!(messages[0]["content"], "first");
+        assert_eq!(messages[1]["role"], "assistant");
+        assert_eq!(messages[1]["content"], "second");
+        assert_eq!(messages[2]["role"], "user");
+        assert_eq!(messages[2]["content"], "third");
+    }
+
+    #[test]
+    fn tool_result_text_content_maps_as_text() {
+        let req = CompletionRequest {
+            messages: vec![Message {
+                role: Role::User,
+                content: vec![ContentBlock::ToolResult {
+                    tool_use_id: "tc_1".into(),
+                    content: vec![ContentItem::Text("search result".into())],
+                    is_error: false,
+                }],
+            }],
+            ..Default::default()
+        };
+        let body = to_api_request(&req, "m", None);
+        let messages = body["messages"].as_array().expect("should be array");
+        // ToolResult with text content and is_error=false yields empty string prefix
+        let content = messages[0]["content"].as_str().unwrap_or_default();
+        assert!(!content.contains("Error:"));
+    }
+
+    #[test]
+    fn tool_result_error_content_includes_error_prefix() {
+        let req = CompletionRequest {
+            messages: vec![Message {
+                role: Role::User,
+                content: vec![ContentBlock::ToolResult {
+                    tool_use_id: "tc_1".into(),
+                    content: vec![ContentItem::Text("failed to execute".into())],
+                    is_error: true,
+                }],
+            }],
+            ..Default::default()
+        };
+        let body = to_api_request(&req, "m", None);
+        let messages = body["messages"].as_array().expect("should be array");
+        let content = messages[0]["content"].as_str().unwrap_or_default();
+        assert!(
+            content.contains("Error:"),
+            "expected 'Error:' prefix, got: {content}"
+        );
+    }
+
+    #[test]
+    fn tool_result_with_empty_content_produces_no_text() {
+        let req = CompletionRequest {
+            messages: vec![Message {
+                role: Role::User,
+                content: vec![ContentBlock::ToolResult {
+                    tool_use_id: "tc_1".into(),
+                    content: vec![],
+                    is_error: false,
+                }],
+            }],
+            ..Default::default()
+        };
+        let body = to_api_request(&req, "m", None);
+        let messages = body["messages"].as_array().expect("should be array");
+        // No content key or empty content expected
+        let content = messages[0]["content"].as_str().unwrap_or_default();
+        assert!(content.is_empty(), "expected empty content, got: {content}");
+    }
+
+    #[test]
+    fn multiple_text_blocks_concatenated() {
+        let req = CompletionRequest {
+            messages: vec![Message {
+                role: Role::User,
+                content: vec![
+                    ContentBlock::Text("Hello ".into()),
+                    ContentBlock::Text("World".into()),
+                ],
+            }],
+            ..Default::default()
+        };
+        let body = to_api_request(&req, "m", None);
+        let messages = body["messages"].as_array().expect("should be array");
+        assert_eq!(messages[0]["content"], "Hello World");
+    }
+
+    #[test]
+    fn assistant_message_with_text_and_tool_calls() {
+        let req = CompletionRequest {
+            messages: vec![Message {
+                role: Role::Assistant,
+                content: vec![
+                    ContentBlock::Text("Let me search for that.".into()),
+                    ContentBlock::ToolUse {
+                        id: "tc_1".into(),
+                        name: "search".into(),
+                        input: serde_json::json!({"q": "rust"}),
+                    },
+                ],
+            }],
+            ..Default::default()
+        };
+        let body = to_api_request(&req, "m", None);
+        let messages = body["messages"].as_array().expect("should be array");
+        assert_eq!(messages[0]["content"], "Let me search for that.");
+        let tc = messages[0]["tool_calls"]
+            .as_array()
+            .expect("should have tool_calls");
+        assert_eq!(tc.len(), 1);
+        assert_eq!(tc[0]["function"]["name"], "search");
+    }
+
+    #[test]
+    fn multiple_tool_calls_in_single_message() {
+        let req = CompletionRequest {
+            messages: vec![Message {
+                role: Role::Assistant,
+                content: vec![
+                    ContentBlock::ToolUse {
+                        id: "tc_1".into(),
+                        name: "search".into(),
+                        input: serde_json::json!({"q": "rust"}),
+                    },
+                    ContentBlock::ToolUse {
+                        id: "tc_2".into(),
+                        name: "read_file".into(),
+                        input: serde_json::json!({"path": "/tmp/test"}),
+                    },
+                ],
+            }],
+            ..Default::default()
+        };
+        let body = to_api_request(&req, "m", None);
+        let messages = body["messages"].as_array().expect("should be array");
+        let tc = messages[0]["tool_calls"]
+            .as_array()
+            .expect("should have tool_calls");
+        assert_eq!(tc.len(), 2);
+        assert_eq!(tc[0]["function"]["name"], "search");
+        assert_eq!(tc[1]["function"]["name"], "read_file");
+    }
+
+    #[test]
+    fn non_text_non_tool_blocks_are_ignored() {
+        let req = CompletionRequest {
+            messages: vec![Message {
+                role: Role::Assistant,
+                content: vec![ContentBlock::Thinking {
+                    thinking: "reasoning about the problem".into(),
+                    signature: "sig123".into(),
+                }],
+            }],
+            ..Default::default()
+        };
+        let body = to_api_request(&req, "m", None);
+        let messages = body["messages"].as_array().expect("should be array");
+        // Thinking blocks are neither text nor tool calls
+        let content = messages[0]["content"].as_str().unwrap_or_default();
+        assert!(content.is_empty());
+        assert!(
+            messages[0].get("tool_calls").is_none()
+                || messages[0]["tool_calls"]
+                    .as_array()
+                    .is_none_or(|a| a.is_empty())
+        );
+    }
+
+    #[test]
+    fn multiple_tools_in_request() {
+        let req = CompletionRequest {
+            tools: vec![
+                ToolDefinition {
+                    name: "search".into(),
+                    title: None,
+                    description: "Search the web".into(),
+                    input_schema: serde_json::json!({"type": "object"}),
+                    output_schema: None,
+                    annotations: None,
+                    cache_control: None,
+                },
+                ToolDefinition {
+                    name: "read_file".into(),
+                    title: Some("Read File".into()),
+                    description: "Read a file from disk".into(),
+                    input_schema: serde_json::json!({"type": "object", "properties": {"path": {"type": "string"}}}),
+                    output_schema: None,
+                    annotations: None,
+                    cache_control: None,
+                },
+            ],
+            messages: vec![Message {
+                role: Role::User,
+                content: vec![ContentBlock::Text("Do things".into())],
+            }],
+            ..Default::default()
+        };
+        let body = to_api_request(&req, "m", None);
+        let tools = body["tools"].as_array().expect("should be array");
+        assert_eq!(tools.len(), 2);
+        assert_eq!(tools[0]["function"]["name"], "search");
+        assert_eq!(tools[1]["function"]["name"], "read_file");
+        assert_eq!(tools[1]["function"]["description"], "Read a file from disk");
+    }
+
+    #[test]
+    fn no_tools_means_no_tools_key() {
+        let req = CompletionRequest {
+            messages: vec![Message {
+                role: Role::User,
+                content: vec![ContentBlock::Text("Hello".into())],
+            }],
+            ..Default::default()
+        };
+        let body = to_api_request(&req, "m", None);
+        assert!(
+            body.get("tools").is_none() || body["tools"].is_null(),
+            "tools key should not be set when no tools are provided"
+        );
+    }
+
+    #[test]
+    fn no_options_when_nothing_set() {
+        let req = CompletionRequest {
+            messages: vec![Message {
+                role: Role::User,
+                content: vec![ContentBlock::Text("Hello".into())],
+            }],
+            ..Default::default()
+        };
+        let body = to_api_request(&req, "m", None);
+        assert!(
+            body.get("options").is_none() || body["options"].is_null(),
+            "options should not be set when no parameters are provided"
+        );
+    }
+
+    #[test]
+    fn all_options_set_together() {
+        let req = CompletionRequest {
+            messages: vec![Message {
+                role: Role::User,
+                content: vec![ContentBlock::Text("Hello".into())],
+            }],
+            max_tokens: Some(100),
+            temperature: Some(0.5),
+            top_p: Some(0.8),
+            stop_sequences: vec!["STOP".into()],
+            extra: Some(serde_json::json!({"seed": 42})),
+            ..Default::default()
+        };
+        let body = to_api_request(&req, "m", None);
+        let options = &body["options"];
+        assert_eq!(options["num_predict"], 100);
+        assert!((options["temperature"].as_f64().unwrap() - 0.5).abs() < 0.001);
+        assert!((options["top_p"].as_f64().unwrap() - 0.8).abs() < 0.001);
+        assert_eq!(options["stop"][0], "STOP");
+        assert_eq!(options["seed"], 42);
+    }
+
+    #[test]
+    fn extra_as_non_object_is_ignored() {
+        let req = CompletionRequest {
+            messages: vec![Message {
+                role: Role::User,
+                content: vec![ContentBlock::Text("Hello".into())],
+            }],
+            extra: Some(serde_json::json!("not an object")),
+            ..Default::default()
+        };
+        let body = to_api_request(&req, "m", None);
+        // Non-object extra should not produce options
+        assert!(
+            body.get("options").is_none() || body["options"].is_null(),
+            "non-object extra should not produce options"
+        );
+    }
+
+    // ─── Additional response parsing tests ──────────────────────
+
+    #[test]
+    fn response_with_text_and_tool_calls() {
+        let body = serde_json::json!({
+            "model": "llama3.2",
+            "message": {
+                "role": "assistant",
+                "content": "Let me search.",
+                "tool_calls": [{
+                    "function": {
+                        "name": "search",
+                        "arguments": {"q": "rust"}
+                    }
+                }]
+            },
+            "done": true,
+            "done_reason": "tool_calls",
+        });
+        let resp = from_api_response(&body).expect("should parse");
+        assert_eq!(resp.message.content.len(), 2);
+        assert!(matches!(&resp.message.content[0], ContentBlock::Text(t) if t == "Let me search."));
+        assert!(
+            matches!(&resp.message.content[1], ContentBlock::ToolUse { name, .. } if name == "search")
+        );
+    }
+
+    #[test]
+    fn response_with_empty_content_and_no_tool_calls() {
+        let body = serde_json::json!({
+            "model": "llama3.2",
+            "message": {
+                "role": "assistant",
+                "content": ""
+            },
+            "done": true,
+            "done_reason": "stop",
+        });
+        let resp = from_api_response(&body).expect("should parse");
+        assert!(resp.message.content.is_empty());
+        assert_eq!(resp.stop_reason, StopReason::EndTurn);
+    }
+
+    #[test]
+    fn response_with_missing_content_field() {
+        let body = serde_json::json!({
+            "model": "llama3.2",
+            "message": {
+                "role": "assistant",
+            },
+            "done": true,
+            "done_reason": "stop",
+        });
+        let resp = from_api_response(&body).expect("should parse");
+        // Missing content should be treated as empty
+        assert!(resp.message.content.is_empty());
+    }
+
+    #[test]
+    fn response_with_multiple_tool_calls() {
+        let body = serde_json::json!({
+            "model": "llama3.2",
+            "message": {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {
+                        "function": {
+                            "name": "search",
+                            "arguments": {"q": "rust"}
+                        }
+                    },
+                    {
+                        "function": {
+                            "name": "read_file",
+                            "arguments": {"path": "/tmp/test.rs"}
+                        }
+                    }
+                ]
+            },
+            "done": true,
+            "done_reason": "tool_calls",
+        });
+        let resp = from_api_response(&body).expect("should parse");
+        assert_eq!(resp.message.content.len(), 2);
+        assert!(
+            matches!(&resp.message.content[0], ContentBlock::ToolUse { name, .. } if name == "search")
+        );
+        assert!(
+            matches!(&resp.message.content[1], ContentBlock::ToolUse { name, .. } if name == "read_file")
+        );
+    }
+
+    #[test]
+    fn parse_stop_reason_with_tool_calls_present_but_no_done_reason() {
+        let body = serde_json::json!({
+            "model": "llama3.2",
+            "message": {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [{
+                    "function": {
+                        "name": "search",
+                        "arguments": {}
+                    }
+                }]
+            },
+            "done": true,
+        });
+        let resp = from_api_response(&body).expect("should parse");
+        // Should infer ToolUse from presence of tool_calls
+        assert_eq!(resp.stop_reason, StopReason::ToolUse);
+    }
+
+    #[test]
+    fn parse_stop_reason_unknown_value_defaults_to_end_turn() {
+        let body = serde_json::json!({
+            "model": "llama3.2",
+            "message": {
+                "role": "assistant",
+                "content": "Hello"
+            },
+            "done": true,
+            "done_reason": "unknown_reason",
+        });
+        let resp = from_api_response(&body).expect("should parse");
+        assert_eq!(resp.stop_reason, StopReason::EndTurn);
+    }
+
+    #[test]
+    fn parse_stop_reason_missing_defaults_to_end_turn() {
+        let body = serde_json::json!({
+            "model": "llama3.2",
+            "message": {
+                "role": "assistant",
+                "content": "Hello"
+            },
+            "done": true,
+        });
+        let resp = from_api_response(&body).expect("should parse");
+        assert_eq!(resp.stop_reason, StopReason::EndTurn);
+    }
+
+    #[test]
+    fn response_id_has_ollama_prefix() {
+        let body = serde_json::json!({
+            "model": "llama3.2",
+            "message": {
+                "role": "assistant",
+                "content": "Hi"
+            },
+            "done": true,
+            "done_reason": "stop",
+        });
+        let resp = from_api_response(&body).expect("should parse");
+        assert!(
+            resp.id.starts_with("ollama_"),
+            "expected 'ollama_' prefix, got: {}",
+            resp.id
+        );
+    }
+
+    #[test]
+    fn response_ids_are_unique_across_calls() {
+        let body = serde_json::json!({
+            "model": "llama3.2",
+            "message": {
+                "role": "assistant",
+                "content": "Hi"
+            },
+            "done": true,
+            "done_reason": "stop",
+        });
+        let resp1 = from_api_response(&body).expect("should parse");
+        let resp2 = from_api_response(&body).expect("should parse");
+        assert_ne!(resp1.id, resp2.id, "response IDs should be unique");
+    }
+
+    #[test]
+    fn usage_cache_fields_are_none() {
+        let body = serde_json::json!({
+            "model": "llama3.2",
+            "message": {
+                "role": "assistant",
+                "content": "Hi"
+            },
+            "done": true,
+            "done_reason": "stop",
+            "eval_count": 5,
+            "prompt_eval_count": 10,
+        });
+        let resp = from_api_response(&body).expect("should parse");
+        assert!(resp.usage.cache_read_tokens.is_none());
+        assert!(resp.usage.cache_creation_tokens.is_none());
+        assert!(resp.usage.reasoning_tokens.is_none());
+        assert!(resp.usage.iterations.is_none());
+    }
+
+    #[test]
+    fn tool_call_with_missing_name_defaults_to_empty() {
+        let body = serde_json::json!({
+            "model": "llama3.2",
+            "message": {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [{
+                    "function": {
+                        "arguments": {"q": "test"}
+                    }
+                }]
+            },
+            "done": true,
+            "done_reason": "tool_calls",
+        });
+        let resp = from_api_response(&body).expect("should parse");
+        assert!(matches!(
+            &resp.message.content[0],
+            ContentBlock::ToolUse { name, .. } if name.is_empty()
+        ));
+    }
+
+    #[test]
+    fn response_message_role_is_assistant() {
+        let body = serde_json::json!({
+            "model": "llama3.2",
+            "message": {
+                "role": "assistant",
+                "content": "test"
+            },
+            "done": true,
+            "done_reason": "stop",
+        });
+        let resp = from_api_response(&body).expect("should parse");
+        assert_eq!(resp.message.role, Role::Assistant);
+    }
+
+    #[test]
+    fn response_with_empty_tool_calls_array() {
+        let body = serde_json::json!({
+            "model": "llama3.2",
+            "message": {
+                "role": "assistant",
+                "content": "No tools needed",
+                "tool_calls": []
+            },
+            "done": true,
+            "done_reason": "stop",
+        });
+        let resp = from_api_response(&body).expect("should parse");
+        assert_eq!(resp.message.content.len(), 1);
+        assert!(
+            matches!(&resp.message.content[0], ContentBlock::Text(t) if t == "No tools needed")
+        );
+        // Empty tool_calls array with no done_reason of tool_calls => EndTurn
+        assert_eq!(resp.stop_reason, StopReason::EndTurn);
+    }
+
+    #[test]
+    fn system_prompt_with_system_in_messages_order() {
+        let req = CompletionRequest {
+            messages: vec![Message {
+                role: Role::User,
+                content: vec![ContentBlock::Text("Hello".into())],
+            }],
+            system: Some(SystemPrompt::Text("Be helpful".into())),
+            ..Default::default()
+        };
+        let body = to_api_request(&req, "m", None);
+        let messages = body["messages"].as_array().expect("should be array");
+        // System message should be first
+        assert_eq!(messages[0]["role"], "system");
+        assert_eq!(messages[0]["content"], "Be helpful");
+        // User message should be second
+        assert_eq!(messages[1]["role"], "user");
     }
 }

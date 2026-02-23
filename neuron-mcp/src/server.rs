@@ -322,4 +322,208 @@ mod tests {
         let server = McpServer::new(registry);
         assert!(server.get_tool("nonexistent").is_none());
     }
+
+    #[test]
+    fn definition_to_rmcp_tool_no_annotations() {
+        let def = ToolDefinition {
+            name: "bare".to_string(),
+            title: None,
+            description: "No annotations".to_string(),
+            input_schema: serde_json::json!({"type": "object"}),
+            output_schema: None,
+            annotations: None,
+            cache_control: None,
+        };
+
+        let rmcp_tool = McpServer::definition_to_rmcp_tool(&def);
+        assert_eq!(rmcp_tool.name.as_ref(), "bare");
+        assert!(rmcp_tool.annotations.is_none());
+        assert!(rmcp_tool.title.is_none());
+        assert!(rmcp_tool.output_schema.is_none());
+    }
+
+    #[test]
+    fn definition_to_rmcp_tool_non_object_input_schema() {
+        // If input_schema is not an object (edge case), it should fall back
+        // to an empty map
+        let def = ToolDefinition {
+            name: "weird_schema".to_string(),
+            title: None,
+            description: "Has a non-object schema".to_string(),
+            input_schema: serde_json::json!("not an object"),
+            output_schema: None,
+            annotations: None,
+            cache_control: None,
+        };
+
+        let rmcp_tool = McpServer::definition_to_rmcp_tool(&def);
+        assert!(rmcp_tool.input_schema.is_empty());
+    }
+
+    #[test]
+    fn definition_to_rmcp_tool_with_output_schema() {
+        let def = ToolDefinition {
+            name: "with_output".to_string(),
+            title: None,
+            description: "Has output schema".to_string(),
+            input_schema: serde_json::json!({"type": "object"}),
+            output_schema: Some(serde_json::json!({"type": "string"})),
+            annotations: None,
+            cache_control: None,
+        };
+
+        let rmcp_tool = McpServer::definition_to_rmcp_tool(&def);
+        let os = rmcp_tool.output_schema.expect("should have output_schema");
+        assert_eq!(os.get("type").and_then(|v| v.as_str()), Some("string"));
+    }
+
+    #[test]
+    fn definition_to_rmcp_tool_non_object_output_schema() {
+        // If output_schema is Some but not an object, it should be filtered to None
+        let def = ToolDefinition {
+            name: "weird_output".to_string(),
+            title: None,
+            description: "Non-object output schema".to_string(),
+            input_schema: serde_json::json!({"type": "object"}),
+            output_schema: Some(serde_json::json!("just a string")),
+            annotations: None,
+            cache_control: None,
+        };
+
+        let rmcp_tool = McpServer::definition_to_rmcp_tool(&def);
+        assert!(rmcp_tool.output_schema.is_none());
+    }
+
+    #[test]
+    fn definition_to_rmcp_tool_all_annotations() {
+        let def = ToolDefinition {
+            name: "full_ann".to_string(),
+            title: Some("Full Annotations".to_string()),
+            description: "All annotation fields set".to_string(),
+            input_schema: serde_json::json!({"type": "object"}),
+            output_schema: None,
+            annotations: Some(neuron_types::ToolAnnotations {
+                read_only_hint: Some(false),
+                destructive_hint: Some(true),
+                idempotent_hint: Some(false),
+                open_world_hint: Some(true),
+            }),
+            cache_control: None,
+        };
+
+        let rmcp_tool = McpServer::definition_to_rmcp_tool(&def);
+        let ann = rmcp_tool.annotations.expect("should have annotations");
+        assert_eq!(ann.read_only_hint, Some(false));
+        assert_eq!(ann.destructive_hint, Some(true));
+        assert_eq!(ann.idempotent_hint, Some(false));
+        assert_eq!(ann.open_world_hint, Some(true));
+        // The title on rmcp annotations is always None from our conversion
+        assert!(ann.title.is_none());
+    }
+
+    #[test]
+    fn definition_to_rmcp_tool_partial_annotations() {
+        let def = ToolDefinition {
+            name: "partial".to_string(),
+            title: None,
+            description: "Partial annotations".to_string(),
+            input_schema: serde_json::json!({"type": "object"}),
+            output_schema: None,
+            annotations: Some(neuron_types::ToolAnnotations {
+                read_only_hint: Some(true),
+                destructive_hint: None,
+                idempotent_hint: None,
+                open_world_hint: None,
+            }),
+            cache_control: None,
+        };
+
+        let rmcp_tool = McpServer::definition_to_rmcp_tool(&def);
+        let ann = rmcp_tool.annotations.expect("should have annotations");
+        assert_eq!(ann.read_only_hint, Some(true));
+        assert!(ann.destructive_hint.is_none());
+        assert!(ann.idempotent_hint.is_none());
+        assert!(ann.open_world_hint.is_none());
+    }
+
+    #[test]
+    fn default_tool_context_has_sensible_defaults() {
+        let ctx = McpServer::default_tool_context();
+        assert_eq!(ctx.session_id, "mcp-server");
+        assert!(ctx.environment.is_empty());
+        assert!(ctx.progress_reporter.is_none());
+    }
+
+    #[test]
+    fn server_registry_ref() {
+        let registry = ToolRegistry::new();
+        let server = McpServer::new(registry);
+        // Registry should be accessible and empty
+        assert!(server.registry().definitions().is_empty());
+    }
+
+    #[test]
+    fn server_get_info_with_instructions() {
+        let registry = ToolRegistry::new();
+        let server = McpServer::new(registry)
+            .with_name("custom")
+            .with_version("2.0")
+            .with_instructions("Do the thing");
+
+        let info = server.get_info();
+        assert_eq!(info.server_info.name, "custom");
+        assert_eq!(info.server_info.version, "2.0");
+        assert_eq!(info.instructions, Some("Do the thing".to_string()));
+    }
+
+    #[test]
+    fn server_get_info_without_instructions() {
+        let registry = ToolRegistry::new();
+        let server = McpServer::new(registry);
+
+        let info = server.get_info();
+        assert!(info.instructions.is_none());
+    }
+
+    #[test]
+    fn server_capabilities_has_tools() {
+        let registry = ToolRegistry::new();
+        let server = McpServer::new(registry);
+        let info = server.get_info();
+
+        let tools_cap = info
+            .capabilities
+            .tools
+            .expect("should have tools capability");
+        assert_eq!(tools_cap.list_changed, Some(false));
+    }
+
+    #[test]
+    fn definition_roundtrip_preserves_description() {
+        // Test the full definition -> rmcp -> assertion cycle
+        let def = ToolDefinition {
+            name: "echo".to_string(),
+            title: Some("Echo".to_string()),
+            description: "Echoes input back".to_string(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "text": {"type": "string"}
+                },
+                "required": ["text"]
+            }),
+            output_schema: None,
+            annotations: None,
+            cache_control: None,
+        };
+
+        let rmcp_tool = McpServer::definition_to_rmcp_tool(&def);
+        assert_eq!(rmcp_tool.name.as_ref(), "echo");
+        assert_eq!(rmcp_tool.title, Some("Echo".to_string()));
+        assert_eq!(rmcp_tool.description.as_deref(), Some("Echoes input back"));
+        // Verify the input schema was converted to an Arc<Map>
+        assert!(rmcp_tool.input_schema.contains_key("type"));
+        assert!(rmcp_tool.input_schema.contains_key("properties"));
+        assert!(rmcp_tool.input_schema.contains_key("required"));
+    }
 }
