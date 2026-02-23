@@ -12,6 +12,8 @@ Composable building blocks for AI agents in Rust.
 Building blocks, not a framework. Each block is an independent Rust crate — pull
 one without buying the whole stack.
 
+**[Read the docs](https://secbear.github.io/neuron/)** — quickstart, guides, and architecture.
+
 ## Why neuron?
 
 Most AI agent libraries are Python-first, framework-shaped, and opinionated.
@@ -44,6 +46,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 ```
+
+## Learn more
+
+The [documentation site](https://secbear.github.io/neuron/) has everything you
+need to get productive:
+
+- [**Quickstart**](https://secbear.github.io/neuron/getting-started/quickstart.html) — build a working agent in 5 minutes
+- [**Tools guide**](https://secbear.github.io/neuron/guides/tools.html) — define tools, compose middleware, validate inputs
+- [**Context management**](https://secbear.github.io/neuron/guides/context.html) — keep conversations within token limits
+- [**The agent loop**](https://secbear.github.io/neuron/guides/loop.html) — multi-turn tool dispatch, streaming, cancellation
+- [**MCP integration**](https://secbear.github.io/neuron/guides/mcp.html) — connect to any MCP server or expose tools as one
+- [**Testing agents**](https://secbear.github.io/neuron/guides/testing.html) — mock providers, deterministic tests
 
 ## Crates
 
