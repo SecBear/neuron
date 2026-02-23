@@ -614,4 +614,262 @@ mod tests {
         let output = call_tool_result_to_output(result);
         assert!(output.is_error);
     }
+
+    #[test]
+    fn call_tool_result_to_output_image() {
+        use rmcp::model::Content;
+
+        let result = CallToolResult {
+            content: vec![Content::image("aW1hZ2VkYXRh", "image/png")],
+            structured_content: None,
+            is_error: None,
+            meta: None,
+        };
+
+        let output = call_tool_result_to_output(result);
+        assert!(!output.is_error);
+        assert_eq!(output.content.len(), 1);
+        match &output.content[0] {
+            neuron_types::ContentItem::Image { source } => match source {
+                neuron_types::ImageSource::Base64 {
+                    media_type, data, ..
+                } => {
+                    assert_eq!(media_type, "image/png");
+                    assert_eq!(data, "aW1hZ2VkYXRh");
+                }
+                _ => panic!("expected base64 image source"),
+            },
+            _ => panic!("expected image content"),
+        }
+    }
+
+    #[test]
+    fn call_tool_result_to_output_multiple_content() {
+        use rmcp::model::Content;
+
+        let result = CallToolResult {
+            content: vec![
+                Content::text("first"),
+                Content::text("second"),
+                Content::image("data", "image/jpeg"),
+            ],
+            structured_content: None,
+            is_error: None,
+            meta: None,
+        };
+
+        let output = call_tool_result_to_output(result);
+        assert_eq!(output.content.len(), 3);
+        match &output.content[0] {
+            neuron_types::ContentItem::Text(t) => assert_eq!(t, "first"),
+            _ => panic!("expected text"),
+        }
+        match &output.content[1] {
+            neuron_types::ContentItem::Text(t) => assert_eq!(t, "second"),
+            _ => panic!("expected text"),
+        }
+        match &output.content[2] {
+            neuron_types::ContentItem::Image { .. } => {}
+            _ => panic!("expected image"),
+        }
+    }
+
+    #[test]
+    fn call_tool_result_to_output_filters_unsupported_content() {
+        use rmcp::model::{AnnotateAble, Content, RawAudioContent, RawContent};
+
+        // Audio content should be filtered out
+        let audio_raw = RawContent::Audio(RawAudioContent {
+            data: "audiodata".to_string(),
+            mime_type: "audio/wav".to_string(),
+        });
+        let audio_content: Content = audio_raw.no_annotation();
+
+        let result = CallToolResult {
+            content: vec![Content::text("kept"), audio_content],
+            structured_content: None,
+            is_error: None,
+            meta: None,
+        };
+
+        let output = call_tool_result_to_output(result);
+        // Only text should survive; audio is filtered
+        assert_eq!(output.content.len(), 1);
+        match &output.content[0] {
+            neuron_types::ContentItem::Text(t) => assert_eq!(t, "kept"),
+            _ => panic!("expected text"),
+        }
+    }
+
+    #[test]
+    fn call_tool_result_to_output_structured_content() {
+        let structured = serde_json::json!({"result": 42});
+
+        let result = CallToolResult {
+            content: vec![],
+            structured_content: Some(structured.clone()),
+            is_error: None,
+            meta: None,
+        };
+
+        let output = call_tool_result_to_output(result);
+        assert_eq!(output.structured_content, Some(structured));
+        assert!(!output.is_error);
+    }
+
+    #[test]
+    fn call_tool_result_to_output_is_error_false() {
+        let result = CallToolResult {
+            content: vec![],
+            structured_content: None,
+            is_error: Some(false),
+            meta: None,
+        };
+
+        let output = call_tool_result_to_output(result);
+        assert!(!output.is_error);
+    }
+
+    #[test]
+    fn call_tool_result_to_output_empty() {
+        let result = CallToolResult {
+            content: vec![],
+            structured_content: None,
+            is_error: None,
+            meta: None,
+        };
+
+        let output = call_tool_result_to_output(result);
+        assert!(output.content.is_empty());
+        assert!(output.structured_content.is_none());
+        assert!(!output.is_error);
+    }
+
+    #[test]
+    fn mcp_tool_conversion_with_output_schema() {
+        use std::sync::Arc;
+        let input_schema = serde_json::Map::new();
+        let mut output_schema = serde_json::Map::new();
+        output_schema.insert(
+            "type".to_string(),
+            serde_json::Value::String("string".to_string()),
+        );
+
+        let tool = rmcp::model::Tool {
+            name: Cow::Borrowed("with_output"),
+            title: None,
+            description: Some(Cow::Borrowed("Has output schema")),
+            input_schema: Arc::new(input_schema),
+            output_schema: Some(Arc::new(output_schema.clone())),
+            annotations: None,
+            execution: None,
+            icons: None,
+            meta: None,
+        };
+
+        let def = mcp_tool_to_definition(tool);
+        assert_eq!(def.name, "with_output");
+        let os = def.output_schema.expect("should have output_schema");
+        assert_eq!(os, serde_json::Value::Object(output_schema));
+    }
+
+    #[test]
+    fn mcp_tool_conversion_owned_name() {
+        use std::sync::Arc;
+        let schema = serde_json::Map::new();
+
+        let tool = rmcp::model::Tool {
+            name: Cow::Owned("owned_name".to_string()),
+            title: None,
+            description: Some(Cow::Owned("Owned desc".to_string())),
+            input_schema: Arc::new(schema),
+            output_schema: None,
+            annotations: None,
+            execution: None,
+            icons: None,
+            meta: None,
+        };
+
+        let def = mcp_tool_to_definition(tool);
+        assert_eq!(def.name, "owned_name");
+        assert_eq!(def.description, "Owned desc");
+    }
+
+    #[test]
+    fn mcp_tool_conversion_preserves_complex_schema() {
+        use std::sync::Arc;
+        let mut schema = serde_json::Map::new();
+        schema.insert(
+            "type".to_string(),
+            serde_json::Value::String("object".to_string()),
+        );
+        let mut props = serde_json::Map::new();
+        props.insert("a".to_string(), serde_json::json!({"type": "integer"}));
+        props.insert(
+            "b".to_string(),
+            serde_json::json!({"type": "array", "items": {"type": "string"}}),
+        );
+        schema.insert("properties".to_string(), serde_json::Value::Object(props));
+        schema.insert("required".to_string(), serde_json::json!(["a"]));
+
+        let expected = serde_json::Value::Object(schema.clone());
+
+        let tool = rmcp::model::Tool {
+            name: Cow::Borrowed("complex"),
+            title: None,
+            description: None,
+            input_schema: Arc::new(schema),
+            output_schema: None,
+            annotations: None,
+            execution: None,
+            icons: None,
+            meta: None,
+        };
+
+        let def = mcp_tool_to_definition(tool);
+        assert_eq!(def.input_schema, expected);
+    }
+
+    #[test]
+    fn mcp_tool_cache_control_is_none() {
+        use std::sync::Arc;
+        let schema = serde_json::Map::new();
+
+        let tool = rmcp::model::Tool {
+            name: Cow::Borrowed("any"),
+            title: None,
+            description: None,
+            input_schema: Arc::new(schema),
+            output_schema: None,
+            annotations: None,
+            execution: None,
+            icons: None,
+            meta: None,
+        };
+
+        let def = mcp_tool_to_definition(tool);
+        assert!(def.cache_control.is_none());
+    }
+
+    #[test]
+    fn http_config_no_auth() {
+        let config = HttpConfig {
+            url: "http://example.com/mcp".to_string(),
+            auth_header: None,
+            headers: vec![("X-Custom".to_string(), "value".to_string())],
+        };
+        assert!(config.auth_header.is_none());
+        assert_eq!(config.headers.len(), 1);
+    }
+
+    #[test]
+    fn stdio_config_empty_env() {
+        let config = StdioConfig {
+            command: "cat".to_string(),
+            args: vec![],
+            env: vec![],
+        };
+        assert!(config.args.is_empty());
+        assert!(config.env.is_empty());
+    }
 }

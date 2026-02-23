@@ -205,3 +205,226 @@ fn should_compact_uses_token_threshold() {
     assert!(!strategy.should_compact(&msgs, 999));
     assert!(strategy.should_compact(&msgs, 1001));
 }
+
+// ---- Additional coverage tests ----
+
+#[tokio::test]
+async fn compact_with_no_tool_results_returns_unchanged() {
+    let strategy = ToolResultClearingStrategy::new(2, 100_000);
+    let messages = vec![
+        user_msg("hello"),
+        Message {
+            role: Role::Assistant,
+            content: vec![ContentBlock::Text("world".to_string())],
+        },
+        user_msg("goodbye"),
+    ];
+    let result = strategy
+        .compact(messages.clone())
+        .await
+        .expect("compact should succeed");
+    assert_eq!(result.len(), 3);
+    // All messages should be structurally unchanged
+    assert!(matches!(&result[0].content[0], ContentBlock::Text(t) if t == "hello"));
+    assert!(matches!(&result[1].content[0], ContentBlock::Text(t) if t == "world"));
+    assert!(matches!(&result[2].content[0], ContentBlock::Text(t) if t == "goodbye"));
+}
+
+#[tokio::test]
+async fn compact_empty_messages_returns_empty() {
+    let strategy = ToolResultClearingStrategy::new(2, 100_000);
+    let result = strategy
+        .compact(vec![])
+        .await
+        .expect("compact should succeed");
+    assert!(result.is_empty());
+}
+
+#[tokio::test]
+async fn keep_recent_zero_clears_all_tool_results() {
+    let strategy = ToolResultClearingStrategy::new(0, 100_000);
+    let messages = vec![
+        assistant_msg_with_tool_use("id1", "tool_a"),
+        tool_result_msg("id1", "result one"),
+        assistant_msg_with_tool_use("id2", "tool_b"),
+        tool_result_msg("id2", "result two"),
+    ];
+    let result = strategy
+        .compact(messages)
+        .await
+        .expect("compact should succeed");
+    let tool_contents: Vec<String> = result
+        .iter()
+        .filter_map(|m| extract_tool_result_content(m))
+        .collect();
+    // Both cleared
+    assert_eq!(tool_contents.len(), 2);
+    assert!(tool_contents.iter().all(|c| c == "[tool result cleared]"));
+}
+
+#[tokio::test]
+async fn clearing_error_tool_results_resets_is_error_flag() {
+    let strategy = ToolResultClearingStrategy::new(0, 100_000);
+    let messages = vec![
+        assistant_msg_with_tool_use("id1", "tool_a"),
+        Message {
+            role: Role::User,
+            content: vec![ContentBlock::ToolResult {
+                tool_use_id: "id1".to_string(),
+                content: vec![ContentItem::Text("Error: something went wrong".to_string())],
+                is_error: true,
+            }],
+        },
+    ];
+    let result = strategy
+        .compact(messages)
+        .await
+        .expect("compact should succeed");
+    // Find the tool result and check is_error was reset to false
+    let tool_result_msg = result
+        .iter()
+        .find(|m| {
+            m.content
+                .iter()
+                .any(|b| matches!(b, ContentBlock::ToolResult { .. }))
+        })
+        .expect("should have tool result message");
+    if let ContentBlock::ToolResult { is_error, .. } = &tool_result_msg.content[0] {
+        assert!(
+            !is_error,
+            "is_error should be reset to false after clearing"
+        );
+    } else {
+        panic!("expected ToolResult block");
+    }
+}
+
+#[tokio::test]
+async fn multiple_tool_results_in_single_message() {
+    let strategy = ToolResultClearingStrategy::new(1, 100_000);
+    let messages = vec![
+        // A message with two tool results
+        Message {
+            role: Role::User,
+            content: vec![
+                ContentBlock::ToolResult {
+                    tool_use_id: "id1".to_string(),
+                    content: vec![ContentItem::Text("first result".to_string())],
+                    is_error: false,
+                },
+                ContentBlock::ToolResult {
+                    tool_use_id: "id2".to_string(),
+                    content: vec![ContentItem::Text("second result".to_string())],
+                    is_error: false,
+                },
+            ],
+        },
+        // A third tool result in a separate message
+        Message {
+            role: Role::User,
+            content: vec![ContentBlock::ToolResult {
+                tool_use_id: "id3".to_string(),
+                content: vec![ContentItem::Text("third result".to_string())],
+                is_error: false,
+            }],
+        },
+    ];
+    let result = strategy
+        .compact(messages)
+        .await
+        .expect("compact should succeed");
+    // 3 tool results total, keep 1 → clear first 2
+    // First message has 2 tool results, both should be cleared
+    let msg0 = &result[0];
+    if let ContentBlock::ToolResult {
+        content,
+        tool_use_id,
+        ..
+    } = &msg0.content[0]
+    {
+        assert_eq!(tool_use_id, "id1");
+        assert!(matches!(&content[0], ContentItem::Text(t) if t == "[tool result cleared]"));
+    }
+    if let ContentBlock::ToolResult {
+        content,
+        tool_use_id,
+        ..
+    } = &msg0.content[1]
+    {
+        assert_eq!(tool_use_id, "id2");
+        assert!(matches!(&content[0], ContentItem::Text(t) if t == "[tool result cleared]"));
+    }
+    // Third result in second message should be kept
+    let msg1 = &result[1];
+    if let ContentBlock::ToolResult { content, .. } = &msg1.content[0] {
+        assert!(matches!(&content[0], ContentItem::Text(t) if t == "third result"));
+    }
+}
+
+#[test]
+fn should_compact_exact_threshold_returns_false() {
+    let strategy = ToolResultClearingStrategy::new(2, 1000);
+    let msgs = vec![user_msg("hi")];
+    // Exactly at threshold → not over, so false
+    assert!(!strategy.should_compact(&msgs, 1000));
+}
+
+#[test]
+fn token_estimate_delegates_to_counter() {
+    let strategy = ToolResultClearingStrategy::new(2, 1000);
+    let messages = vec![user_msg("hello world")];
+    assert!(strategy.token_estimate(&messages) > 0);
+}
+
+#[test]
+fn token_estimate_empty_messages() {
+    let strategy = ToolResultClearingStrategy::new(2, 1000);
+    assert_eq!(strategy.token_estimate(&[]), 0);
+}
+
+#[test]
+fn with_counter_uses_custom_ratio() {
+    let counter = neuron_context::TokenCounter::with_ratio(2.0);
+    let strategy = ToolResultClearingStrategy::with_counter(2, 1000, counter);
+    let messages = vec![user_msg("a".repeat(20).as_str())];
+    let estimate = strategy.token_estimate(&messages);
+    // 4 (overhead) + ceil(20/2) = 14
+    assert_eq!(estimate, 14);
+}
+
+#[tokio::test]
+async fn single_tool_result_with_keep_one_preserves_it() {
+    let strategy = ToolResultClearingStrategy::new(1, 100_000);
+    let messages = vec![
+        assistant_msg_with_tool_use("id1", "tool_a"),
+        tool_result_msg("id1", "only result"),
+    ];
+    let result = strategy
+        .compact(messages)
+        .await
+        .expect("compact should succeed");
+    assert_eq!(
+        extract_tool_result_content(&result[1]),
+        Some("only result".to_string())
+    );
+}
+
+#[tokio::test]
+async fn total_message_count_unchanged_after_clearing() {
+    let strategy = ToolResultClearingStrategy::new(1, 100_000);
+    let messages = vec![
+        user_msg("hello"),
+        assistant_msg_with_tool_use("id1", "t1"),
+        tool_result_msg("id1", "r1"),
+        assistant_msg_with_tool_use("id2", "t2"),
+        tool_result_msg("id2", "r2"),
+        user_msg("bye"),
+    ];
+    let original_count = messages.len();
+    let result = strategy
+        .compact(messages)
+        .await
+        .expect("compact should succeed");
+    // Clearing replaces content in-place, so message count should be same
+    assert_eq!(result.len(), original_count);
+}

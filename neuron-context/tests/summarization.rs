@@ -189,3 +189,272 @@ fn should_compact_respects_threshold() {
     assert!(!strategy.should_compact(&msgs, 4999));
     assert!(strategy.should_compact(&msgs, 5001));
 }
+
+// ---- Additional coverage tests ----
+
+/// A provider that always returns an error.
+#[derive(Clone)]
+struct FailingProvider;
+
+impl Provider for FailingProvider {
+    fn complete(
+        &self,
+        _request: CompletionRequest,
+    ) -> impl Future<Output = Result<CompletionResponse, ProviderError>> + Send {
+        async {
+            Err(ProviderError::InvalidRequest(
+                "Internal server error".to_string(),
+            ))
+        }
+    }
+
+    fn complete_stream(
+        &self,
+        _request: CompletionRequest,
+    ) -> impl Future<Output = Result<StreamHandle, ProviderError>> + Send {
+        async { Err(ProviderError::InvalidRequest("not supported".to_string())) }
+    }
+}
+
+#[tokio::test]
+async fn provider_error_propagates() {
+    let strategy = SummarizationStrategy::new(FailingProvider, 2, 100_000);
+    let messages = vec![
+        user_msg("old1"),
+        assistant_msg("old2"),
+        user_msg("old3"),
+        assistant_msg("recent1"),
+        user_msg("recent2"),
+    ];
+    let result = strategy.compact(messages).await;
+    assert!(result.is_err(), "provider error should propagate");
+}
+
+#[tokio::test]
+async fn preserve_recent_larger_than_total_produces_summary_of_nothing() {
+    // preserve_recent=100, but only 3 non-system messages → all are "recent"
+    // old_messages is empty, so provider gets 0 messages to summarize
+    let provider = MockProvider::new("Empty summary");
+    let strategy = SummarizationStrategy::new(provider.clone(), 100, 100_000);
+    let messages = vec![user_msg("m1"), assistant_msg("m2"), user_msg("m3")];
+    let result = strategy
+        .compact(messages)
+        .await
+        .expect("compact should succeed");
+    // Provider was still called (with empty old_messages)
+    assert_eq!(provider.call_count(), 1);
+    // Result: 1 summary + 3 recent = 4
+    assert_eq!(result.len(), 4);
+}
+
+#[tokio::test]
+async fn multiple_system_messages_all_preserved() {
+    let provider = MockProvider::new("Summary text");
+    let strategy = SummarizationStrategy::new(provider, 1, 100_000);
+    let messages = vec![
+        system_msg("System rule 1"),
+        system_msg("System rule 2"),
+        system_msg("System rule 3"),
+        user_msg("old message"),
+        assistant_msg("old reply"),
+        user_msg("recent"),
+    ];
+    let result = strategy
+        .compact(messages)
+        .await
+        .expect("compact should succeed");
+    // 3 system + 1 summary + 1 recent = 5
+    assert_eq!(result.len(), 5);
+    assert_eq!(result.iter().filter(|m| m.role == Role::System).count(), 3);
+}
+
+#[tokio::test]
+async fn summary_message_has_correct_prefix() {
+    let provider = MockProvider::new("The user discussed Rust.");
+    let strategy = SummarizationStrategy::new(provider, 0, 100_000);
+    let messages = vec![user_msg("Let's talk about Rust")];
+    let result = strategy
+        .compact(messages)
+        .await
+        .expect("compact should succeed");
+    assert_eq!(result.len(), 1);
+    if let ContentBlock::Text(text) = &result[0].content[0] {
+        assert!(
+            text.starts_with("[Summary of earlier conversation]"),
+            "summary should have correct prefix, got: {text}"
+        );
+        assert!(text.contains("The user discussed Rust."));
+    } else {
+        panic!("expected Text block");
+    }
+}
+
+#[tokio::test]
+async fn summary_message_role_is_user() {
+    let provider = MockProvider::new("A summary");
+    let strategy = SummarizationStrategy::new(provider, 0, 100_000);
+    let messages = vec![user_msg("msg1")];
+    let result = strategy
+        .compact(messages)
+        .await
+        .expect("compact should succeed");
+    assert_eq!(result[0].role, Role::User);
+}
+
+#[test]
+fn should_compact_exact_threshold_returns_false() {
+    let provider = MockProvider::new("summary");
+    let strategy = SummarizationStrategy::new(provider, 3, 5000);
+    let msgs = vec![user_msg("hi")];
+    // At exactly threshold, should not compact (> not >=)
+    assert!(!strategy.should_compact(&msgs, 5000));
+}
+
+#[test]
+fn token_estimate_delegates_to_counter() {
+    let provider = MockProvider::new("summary");
+    let strategy = SummarizationStrategy::new(provider, 3, 5000);
+    let messages = vec![user_msg("hello world")];
+    assert!(strategy.token_estimate(&messages) > 0);
+}
+
+#[test]
+fn token_estimate_empty_messages() {
+    let provider = MockProvider::new("summary");
+    let strategy = SummarizationStrategy::new(provider, 3, 5000);
+    assert_eq!(strategy.token_estimate(&[]), 0);
+}
+
+#[test]
+fn with_counter_uses_custom_ratio() {
+    let provider = MockProvider::new("summary");
+    let counter = neuron_context::TokenCounter::with_ratio(2.0);
+    let strategy = SummarizationStrategy::with_counter(provider, 3, 5000, counter);
+    let messages = vec![user_msg("a".repeat(20).as_str())];
+    let estimate = strategy.token_estimate(&messages);
+    // 4 (overhead) + ceil(20/2) = 14
+    assert_eq!(estimate, 14);
+}
+
+#[tokio::test]
+async fn only_system_messages_still_calls_provider() {
+    let provider = MockProvider::new("No non-system messages to summarize");
+    let strategy = SummarizationStrategy::new(provider.clone(), 0, 100_000);
+    let messages = vec![system_msg("rule 1"), system_msg("rule 2")];
+    let result = strategy
+        .compact(messages)
+        .await
+        .expect("compact should succeed");
+    // Provider called (summarizing zero non-system messages)
+    assert_eq!(provider.call_count(), 1);
+    // 2 system + 1 summary = 3
+    assert_eq!(result.len(), 3);
+}
+
+/// A provider that returns multiple text blocks in the response.
+#[derive(Clone)]
+struct MultiBlockProvider;
+
+impl Provider for MultiBlockProvider {
+    fn complete(
+        &self,
+        _request: CompletionRequest,
+    ) -> impl Future<Output = Result<CompletionResponse, ProviderError>> + Send {
+        async {
+            Ok(CompletionResponse {
+                id: "mock-id".to_string(),
+                model: "mock-model".to_string(),
+                message: Message {
+                    role: Role::Assistant,
+                    content: vec![
+                        ContentBlock::Text("Part one.".to_string()),
+                        ContentBlock::Text("Part two.".to_string()),
+                    ],
+                },
+                usage: TokenUsage {
+                    ..Default::default()
+                },
+                stop_reason: StopReason::EndTurn,
+            })
+        }
+    }
+
+    fn complete_stream(
+        &self,
+        _request: CompletionRequest,
+    ) -> impl Future<Output = Result<StreamHandle, ProviderError>> + Send {
+        async { Err(ProviderError::InvalidRequest("not supported".to_string())) }
+    }
+}
+
+#[tokio::test]
+async fn multi_block_response_joined_with_newline() {
+    let strategy = SummarizationStrategy::new(MultiBlockProvider, 0, 100_000);
+    let messages = vec![user_msg("old message")];
+    let result = strategy
+        .compact(messages)
+        .await
+        .expect("compact should succeed");
+    if let ContentBlock::Text(text) = &result[0].content[0] {
+        assert!(text.contains("Part one.\nPart two."));
+    } else {
+        panic!("expected Text block");
+    }
+}
+
+/// A provider that returns a non-text block in the response (should be filtered out).
+#[derive(Clone)]
+struct NonTextBlockProvider;
+
+impl Provider for NonTextBlockProvider {
+    fn complete(
+        &self,
+        _request: CompletionRequest,
+    ) -> impl Future<Output = Result<CompletionResponse, ProviderError>> + Send {
+        async {
+            Ok(CompletionResponse {
+                id: "mock-id".to_string(),
+                model: "mock-model".to_string(),
+                message: Message {
+                    role: Role::Assistant,
+                    content: vec![
+                        ContentBlock::Text("Actual summary.".to_string()),
+                        ContentBlock::ToolUse {
+                            id: "tc1".to_string(),
+                            name: "search".to_string(),
+                            input: serde_json::json!({}),
+                        },
+                    ],
+                },
+                usage: TokenUsage {
+                    ..Default::default()
+                },
+                stop_reason: StopReason::EndTurn,
+            })
+        }
+    }
+
+    fn complete_stream(
+        &self,
+        _request: CompletionRequest,
+    ) -> impl Future<Output = Result<StreamHandle, ProviderError>> + Send {
+        async { Err(ProviderError::InvalidRequest("not supported".to_string())) }
+    }
+}
+
+#[tokio::test]
+async fn non_text_blocks_in_response_are_filtered() {
+    let strategy = SummarizationStrategy::new(NonTextBlockProvider, 0, 100_000);
+    let messages = vec![user_msg("msg")];
+    let result = strategy
+        .compact(messages)
+        .await
+        .expect("compact should succeed");
+    if let ContentBlock::Text(text) = &result[0].content[0] {
+        assert!(text.contains("Actual summary."));
+        // ToolUse block should not appear in the summary text
+        assert!(!text.contains("search"));
+    } else {
+        panic!("expected Text block");
+    }
+}

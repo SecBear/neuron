@@ -160,3 +160,167 @@ fn should_compact_checks_threshold() {
     assert!(!strategy.should_compact(&msgs, 49_999));
     assert!(strategy.should_compact(&msgs, 50_001));
 }
+
+// ---- Additional coverage tests ----
+
+#[tokio::test]
+async fn empty_strategy_list_returns_messages_unchanged() {
+    let strategy = CompositeStrategy::new(vec![], 100_000);
+    let messages = vec![user_msg("hello"), assistant_msg("world")];
+    let result = strategy
+        .compact(messages)
+        .await
+        .expect("compact should succeed");
+    assert_eq!(result.len(), 2);
+    assert!(matches!(&result[0].content[0], ContentBlock::Text(t) if t == "hello"));
+    assert!(matches!(&result[1].content[0], ContentBlock::Text(t) if t == "world"));
+}
+
+#[tokio::test]
+async fn empty_messages_with_strategies() {
+    let strategy = CompositeStrategy::new(
+        vec![BoxedStrategy::new(SlidingWindowStrategy::new(5, 0))],
+        0,
+    );
+    let result = strategy
+        .compact(vec![])
+        .await
+        .expect("compact should succeed");
+    assert!(result.is_empty());
+}
+
+#[tokio::test]
+async fn single_strategy_applies_normally() {
+    let strategy = CompositeStrategy::new(
+        vec![BoxedStrategy::new(SlidingWindowStrategy::new(2, 0))],
+        0,
+    );
+    let messages = vec![
+        user_msg("msg1"),
+        assistant_msg("msg2"),
+        user_msg("msg3"),
+        assistant_msg("msg4"),
+        user_msg("msg5"),
+    ];
+    let result = strategy
+        .compact(messages)
+        .await
+        .expect("compact should succeed");
+    // SlidingWindow keeps last 2
+    assert_eq!(result.len(), 2);
+}
+
+#[test]
+fn should_compact_exact_threshold_returns_false() {
+    let strategy = CompositeStrategy::new(
+        vec![BoxedStrategy::new(SlidingWindowStrategy::new(5, 100_000))],
+        50_000,
+    );
+    let msgs = vec![user_msg("hi")];
+    // Exactly at threshold → not over
+    assert!(!strategy.should_compact(&msgs, 50_000));
+}
+
+#[test]
+fn token_estimate_delegates_to_counter() {
+    let strategy = CompositeStrategy::new(
+        vec![BoxedStrategy::new(SlidingWindowStrategy::new(5, 100_000))],
+        50_000,
+    );
+    let messages = vec![user_msg("hello world")];
+    assert!(strategy.token_estimate(&messages) > 0);
+}
+
+#[test]
+fn token_estimate_empty_messages() {
+    let strategy = CompositeStrategy::new(vec![], 50_000);
+    assert_eq!(strategy.token_estimate(&[]), 0);
+}
+
+// ---- BoxedStrategy tests ----
+
+#[test]
+fn boxed_strategy_should_compact_delegates() {
+    let inner = SlidingWindowStrategy::new(5, 1000);
+    let boxed = BoxedStrategy::new(inner);
+    let msgs = vec![user_msg("hi")];
+    assert!(!boxed.should_compact(&msgs, 999));
+    assert!(boxed.should_compact(&msgs, 1001));
+}
+
+#[test]
+fn boxed_strategy_token_estimate_delegates() {
+    let inner = SlidingWindowStrategy::new(5, 1000);
+    let boxed = BoxedStrategy::new(inner);
+    let messages = vec![user_msg("hello world")];
+    let expected = SlidingWindowStrategy::new(5, 1000).token_estimate(&messages);
+    assert_eq!(boxed.token_estimate(&messages), expected);
+}
+
+#[tokio::test]
+async fn boxed_strategy_compact_delegates() {
+    let inner = SlidingWindowStrategy::new(2, 1000);
+    let boxed = BoxedStrategy::new(inner);
+    let messages = vec![
+        user_msg("msg1"),
+        assistant_msg("msg2"),
+        user_msg("msg3"),
+        assistant_msg("msg4"),
+        user_msg("msg5"),
+    ];
+    let result = boxed
+        .compact(messages)
+        .await
+        .expect("compact should succeed");
+    // SlidingWindow keeps last 2
+    assert_eq!(result.len(), 2);
+}
+
+#[tokio::test]
+async fn boxed_tool_result_clearing_strategy() {
+    let inner = ToolResultClearingStrategy::new(0, 100_000);
+    let boxed = BoxedStrategy::new(inner);
+    let messages = vec![tool_use_msg("id1"), tool_result_msg("id1", "result data")];
+    let result = boxed
+        .compact(messages)
+        .await
+        .expect("compact should succeed");
+    // Tool result should be cleared
+    let tool_result = result
+        .iter()
+        .find(|m| {
+            m.content
+                .iter()
+                .any(|b| matches!(b, ContentBlock::ToolResult { .. }))
+        })
+        .expect("should have a tool result");
+    if let ContentBlock::ToolResult { content, .. } = &tool_result.content[0] {
+        assert!(matches!(&content[0], ContentItem::Text(t) if t == "[tool result cleared]"));
+    }
+}
+
+#[tokio::test]
+async fn composite_three_strategies_all_apply() {
+    // Three strategies, all with threshold 0
+    let strategy = CompositeStrategy::new(
+        vec![
+            BoxedStrategy::new(ToolResultClearingStrategy::new(0, 0)),
+            BoxedStrategy::new(ToolResultClearingStrategy::new(0, 0)), // second pass (no-op)
+            BoxedStrategy::new(SlidingWindowStrategy::new(1, 0)),
+        ],
+        0,
+    );
+    let messages = vec![
+        user_msg("msg1"),
+        tool_use_msg("id1"),
+        tool_result_msg("id1", "result"),
+        user_msg("msg2"),
+        assistant_msg("msg3"),
+    ];
+    let result = strategy
+        .compact(messages)
+        .await
+        .expect("compact should succeed");
+    // After sliding window with size 1, only last message kept
+    assert_eq!(result.len(), 1);
+}
