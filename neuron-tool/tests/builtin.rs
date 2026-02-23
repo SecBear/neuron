@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::future::Future;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct ReadFileArgs {
@@ -121,6 +122,97 @@ fn test_ctx() -> ToolContext {
     }
 }
 
+/// A tool that returns custom `ToolOutput` content items directly via `ToolDyn`.
+/// Used to test `OutputFormatter` with non-text content (e.g., images).
+struct ImageTool;
+
+impl ToolDyn for ImageTool {
+    fn name(&self) -> &str {
+        "image_tool"
+    }
+
+    fn definition(&self) -> ToolDefinition {
+        ToolDefinition {
+            name: "image_tool".into(),
+            title: None,
+            description: "Returns image content".into(),
+            input_schema: serde_json::json!({"type": "object", "properties": {}}),
+            output_schema: None,
+            annotations: None,
+            cache_control: None,
+        }
+    }
+
+    fn call_dyn<'a>(
+        &'a self,
+        _input: serde_json::Value,
+        _ctx: &'a ToolContext,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<ToolOutput, ToolError>> + Send + 'a>,
+    > {
+        Box::pin(async move {
+            Ok(ToolOutput {
+                content: vec![ContentItem::Image {
+                    source: ImageSource::Base64 {
+                        media_type: "image/png".into(),
+                        data: "iVBORw0KGgo=".into(),
+                    },
+                }],
+                structured_content: None,
+                is_error: false,
+            })
+        })
+    }
+}
+
+/// A tool that returns mixed text + image content items.
+struct MixedContentTool;
+
+impl ToolDyn for MixedContentTool {
+    fn name(&self) -> &str {
+        "mixed_content"
+    }
+
+    fn definition(&self) -> ToolDefinition {
+        ToolDefinition {
+            name: "mixed_content".into(),
+            title: None,
+            description: "Returns mixed text and image content".into(),
+            input_schema: serde_json::json!({"type": "object", "properties": {}}),
+            output_schema: None,
+            annotations: None,
+            cache_control: None,
+        }
+    }
+
+    fn call_dyn<'a>(
+        &'a self,
+        _input: serde_json::Value,
+        _ctx: &'a ToolContext,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<ToolOutput, ToolError>> + Send + 'a>,
+    > {
+        Box::pin(async move {
+            Ok(ToolOutput {
+                content: vec![
+                    ContentItem::Text(
+                        "This is a very long description that should be truncated by the formatter"
+                            .into(),
+                    ),
+                    ContentItem::Image {
+                        source: ImageSource::Url {
+                            url: "https://example.com/image.png".into(),
+                        },
+                    },
+                    ContentItem::Text("short".into()),
+                ],
+                structured_content: None,
+                is_error: false,
+            })
+        })
+    }
+}
+
 // --- PermissionChecker tests ---
 
 struct DenyBash;
@@ -132,6 +224,24 @@ impl PermissionPolicy for DenyBash {
         } else {
             PermissionDecision::Allow
         }
+    }
+}
+
+/// Policy that always denies every tool.
+struct DenyAll;
+
+impl PermissionPolicy for DenyAll {
+    fn check(&self, _tool_name: &str, _input: &serde_json::Value) -> PermissionDecision {
+        PermissionDecision::Deny("all tools denied".into())
+    }
+}
+
+/// Policy that returns `Ask` for every tool.
+struct AskAll;
+
+impl PermissionPolicy for AskAll {
+    fn check(&self, _tool_name: &str, _input: &serde_json::Value) -> PermissionDecision {
+        PermissionDecision::Ask("dangerous operation".into())
     }
 }
 
@@ -331,6 +441,609 @@ async fn schema_validator_rejects_wrong_type() {
             );
         }
         other => panic!("expected InvalidInput error, got: {other:?}"),
+    }
+}
+
+// --- PermissionChecker Deny path ---
+
+#[tokio::test]
+async fn permission_checker_deny_returns_permission_denied() {
+    let mut registry = ToolRegistry::new();
+    registry.register(ReadFileTool);
+    registry.add_middleware(PermissionChecker::new(DenyAll));
+
+    let ctx = test_ctx();
+    let result = registry
+        .execute("read_file", serde_json::json!({"path": "/tmp/f"}), &ctx)
+        .await;
+
+    match result {
+        Err(ToolError::PermissionDenied(reason)) => {
+            assert!(
+                reason.contains("all tools denied"),
+                "expected denial reason, got: {reason}"
+            );
+        }
+        other => panic!("expected PermissionDenied error, got: {other:?}"),
+    }
+}
+
+// --- PermissionChecker Ask path ---
+
+#[tokio::test]
+async fn permission_checker_ask_returns_requires_confirmation() {
+    let mut registry = ToolRegistry::new();
+    registry.register(ReadFileTool);
+    registry.add_middleware(PermissionChecker::new(AskAll));
+
+    let ctx = test_ctx();
+    let result = registry
+        .execute("read_file", serde_json::json!({"path": "/tmp/f"}), &ctx)
+        .await;
+
+    match result {
+        Err(ToolError::PermissionDenied(reason)) => {
+            assert!(
+                reason.contains("requires confirmation"),
+                "expected 'requires confirmation' in reason, got: {reason}"
+            );
+            assert!(
+                reason.contains("dangerous operation"),
+                "expected original Ask reason in message, got: {reason}"
+            );
+        }
+        other => panic!("expected PermissionDenied error, got: {other:?}"),
+    }
+}
+
+// --- SchemaValidator edge cases ---
+
+#[tokio::test]
+async fn schema_validator_non_object_schema_passes_through() {
+    // When the input_schema is not a JSON object (e.g., a string), validation
+    // should pass through without error since there's nothing to validate against.
+    let mut registry = ToolRegistry::new();
+    registry.register_dyn(Arc::new(ImageTool));
+
+    // Manually construct a SchemaValidator with a non-object schema
+    // by registering a tool whose input_schema is not an object.
+    // ImageTool already has a proper schema, so we need a custom tool.
+    struct NonObjectSchemaTool;
+
+    impl ToolDyn for NonObjectSchemaTool {
+        fn name(&self) -> &str {
+            "non_object_schema"
+        }
+
+        fn definition(&self) -> ToolDefinition {
+            ToolDefinition {
+                name: "non_object_schema".into(),
+                title: None,
+                description: "Tool with non-object schema".into(),
+                // Schema is a JSON string, not an object
+                input_schema: serde_json::json!("not an object"),
+                output_schema: None,
+                annotations: None,
+                cache_control: None,
+            }
+        }
+
+        fn call_dyn<'a>(
+            &'a self,
+            _input: serde_json::Value,
+            _ctx: &'a ToolContext,
+        ) -> std::pin::Pin<
+            Box<dyn std::future::Future<Output = Result<ToolOutput, ToolError>> + Send + 'a>,
+        > {
+            Box::pin(async move {
+                Ok(ToolOutput {
+                    content: vec![ContentItem::Text("ok".into())],
+                    structured_content: None,
+                    is_error: false,
+                })
+            })
+        }
+    }
+
+    let mut registry = ToolRegistry::new();
+    registry.register_dyn(Arc::new(NonObjectSchemaTool));
+    registry.add_middleware(SchemaValidator::new(&registry));
+
+    let ctx = test_ctx();
+    // Should not error — non-object schema means no validation
+    let result = registry
+        .execute(
+            "non_object_schema",
+            serde_json::json!({"any": "input"}),
+            &ctx,
+        )
+        .await;
+    assert!(
+        result.is_ok(),
+        "non-object schema should pass through: {result:?}"
+    );
+}
+
+#[tokio::test]
+async fn schema_validator_rejects_non_object_input_when_schema_expects_object() {
+    let mut registry = ToolRegistry::new();
+    registry.register(ReadFileTool);
+    registry.add_middleware(SchemaValidator::new(&registry));
+
+    let ctx = test_ctx();
+    // Pass a string instead of an object — schema says type: "object"
+    let result = registry
+        .execute("read_file", serde_json::json!("not an object"), &ctx)
+        .await;
+
+    match result {
+        Err(ToolError::InvalidInput(msg)) => {
+            assert!(
+                msg.contains("expected object"),
+                "error should mention expected object: {msg}"
+            );
+        }
+        other => panic!("expected InvalidInput error, got: {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn schema_validator_non_object_input_without_type_constraint_passes() {
+    // When the schema declares type: "object" but the input is a non-object,
+    // it should reject. But when the schema does NOT declare a type, non-object
+    // input should pass the "input must be object" check but exit at the
+    // "Non-object input, nothing more to validate" branch.
+    struct NoTypeSchemaTool;
+
+    impl ToolDyn for NoTypeSchemaTool {
+        fn name(&self) -> &str {
+            "no_type_schema"
+        }
+
+        fn definition(&self) -> ToolDefinition {
+            ToolDefinition {
+                name: "no_type_schema".into(),
+                title: None,
+                description: "Tool with schema that has no type field".into(),
+                input_schema: serde_json::json!({
+                    "properties": {
+                        "x": { "type": "string" }
+                    }
+                }),
+                output_schema: None,
+                annotations: None,
+                cache_control: None,
+            }
+        }
+
+        fn call_dyn<'a>(
+            &'a self,
+            _input: serde_json::Value,
+            _ctx: &'a ToolContext,
+        ) -> std::pin::Pin<
+            Box<dyn std::future::Future<Output = Result<ToolOutput, ToolError>> + Send + 'a>,
+        > {
+            Box::pin(async move {
+                Ok(ToolOutput {
+                    content: vec![ContentItem::Text("ok".into())],
+                    structured_content: None,
+                    is_error: false,
+                })
+            })
+        }
+    }
+
+    let mut registry = ToolRegistry::new();
+    registry.register_dyn(Arc::new(NoTypeSchemaTool));
+    registry.add_middleware(SchemaValidator::new(&registry));
+
+    let ctx = test_ctx();
+    // Non-object input with a schema that has no "type" field — should pass
+    let result = registry
+        .execute("no_type_schema", serde_json::json!(42), &ctx)
+        .await;
+    assert!(
+        result.is_ok(),
+        "non-object input with no type constraint should pass: {result:?}"
+    );
+}
+
+// --- json_type_matches coverage: integer, boolean, array, null ---
+
+#[tokio::test]
+async fn schema_validator_integer_type_check() {
+    struct IntegerTool;
+
+    impl ToolDyn for IntegerTool {
+        fn name(&self) -> &str {
+            "integer_tool"
+        }
+
+        fn definition(&self) -> ToolDefinition {
+            ToolDefinition {
+                name: "integer_tool".into(),
+                title: None,
+                description: "Tool with integer field".into(),
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "count": { "type": "integer" }
+                    }
+                }),
+                output_schema: None,
+                annotations: None,
+                cache_control: None,
+            }
+        }
+
+        fn call_dyn<'a>(
+            &'a self,
+            _input: serde_json::Value,
+            _ctx: &'a ToolContext,
+        ) -> std::pin::Pin<
+            Box<dyn std::future::Future<Output = Result<ToolOutput, ToolError>> + Send + 'a>,
+        > {
+            Box::pin(async move {
+                Ok(ToolOutput {
+                    content: vec![ContentItem::Text("ok".into())],
+                    structured_content: None,
+                    is_error: false,
+                })
+            })
+        }
+    }
+
+    let mut registry = ToolRegistry::new();
+    registry.register_dyn(Arc::new(IntegerTool));
+    registry.add_middleware(SchemaValidator::new(&registry));
+
+    let ctx = test_ctx();
+
+    // Valid integer
+    let result = registry
+        .execute("integer_tool", serde_json::json!({"count": 42}), &ctx)
+        .await;
+    assert!(
+        result.is_ok(),
+        "integer value should match integer type: {result:?}"
+    );
+
+    // Invalid: string instead of integer
+    let result = registry
+        .execute(
+            "integer_tool",
+            serde_json::json!({"count": "not a number"}),
+            &ctx,
+        )
+        .await;
+    match result {
+        Err(ToolError::InvalidInput(msg)) => {
+            assert!(
+                msg.contains("count"),
+                "error should mention field name: {msg}"
+            );
+            assert!(
+                msg.contains("integer"),
+                "error should mention expected type: {msg}"
+            );
+        }
+        other => panic!("expected InvalidInput error, got: {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn schema_validator_boolean_type_check() {
+    struct BoolTool;
+
+    impl ToolDyn for BoolTool {
+        fn name(&self) -> &str {
+            "bool_tool"
+        }
+
+        fn definition(&self) -> ToolDefinition {
+            ToolDefinition {
+                name: "bool_tool".into(),
+                title: None,
+                description: "Tool with boolean field".into(),
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "flag": { "type": "boolean" }
+                    }
+                }),
+                output_schema: None,
+                annotations: None,
+                cache_control: None,
+            }
+        }
+
+        fn call_dyn<'a>(
+            &'a self,
+            _input: serde_json::Value,
+            _ctx: &'a ToolContext,
+        ) -> std::pin::Pin<
+            Box<dyn std::future::Future<Output = Result<ToolOutput, ToolError>> + Send + 'a>,
+        > {
+            Box::pin(async move {
+                Ok(ToolOutput {
+                    content: vec![ContentItem::Text("ok".into())],
+                    structured_content: None,
+                    is_error: false,
+                })
+            })
+        }
+    }
+
+    let mut registry = ToolRegistry::new();
+    registry.register_dyn(Arc::new(BoolTool));
+    registry.add_middleware(SchemaValidator::new(&registry));
+
+    let ctx = test_ctx();
+
+    // Valid boolean
+    let result = registry
+        .execute("bool_tool", serde_json::json!({"flag": true}), &ctx)
+        .await;
+    assert!(
+        result.is_ok(),
+        "boolean value should match boolean type: {result:?}"
+    );
+
+    // Invalid: number instead of boolean
+    let result = registry
+        .execute("bool_tool", serde_json::json!({"flag": 1}), &ctx)
+        .await;
+    match result {
+        Err(ToolError::InvalidInput(msg)) => {
+            assert!(
+                msg.contains("flag"),
+                "error should mention field name: {msg}"
+            );
+            assert!(
+                msg.contains("boolean"),
+                "error should mention expected type: {msg}"
+            );
+        }
+        other => panic!("expected InvalidInput error, got: {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn schema_validator_array_type_check() {
+    struct ArrayTool;
+
+    impl ToolDyn for ArrayTool {
+        fn name(&self) -> &str {
+            "array_tool"
+        }
+
+        fn definition(&self) -> ToolDefinition {
+            ToolDefinition {
+                name: "array_tool".into(),
+                title: None,
+                description: "Tool with array field".into(),
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "items": { "type": "array" }
+                    }
+                }),
+                output_schema: None,
+                annotations: None,
+                cache_control: None,
+            }
+        }
+
+        fn call_dyn<'a>(
+            &'a self,
+            _input: serde_json::Value,
+            _ctx: &'a ToolContext,
+        ) -> std::pin::Pin<
+            Box<dyn std::future::Future<Output = Result<ToolOutput, ToolError>> + Send + 'a>,
+        > {
+            Box::pin(async move {
+                Ok(ToolOutput {
+                    content: vec![ContentItem::Text("ok".into())],
+                    structured_content: None,
+                    is_error: false,
+                })
+            })
+        }
+    }
+
+    let mut registry = ToolRegistry::new();
+    registry.register_dyn(Arc::new(ArrayTool));
+    registry.add_middleware(SchemaValidator::new(&registry));
+
+    let ctx = test_ctx();
+
+    // Valid array
+    let result = registry
+        .execute("array_tool", serde_json::json!({"items": [1, 2, 3]}), &ctx)
+        .await;
+    assert!(
+        result.is_ok(),
+        "array value should match array type: {result:?}"
+    );
+
+    // Invalid: string instead of array
+    let result = registry
+        .execute(
+            "array_tool",
+            serde_json::json!({"items": "not an array"}),
+            &ctx,
+        )
+        .await;
+    match result {
+        Err(ToolError::InvalidInput(msg)) => {
+            assert!(
+                msg.contains("items"),
+                "error should mention field name: {msg}"
+            );
+            assert!(
+                msg.contains("array"),
+                "error should mention expected type: {msg}"
+            );
+        }
+        other => panic!("expected InvalidInput error, got: {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn schema_validator_null_type_check() {
+    struct NullTool;
+
+    impl ToolDyn for NullTool {
+        fn name(&self) -> &str {
+            "null_tool"
+        }
+
+        fn definition(&self) -> ToolDefinition {
+            ToolDefinition {
+                name: "null_tool".into(),
+                title: None,
+                description: "Tool with null field".into(),
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "nothing": { "type": "null" }
+                    }
+                }),
+                output_schema: None,
+                annotations: None,
+                cache_control: None,
+            }
+        }
+
+        fn call_dyn<'a>(
+            &'a self,
+            _input: serde_json::Value,
+            _ctx: &'a ToolContext,
+        ) -> std::pin::Pin<
+            Box<dyn std::future::Future<Output = Result<ToolOutput, ToolError>> + Send + 'a>,
+        > {
+            Box::pin(async move {
+                Ok(ToolOutput {
+                    content: vec![ContentItem::Text("ok".into())],
+                    structured_content: None,
+                    is_error: false,
+                })
+            })
+        }
+    }
+
+    let mut registry = ToolRegistry::new();
+    registry.register_dyn(Arc::new(NullTool));
+    registry.add_middleware(SchemaValidator::new(&registry));
+
+    let ctx = test_ctx();
+
+    // Valid null
+    let result = registry
+        .execute("null_tool", serde_json::json!({"nothing": null}), &ctx)
+        .await;
+    assert!(
+        result.is_ok(),
+        "null value should match null type: {result:?}"
+    );
+
+    // Invalid: string instead of null
+    let result = registry
+        .execute(
+            "null_tool",
+            serde_json::json!({"nothing": "something"}),
+            &ctx,
+        )
+        .await;
+    match result {
+        Err(ToolError::InvalidInput(msg)) => {
+            assert!(
+                msg.contains("nothing"),
+                "error should mention field name: {msg}"
+            );
+            assert!(
+                msg.contains("null"),
+                "error should mention expected type: {msg}"
+            );
+        }
+        other => panic!("expected InvalidInput error, got: {other:?}"),
+    }
+}
+
+// --- OutputFormatter with Image content ---
+
+#[tokio::test]
+async fn output_formatter_passes_image_through_unchanged() {
+    let mut registry = ToolRegistry::new();
+    registry.register_dyn(Arc::new(ImageTool));
+    registry.add_middleware(OutputFormatter::new(5));
+
+    let ctx = test_ctx();
+    let result = registry
+        .execute("image_tool", serde_json::json!({}), &ctx)
+        .await
+        .unwrap();
+
+    // Image content should pass through unchanged (no truncation)
+    assert_eq!(result.content.len(), 1);
+    match &result.content[0] {
+        ContentItem::Image { source } => match source {
+            ImageSource::Base64 { media_type, data } => {
+                assert_eq!(media_type, "image/png");
+                assert_eq!(data, "iVBORw0KGgo=");
+            }
+            other => panic!("expected Base64 source, got: {other:?}"),
+        },
+        other => panic!("expected Image content, got: {other:?}"),
+    }
+}
+
+// --- OutputFormatter with mixed text + image content ---
+
+#[tokio::test]
+async fn output_formatter_mixed_content_truncates_text_preserves_images() {
+    let mut registry = ToolRegistry::new();
+    registry.register_dyn(Arc::new(MixedContentTool));
+    // Set limit low enough to truncate the long text but not the short text
+    registry.add_middleware(OutputFormatter::new(10));
+
+    let ctx = test_ctx();
+    let result = registry
+        .execute("mixed_content", serde_json::json!({}), &ctx)
+        .await
+        .unwrap();
+
+    assert_eq!(result.content.len(), 3, "should have 3 content items");
+
+    // First item: long text should be truncated
+    match &result.content[0] {
+        ContentItem::Text(text) => {
+            assert!(
+                text.contains("[truncated,"),
+                "long text should be truncated: {text}"
+            );
+        }
+        other => panic!("expected truncated Text, got: {other:?}"),
+    }
+
+    // Second item: image should be unchanged
+    match &result.content[1] {
+        ContentItem::Image { source } => match source {
+            ImageSource::Url { url } => {
+                assert_eq!(url, "https://example.com/image.png");
+            }
+            other => panic!("expected Url source, got: {other:?}"),
+        },
+        other => panic!("expected Image content, got: {other:?}"),
+    }
+
+    // Third item: short text should not be truncated
+    match &result.content[2] {
+        ContentItem::Text(text) => {
+            assert_eq!(text, "short");
+            assert!(!text.contains("[truncated,"));
+        }
+        other => panic!("expected short Text, got: {other:?}"),
     }
 }
 

@@ -10,9 +10,10 @@ use neuron_loop::{AgentLoop, LoopConfig};
 use neuron_tool::ToolRegistry;
 use neuron_types::{
     ActivityOptions, CompletionRequest, CompletionResponse, ContentBlock, ContentItem,
-    DurableContext, DurableError, HookAction, HookError, HookEvent, LoopError, Message,
-    ObservabilityHook, ProviderError, Role, StopReason, StreamEvent, StreamHandle, SystemPrompt,
-    TokenUsage, Tool, ToolContext, ToolDefinition, ToolOutput,
+    ContextError, ContextStrategy, DurableContext, DurableError, HookAction, HookError, HookEvent,
+    LoopError, Message, ObservabilityHook, ProviderError, Role, StopReason, StreamEvent,
+    StreamHandle, SystemPrompt, TokenUsage, Tool, ToolContext, ToolDefinition, ToolDyn, ToolError,
+    ToolOutput, WasmBoxedFuture,
 };
 use tokio_util::sync::CancellationToken;
 
@@ -1630,4 +1631,889 @@ async fn test_sequential_tool_execution_order() {
         ],
         "tools should execute in order when parallel_tool_execution is false"
     );
+}
+
+// ==========================================================================
+// Priority 1 — run() error branches
+// ==========================================================================
+
+// --- Test 1: Server-side compaction (StopReason::Compaction) ---
+
+/// Helper to create a CompletionResponse with a specific stop_reason.
+fn response_with_stop_reason(text: &str, stop_reason: StopReason) -> CompletionResponse {
+    CompletionResponse {
+        id: "test-id".to_string(),
+        model: "mock-model".to_string(),
+        message: Message {
+            role: Role::Assistant,
+            content: vec![ContentBlock::Text(text.to_string())],
+        },
+        usage: TokenUsage {
+            input_tokens: 10,
+            output_tokens: 5,
+            ..Default::default()
+        },
+        stop_reason,
+    }
+}
+
+#[tokio::test]
+async fn test_server_side_compaction_continues_loop() {
+    // First turn: provider returns StopReason::Compaction (server paused to compact)
+    // Second turn: provider returns EndTurn with the final response
+    let provider = MockProvider::new(vec![
+        response_with_stop_reason("compacting...", StopReason::Compaction),
+        text_response("Final after server compaction"),
+    ]);
+
+    let tools = ToolRegistry::new();
+    let context = SlidingWindowStrategy::new(10, 100_000);
+    let config = LoopConfig::default();
+
+    let mut agent = AgentLoop::new(provider, tools, context, config);
+    let user_msg = Message {
+        role: Role::User,
+        content: vec![ContentBlock::Text("Hi".to_string())],
+    };
+
+    let result = agent
+        .run(user_msg, &test_tool_context())
+        .await
+        .expect("run should succeed after server-side compaction");
+
+    assert_eq!(result.response, "Final after server compaction");
+    // Two turns: the compaction turn + the final turn
+    assert_eq!(result.turns, 2);
+    // Usage accumulated from both turns: 10+10 input, 5+5 output
+    assert_eq!(result.usage.input_tokens, 20);
+    assert_eq!(result.usage.output_tokens, 10);
+}
+
+// --- Test 2: ToolError::ModelRetry in streaming path ---
+
+/// A tool that always returns ToolError::ModelRetry.
+/// Implemented as ToolDyn directly since Tool::Error doesn't map to ModelRetry.
+struct ModelRetryTool;
+
+impl ToolDyn for ModelRetryTool {
+    fn name(&self) -> &str {
+        "retry_tool"
+    }
+
+    fn definition(&self) -> ToolDefinition {
+        ToolDefinition {
+            name: "retry_tool".to_string(),
+            title: Some("Retry Tool".to_string()),
+            description: "A tool that always requests a model retry".to_string(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {},
+            }),
+            output_schema: None,
+            annotations: None,
+            cache_control: None,
+        }
+    }
+
+    fn call_dyn<'a>(
+        &'a self,
+        _input: serde_json::Value,
+        _ctx: &'a ToolContext,
+    ) -> WasmBoxedFuture<'a, Result<ToolOutput, ToolError>> {
+        Box::pin(async move {
+            Err(ToolError::ModelRetry(
+                "wrong arguments, try using field 'query'".to_string(),
+            ))
+        })
+    }
+}
+
+#[tokio::test]
+async fn test_model_retry_converts_to_error_tool_result_in_stream() {
+    // The streaming path in run_stream() converts ModelRetry to an error
+    // tool result so the model can self-correct.
+    let provider = MockStreamProvider::new(vec![
+        tool_use_response("call-1", "retry_tool", serde_json::json!({})),
+        text_response("I corrected my approach"),
+    ]);
+
+    let mut tools = ToolRegistry::new();
+    tools.register_dyn(Arc::new(ModelRetryTool));
+
+    let context = SlidingWindowStrategy::new(10, 100_000);
+    let config = LoopConfig::default();
+
+    let mut agent = AgentLoop::new(provider, tools, context, config);
+
+    let user_msg = Message {
+        role: Role::User,
+        content: vec![ContentBlock::Text("Do something".to_string())],
+    };
+
+    let mut rx = agent.run_stream(user_msg, &test_tool_context()).await;
+
+    // Drain the stream
+    let mut events = Vec::new();
+    while let Some(event) = rx.recv().await {
+        events.push(event);
+    }
+
+    // Should have completed successfully (no StreamEvent::Error for ModelRetry)
+    let has_final_response = events.iter().any(|e| {
+        if let StreamEvent::MessageComplete(msg) = e {
+            msg.content
+                .iter()
+                .any(|b| matches!(b, ContentBlock::Text(t) if t == "I corrected my approach"))
+        } else {
+            false
+        }
+    });
+    assert!(
+        has_final_response,
+        "expected final response after ModelRetry, got: {events:?}"
+    );
+
+    // Verify the tool result with the hint was appended to messages
+    let messages = agent.messages();
+    let has_retry_hint = messages.iter().any(|m| {
+        m.content.iter().any(|b| {
+            if let ContentBlock::ToolResult {
+                content, is_error, ..
+            } = b
+            {
+                *is_error
+                    && content.iter().any(|c| {
+                        if let ContentItem::Text(t) = c {
+                            t.contains("wrong arguments, try using field 'query'")
+                        } else {
+                            false
+                        }
+                    })
+            } else {
+                false
+            }
+        })
+    });
+    assert!(
+        has_retry_hint,
+        "expected ModelRetry hint in tool result messages"
+    );
+}
+
+// --- Test 3: accumulate_usage with optional fields ---
+
+#[tokio::test]
+async fn test_accumulate_usage_optional_fields_via_run() {
+    // Two-turn conversation where each turn has different optional usage fields.
+    let response1 = CompletionResponse {
+        id: "r1".to_string(),
+        model: "mock".to_string(),
+        message: Message {
+            role: Role::Assistant,
+            content: vec![ContentBlock::ToolUse {
+                id: "call-1".to_string(),
+                name: "echo".to_string(),
+                input: serde_json::json!({"text": "hi"}),
+            }],
+        },
+        usage: TokenUsage {
+            input_tokens: 100,
+            output_tokens: 50,
+            cache_read_tokens: Some(10),
+            cache_creation_tokens: None,
+            reasoning_tokens: Some(20),
+            ..Default::default()
+        },
+        stop_reason: StopReason::ToolUse,
+    };
+
+    let response2 = CompletionResponse {
+        id: "r2".to_string(),
+        model: "mock".to_string(),
+        message: Message {
+            role: Role::Assistant,
+            content: vec![ContentBlock::Text("Done".to_string())],
+        },
+        usage: TokenUsage {
+            input_tokens: 200,
+            output_tokens: 75,
+            cache_read_tokens: Some(5),
+            cache_creation_tokens: Some(8),
+            reasoning_tokens: None,
+            ..Default::default()
+        },
+        stop_reason: StopReason::EndTurn,
+    };
+
+    let provider = MockProvider::new(vec![response1, response2]);
+
+    let mut tools = ToolRegistry::new();
+    tools.register(EchoTool);
+
+    let context = SlidingWindowStrategy::new(10, 100_000);
+    let config = LoopConfig::default();
+
+    let mut agent = AgentLoop::new(provider, tools, context, config);
+    let user_msg = Message {
+        role: Role::User,
+        content: vec![ContentBlock::Text("Go".to_string())],
+    };
+
+    let result = agent
+        .run(user_msg, &test_tool_context())
+        .await
+        .expect("run should succeed");
+
+    // Verify cumulative usage
+    assert_eq!(result.usage.input_tokens, 300); // 100 + 200
+    assert_eq!(result.usage.output_tokens, 125); // 50 + 75
+    assert_eq!(result.usage.cache_read_tokens, Some(15)); // 10 + 5
+    assert_eq!(result.usage.cache_creation_tokens, Some(8)); // None + 8
+    assert_eq!(result.usage.reasoning_tokens, Some(20)); // 20 + None
+}
+
+#[tokio::test]
+async fn test_accumulate_usage_all_none_stays_none() {
+    // Single turn with no optional usage fields.
+    let response = CompletionResponse {
+        id: "r1".to_string(),
+        model: "mock".to_string(),
+        message: Message {
+            role: Role::Assistant,
+            content: vec![ContentBlock::Text("Hello".to_string())],
+        },
+        usage: TokenUsage {
+            input_tokens: 10,
+            output_tokens: 5,
+            cache_read_tokens: None,
+            cache_creation_tokens: None,
+            reasoning_tokens: None,
+            ..Default::default()
+        },
+        stop_reason: StopReason::EndTurn,
+    };
+
+    let provider = MockProvider::new(vec![response]);
+    let tools = ToolRegistry::new();
+    let context = SlidingWindowStrategy::new(10, 100_000);
+    let config = LoopConfig::default();
+
+    let mut agent = AgentLoop::new(provider, tools, context, config);
+    let user_msg = Message {
+        role: Role::User,
+        content: vec![ContentBlock::Text("Hi".to_string())],
+    };
+
+    let result = agent
+        .run(user_msg, &test_tool_context())
+        .await
+        .expect("run should succeed");
+
+    assert_eq!(result.usage.input_tokens, 10);
+    assert_eq!(result.usage.output_tokens, 5);
+    assert_eq!(result.usage.cache_read_tokens, None);
+    assert_eq!(result.usage.cache_creation_tokens, None);
+    assert_eq!(result.usage.reasoning_tokens, None);
+}
+
+// ==========================================================================
+// Priority 2 — run_step() error branches
+// ==========================================================================
+
+// --- Test 4: Compaction error in run_step ---
+
+/// A context strategy that always wants to compact but fails.
+struct FailingCompactionContext;
+
+impl ContextStrategy for FailingCompactionContext {
+    fn should_compact(&self, _messages: &[Message], _token_count: usize) -> bool {
+        true
+    }
+
+    async fn compact(&self, _messages: Vec<Message>) -> Result<Vec<Message>, ContextError> {
+        Err(ContextError::CompactionFailed(
+            "test compaction failure".to_string(),
+        ))
+    }
+
+    fn token_estimate(&self, _messages: &[Message]) -> usize {
+        999_999 // always high to trigger compaction
+    }
+}
+
+#[tokio::test]
+async fn test_run_step_compaction_error_returns_turn_result_error() {
+    let provider = MockProvider::new(vec![text_response("Should not reach")]);
+    let tools = ToolRegistry::new();
+    let context = FailingCompactionContext;
+    let config = LoopConfig::default();
+
+    let mut agent = AgentLoop::new(provider, tools, context, config);
+    let user_msg = Message {
+        role: Role::User,
+        content: vec![ContentBlock::Text("Hi".to_string())],
+    };
+    let tool_ctx = test_tool_context();
+    let mut iter = agent.run_step(user_msg, &tool_ctx);
+
+    let result = iter.next().await.expect("should have a turn");
+    match result {
+        TurnResult::Error(LoopError::Context(ContextError::CompactionFailed(msg))) => {
+            assert!(
+                msg.contains("test compaction failure"),
+                "expected compaction failure message, got: {msg}"
+            );
+        }
+        other => panic!("expected TurnResult::Error(LoopError::Context), got: {other:?}"),
+    }
+
+    // Iterator should be finished
+    assert!(iter.next().await.is_none());
+}
+
+// --- Test 5: Provider error in run_step ---
+
+/// A mock provider that always returns an error.
+struct ErrorProvider;
+
+impl neuron_types::Provider for ErrorProvider {
+    async fn complete(
+        &self,
+        _request: CompletionRequest,
+    ) -> Result<CompletionResponse, ProviderError> {
+        Err(ProviderError::InvalidRequest(
+            "test provider error".to_string(),
+        ))
+    }
+
+    async fn complete_stream(
+        &self,
+        _request: CompletionRequest,
+    ) -> Result<StreamHandle, ProviderError> {
+        Err(ProviderError::InvalidRequest(
+            "test provider error".to_string(),
+        ))
+    }
+}
+
+#[tokio::test]
+async fn test_run_step_provider_error_returns_turn_result_error() {
+    let provider = ErrorProvider;
+    let tools = ToolRegistry::new();
+    let context = SlidingWindowStrategy::new(10, 100_000);
+    let config = LoopConfig::default();
+
+    let mut agent = AgentLoop::new(provider, tools, context, config);
+    let user_msg = Message {
+        role: Role::User,
+        content: vec![ContentBlock::Text("Hi".to_string())],
+    };
+    let tool_ctx = test_tool_context();
+    let mut iter = agent.run_step(user_msg, &tool_ctx);
+
+    let result = iter.next().await.expect("should have a turn");
+    match result {
+        TurnResult::Error(LoopError::Provider(ProviderError::InvalidRequest(msg))) => {
+            assert!(
+                msg.contains("test provider error"),
+                "expected provider error message, got: {msg}"
+            );
+        }
+        other => panic!("expected TurnResult::Error(LoopError::Provider), got: {other:?}"),
+    }
+
+    // Iterator should be finished
+    assert!(iter.next().await.is_none());
+}
+
+// --- Test 6: Server-side compaction in run_step ---
+
+#[tokio::test]
+async fn test_run_step_server_side_compaction_yields_compaction_event() {
+    // First turn: provider returns StopReason::Compaction
+    // Second turn: provider returns EndTurn
+    let provider = MockProvider::new(vec![
+        response_with_stop_reason("compacting...", StopReason::Compaction),
+        text_response("Final after compaction"),
+    ]);
+
+    let tools = ToolRegistry::new();
+    let context = SlidingWindowStrategy::new(10, 100_000);
+    let config = LoopConfig::default();
+
+    let mut agent = AgentLoop::new(provider, tools, context, config);
+    let user_msg = Message {
+        role: Role::User,
+        content: vec![ContentBlock::Text("Hi".to_string())],
+    };
+    let tool_ctx = test_tool_context();
+    let mut iter = agent.run_step(user_msg, &tool_ctx);
+
+    // First turn: should be CompactionOccurred (server-side)
+    let result = iter.next().await.expect("should have a turn");
+    match result {
+        TurnResult::CompactionOccurred {
+            old_tokens,
+            new_tokens,
+        } => {
+            // Server-side compaction reports 0/0 since the server handles it
+            assert_eq!(old_tokens, 0);
+            assert_eq!(new_tokens, 0);
+        }
+        other => panic!("expected CompactionOccurred, got: {other:?}"),
+    }
+
+    // Second turn: should be FinalResponse
+    let result = iter.next().await.expect("should have a turn");
+    match result {
+        TurnResult::FinalResponse(agent_result) => {
+            assert_eq!(agent_result.response, "Final after compaction");
+        }
+        other => panic!("expected FinalResponse, got: {other:?}"),
+    }
+
+    // No more turns
+    assert!(iter.next().await.is_none());
+}
+
+// --- Test 7: Parallel tool error in run_step ---
+
+/// A tool that always fails with ExecutionFailed.
+struct FailingTool;
+
+impl ToolDyn for FailingTool {
+    fn name(&self) -> &str {
+        "failing_tool"
+    }
+
+    fn definition(&self) -> ToolDefinition {
+        ToolDefinition {
+            name: "failing_tool".to_string(),
+            title: Some("Failing Tool".to_string()),
+            description: "A tool that always fails".to_string(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {},
+            }),
+            output_schema: None,
+            annotations: None,
+            cache_control: None,
+        }
+    }
+
+    fn call_dyn<'a>(
+        &'a self,
+        _input: serde_json::Value,
+        _ctx: &'a ToolContext,
+    ) -> WasmBoxedFuture<'a, Result<ToolOutput, ToolError>> {
+        Box::pin(async move {
+            Err(ToolError::ExecutionFailed(
+                "intentional test failure".into(),
+            ))
+        })
+    }
+}
+
+#[tokio::test]
+async fn test_run_step_parallel_tool_error() {
+    // Provider returns two tool calls: one echo (succeeds) and one failing_tool (fails).
+    // With parallel execution, the error should propagate.
+    let provider = MockProvider::new(vec![multi_tool_use_response(&[
+        ("call-1", "echo", serde_json::json!({"text": "alpha"})),
+        ("call-2", "failing_tool", serde_json::json!({})),
+    ])]);
+
+    let mut tools = ToolRegistry::new();
+    tools.register(EchoTool);
+    tools.register_dyn(Arc::new(FailingTool));
+
+    let context = SlidingWindowStrategy::new(10, 100_000);
+    let config = LoopConfig {
+        parallel_tool_execution: true,
+        ..LoopConfig::default()
+    };
+
+    let mut agent = AgentLoop::new(provider, tools, context, config);
+    let user_msg = Message {
+        role: Role::User,
+        content: vec![ContentBlock::Text("Run both".to_string())],
+    };
+    let tool_ctx = test_tool_context();
+    let mut iter = agent.run_step(user_msg, &tool_ctx);
+
+    let result = iter.next().await.expect("should have a turn");
+    match result {
+        TurnResult::Error(LoopError::Tool(ToolError::ExecutionFailed(_))) => {
+            // Expected: parallel tool execution propagates the error
+        }
+        other => panic!("expected TurnResult::Error(LoopError::Tool), got: {other:?}"),
+    }
+
+    // Iterator should be finished after error
+    assert!(iter.next().await.is_none());
+}
+
+// ==========================================================================
+// Priority 3 — Streaming error branches
+// ==========================================================================
+
+// --- Test 8: Streaming provider error ---
+
+/// A mock streaming provider that returns an error from complete_stream.
+struct ErrorStreamProvider;
+
+impl neuron_types::Provider for ErrorStreamProvider {
+    async fn complete(
+        &self,
+        _request: CompletionRequest,
+    ) -> Result<CompletionResponse, ProviderError> {
+        Err(ProviderError::InvalidRequest("use stream".into()))
+    }
+
+    async fn complete_stream(
+        &self,
+        _request: CompletionRequest,
+    ) -> Result<StreamHandle, ProviderError> {
+        Err(ProviderError::ServiceUnavailable(
+            "test stream provider error".to_string(),
+        ))
+    }
+}
+
+#[tokio::test]
+async fn test_run_stream_provider_error() {
+    let provider = ErrorStreamProvider;
+    let tools = ToolRegistry::new();
+    let context = SlidingWindowStrategy::new(10, 100_000);
+    let config = LoopConfig::default();
+
+    let mut agent = AgentLoop::new(provider, tools, context, config);
+
+    let user_msg = Message {
+        role: Role::User,
+        content: vec![ContentBlock::Text("Hi".to_string())],
+    };
+
+    let mut rx = agent.run_stream(user_msg, &test_tool_context()).await;
+
+    // Collect all events
+    let mut events = Vec::new();
+    while let Some(event) = rx.recv().await {
+        events.push(event);
+    }
+
+    // Should have received an error event about the provider failure
+    let has_provider_error = events
+        .iter()
+        .any(|e| matches!(e, StreamEvent::Error(err) if err.message.contains("provider error")));
+    assert!(
+        has_provider_error,
+        "expected provider error event in stream, got: {events:?}"
+    );
+
+    // Should NOT have any MessageComplete since the provider failed
+    let has_message_complete = events
+        .iter()
+        .any(|e| matches!(e, StreamEvent::MessageComplete(_)));
+    assert!(
+        !has_message_complete,
+        "should not have MessageComplete after provider error"
+    );
+}
+
+// --- Test 9: ModelRetry during streaming (already covered above in test 2,
+//     but let's also verify the hint text propagates correctly) ---
+
+#[tokio::test]
+async fn test_run_stream_model_retry_hint_is_sent_as_error_tool_result() {
+    // A tool that returns ModelRetry, then the model self-corrects.
+    // This specifically tests the streaming code path in step.rs.
+    let provider = MockStreamProvider::new(vec![
+        tool_use_response("call-1", "retry_tool", serde_json::json!({})),
+        text_response("After self-correction"),
+    ]);
+
+    let mut tools = ToolRegistry::new();
+    tools.register_dyn(Arc::new(ModelRetryTool));
+
+    let context = SlidingWindowStrategy::new(10, 100_000);
+    let config = LoopConfig::default();
+
+    let mut agent = AgentLoop::new(provider, tools, context, config);
+    let (hook, hook_events) = RecordingHook::new();
+    agent.add_hook(hook);
+
+    let user_msg = Message {
+        role: Role::User,
+        content: vec![ContentBlock::Text("Use the tool".to_string())],
+    };
+
+    let mut rx = agent.run_stream(user_msg, &test_tool_context()).await;
+
+    let mut events = Vec::new();
+    while let Some(event) = rx.recv().await {
+        events.push(event);
+    }
+
+    // Should NOT have any StreamEvent::Error for the ModelRetry
+    let has_fatal_error = events
+        .iter()
+        .any(|e| matches!(e, StreamEvent::Error(err) if err.message.contains("tool error")));
+    assert!(
+        !has_fatal_error,
+        "ModelRetry should not produce a fatal stream error, got: {events:?}"
+    );
+
+    // The final response should arrive
+    let has_final = events.iter().any(|e| {
+        if let StreamEvent::MessageComplete(msg) = e {
+            msg.content
+                .iter()
+                .any(|b| matches!(b, ContentBlock::Text(t) if t == "After self-correction"))
+        } else {
+            false
+        }
+    });
+    assert!(has_final, "expected final response after ModelRetry");
+
+    // Hooks should have fired (PreToolExecution + PostToolExecution for retry_tool)
+    let recorded = hook_events.lock().expect("lock");
+    assert!(
+        recorded.contains(&"PreToolExecution:retry_tool".to_string()),
+        "expected PreToolExecution hook for retry_tool"
+    );
+    // Note: PostToolExecution is NOT fired for ModelRetry since the error
+    // is caught before reaching the post-hook path in run_stream.
+}
+
+// --- Test 10: Tool execution error during streaming ---
+
+#[tokio::test]
+async fn test_run_stream_tool_execution_error() {
+    // A tool that fails with ExecutionFailed during streaming.
+    // This should produce a StreamEvent::Error.
+    let provider = MockStreamProvider::new(vec![tool_use_response(
+        "call-1",
+        "failing_tool",
+        serde_json::json!({}),
+    )]);
+
+    let mut tools = ToolRegistry::new();
+    tools.register_dyn(Arc::new(FailingTool));
+
+    let context = SlidingWindowStrategy::new(10, 100_000);
+    let config = LoopConfig::default();
+
+    let mut agent = AgentLoop::new(provider, tools, context, config);
+
+    let user_msg = Message {
+        role: Role::User,
+        content: vec![ContentBlock::Text("Do something".to_string())],
+    };
+
+    let mut rx = agent.run_stream(user_msg, &test_tool_context()).await;
+
+    let mut events = Vec::new();
+    while let Some(event) = rx.recv().await {
+        events.push(event);
+    }
+
+    // Should have received an error event about the tool failure
+    let has_tool_error = events
+        .iter()
+        .any(|e| matches!(e, StreamEvent::Error(err) if err.message.contains("tool error")));
+    assert!(
+        has_tool_error,
+        "expected tool error event in stream, got: {events:?}"
+    );
+}
+
+// ==========================================================================
+// Additional edge case coverage
+// ==========================================================================
+
+#[tokio::test]
+async fn test_run_provider_error_propagates() {
+    // Provider returns an error during run()
+    let provider = ErrorProvider;
+    let tools = ToolRegistry::new();
+    let context = SlidingWindowStrategy::new(10, 100_000);
+    let config = LoopConfig::default();
+
+    let mut agent = AgentLoop::new(provider, tools, context, config);
+
+    let user_msg = Message {
+        role: Role::User,
+        content: vec![ContentBlock::Text("Hi".to_string())],
+    };
+
+    let err = agent.run(user_msg, &test_tool_context()).await.unwrap_err();
+    match err {
+        LoopError::Provider(ProviderError::InvalidRequest(msg)) => {
+            assert!(msg.contains("test provider error"));
+        }
+        other => panic!("expected LoopError::Provider, got: {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn test_run_compaction_error_propagates() {
+    // Context strategy fails during compaction in run()
+    let provider = MockProvider::new(vec![text_response("Should not reach")]);
+    let tools = ToolRegistry::new();
+    let context = FailingCompactionContext;
+    let config = LoopConfig::default();
+
+    let mut agent = AgentLoop::new(provider, tools, context, config);
+
+    let user_msg = Message {
+        role: Role::User,
+        content: vec![ContentBlock::Text("Hi".to_string())],
+    };
+
+    let err = agent.run(user_msg, &test_tool_context()).await.unwrap_err();
+    match err {
+        LoopError::Context(ContextError::CompactionFailed(msg)) => {
+            assert!(msg.contains("test compaction failure"));
+        }
+        other => panic!("expected LoopError::Context, got: {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn test_server_side_compaction_multiple_consecutive() {
+    // Provider returns Compaction twice, then EndTurn.
+    // Tests that the loop correctly handles multiple consecutive compaction events.
+    let provider = MockProvider::new(vec![
+        response_with_stop_reason("first compaction", StopReason::Compaction),
+        response_with_stop_reason("second compaction", StopReason::Compaction),
+        text_response("Final after two compactions"),
+    ]);
+
+    let tools = ToolRegistry::new();
+    let context = SlidingWindowStrategy::new(10, 100_000);
+    let config = LoopConfig::default();
+
+    let mut agent = AgentLoop::new(provider, tools, context, config);
+    let user_msg = Message {
+        role: Role::User,
+        content: vec![ContentBlock::Text("Hi".to_string())],
+    };
+
+    let result = agent
+        .run(user_msg, &test_tool_context())
+        .await
+        .expect("run should succeed after multiple compactions");
+
+    assert_eq!(result.response, "Final after two compactions");
+    assert_eq!(result.turns, 3); // 2 compaction turns + 1 final
+}
+
+#[tokio::test]
+async fn test_run_stream_compaction_error_sends_error_event() {
+    // Context strategy fails during compaction in run_stream()
+    let provider = MockStreamProvider::new(vec![text_response("Should not reach")]);
+    let tools = ToolRegistry::new();
+    let context = FailingCompactionContext;
+    let config = LoopConfig::default();
+
+    let mut agent = AgentLoop::new(provider, tools, context, config);
+
+    let user_msg = Message {
+        role: Role::User,
+        content: vec![ContentBlock::Text("Hi".to_string())],
+    };
+
+    let mut rx = agent.run_stream(user_msg, &test_tool_context()).await;
+
+    let mut events = Vec::new();
+    while let Some(event) = rx.recv().await {
+        events.push(event);
+    }
+
+    let has_compaction_error = events
+        .iter()
+        .any(|e| matches!(e, StreamEvent::Error(err) if err.message.contains("compaction error")));
+    assert!(
+        has_compaction_error,
+        "expected compaction error event in stream, got: {events:?}"
+    );
+}
+
+#[tokio::test]
+async fn test_run_stream_max_turns_sends_error_event() {
+    // Streaming with max_turns exceeded
+    let provider = MockStreamProvider::new(vec![
+        tool_use_response("call-1", "echo", serde_json::json!({"text": "1"})),
+        tool_use_response("call-2", "echo", serde_json::json!({"text": "2"})),
+    ]);
+
+    let mut tools = ToolRegistry::new();
+    tools.register(EchoTool);
+
+    let context = SlidingWindowStrategy::new(10, 100_000);
+    let config = LoopConfig {
+        max_turns: Some(1),
+        ..LoopConfig::default()
+    };
+
+    let mut agent = AgentLoop::new(provider, tools, context, config);
+
+    let user_msg = Message {
+        role: Role::User,
+        content: vec![ContentBlock::Text("Go".to_string())],
+    };
+
+    let mut rx = agent.run_stream(user_msg, &test_tool_context()).await;
+
+    let mut events = Vec::new();
+    while let Some(event) = rx.recv().await {
+        events.push(event);
+    }
+
+    let has_max_turns_error = events
+        .iter()
+        .any(|e| matches!(e, StreamEvent::Error(err) if err.message.contains("max turns reached")));
+    assert!(
+        has_max_turns_error,
+        "expected max turns error event in stream, got: {events:?}"
+    );
+}
+
+#[tokio::test]
+async fn test_run_step_sequential_tool_error() {
+    // Like test 7 but with sequential execution (parallel_tool_execution = false).
+    // The failing tool should produce TurnResult::Error.
+    let provider = MockProvider::new(vec![tool_use_response(
+        "call-1",
+        "failing_tool",
+        serde_json::json!({}),
+    )]);
+
+    let mut tools = ToolRegistry::new();
+    tools.register_dyn(Arc::new(FailingTool));
+
+    let context = SlidingWindowStrategy::new(10, 100_000);
+    let config = LoopConfig {
+        parallel_tool_execution: false,
+        ..LoopConfig::default()
+    };
+
+    let mut agent = AgentLoop::new(provider, tools, context, config);
+    let user_msg = Message {
+        role: Role::User,
+        content: vec![ContentBlock::Text("Go".to_string())],
+    };
+    let tool_ctx = test_tool_context();
+    let mut iter = agent.run_step(user_msg, &tool_ctx);
+
+    let result = iter.next().await.expect("should have a turn");
+    match result {
+        TurnResult::Error(LoopError::Tool(ToolError::ExecutionFailed(_))) => {
+            // Expected
+        }
+        other => panic!("expected TurnResult::Error(LoopError::Tool), got: {other:?}"),
+    }
+
+    assert!(iter.next().await.is_none());
 }

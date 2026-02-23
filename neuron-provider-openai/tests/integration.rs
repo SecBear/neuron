@@ -2,10 +2,11 @@
 
 use std::collections::HashMap;
 
+use futures::StreamExt;
 use neuron_provider_openai::OpenAi;
 use neuron_types::{
-    CompletionRequest, ContentBlock, EmbeddingError, EmbeddingProvider, EmbeddingRequest, Message,
-    Provider, ProviderError, Role,
+    CompletionRequest, ContentBlock, EmbeddingError, EmbeddingProvider, EmbeddingRequest,
+    ImageSource, Message, Provider, ProviderError, Role, StreamEvent,
 };
 use wiremock::matchers::{header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -481,4 +482,465 @@ async fn embed_uses_default_model_when_empty() {
 
     let result = provider.embed(request).await;
     assert!(result.is_ok(), "expected Ok, got: {:?}", result.err());
+}
+
+// --- Streaming integration tests ---
+
+/// Helper to build an SSE body string from a slice of data payloads.
+fn sse_body(data_lines: &[&str]) -> String {
+    let mut body = String::new();
+    for line in data_lines {
+        body.push_str(&format!("data: {line}\r\n\r\n"));
+    }
+    body
+}
+
+#[tokio::test]
+async fn stream_complete_text_response() {
+    let mock_server = MockServer::start().await;
+
+    let sse = sse_body(&[
+        r#"{"id":"chatcmpl-stream1","object":"chat.completion.chunk","model":"gpt-4o","choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null}]}"#,
+        r#"{"id":"chatcmpl-stream1","object":"chat.completion.chunk","model":"gpt-4o","choices":[{"index":0,"delta":{"content":"Hello"},"finish_reason":null}]}"#,
+        r#"{"id":"chatcmpl-stream1","object":"chat.completion.chunk","model":"gpt-4o","choices":[{"index":0,"delta":{"content":" world"},"finish_reason":null}]}"#,
+        r#"{"id":"chatcmpl-stream1","object":"chat.completion.chunk","model":"gpt-4o","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":2,"total_tokens":12}}"#,
+        "[DONE]",
+    ]);
+
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .and(header("authorization", "Bearer stream-key"))
+        .respond_with(ResponseTemplate::new(200).set_body_raw(sse, "text/event-stream"))
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+
+    let provider = OpenAi::new("stream-key").base_url(mock_server.uri());
+    let handle = provider.complete_stream(minimal_request()).await.unwrap();
+
+    let events: Vec<StreamEvent> = handle.receiver.collect().await;
+
+    // Should have text deltas
+    let text: String = events
+        .iter()
+        .filter_map(|e| {
+            if let StreamEvent::TextDelta(t) = e {
+                Some(t.as_str())
+            } else {
+                None
+            }
+        })
+        .collect();
+    assert_eq!(text, "Hello world");
+
+    // Should have usage
+    let has_usage = events.iter().any(
+        |e| matches!(e, StreamEvent::Usage(u) if u.input_tokens == 10 && u.output_tokens == 2),
+    );
+    assert!(has_usage, "expected Usage event in stream");
+
+    // Should have MessageComplete with assembled text
+    let has_complete = events.iter().any(|e| {
+        matches!(e, StreamEvent::MessageComplete(msg) if {
+            matches!(&msg.content[0], ContentBlock::Text(t) if t == "Hello world")
+        })
+    });
+    assert!(has_complete, "expected MessageComplete event");
+}
+
+#[tokio::test]
+async fn stream_tool_calls_response() {
+    let mock_server = MockServer::start().await;
+
+    let sse = sse_body(&[
+        r#"{"id":"chatcmpl-tc","object":"chat.completion.chunk","model":"gpt-4o","choices":[{"index":0,"delta":{"role":"assistant","content":null,"tool_calls":[{"index":0,"id":"call_stream1","type":"function","function":{"name":"get_weather","arguments":""}}]},"finish_reason":null}]}"#,
+        r#"{"id":"chatcmpl-tc","object":"chat.completion.chunk","model":"gpt-4o","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"city\""}}]},"finish_reason":null}]}"#,
+        r#"{"id":"chatcmpl-tc","object":"chat.completion.chunk","model":"gpt-4o","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":":\"NYC\"}"}}]},"finish_reason":null}]}"#,
+        r#"{"id":"chatcmpl-tc","object":"chat.completion.chunk","model":"gpt-4o","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":15,"completion_tokens":8,"total_tokens":23}}"#,
+        "[DONE]",
+    ]);
+
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .respond_with(ResponseTemplate::new(200).set_body_raw(sse, "text/event-stream"))
+        .mount(&mock_server)
+        .await;
+
+    let provider = OpenAi::new("key").base_url(mock_server.uri());
+    let handle = provider.complete_stream(minimal_request()).await.unwrap();
+
+    let events: Vec<StreamEvent> = handle.receiver.collect().await;
+
+    // Should have ToolUseStart
+    let has_start = events.iter().any(|e| {
+        matches!(e, StreamEvent::ToolUseStart { id, name }
+            if id == "call_stream1" && name == "get_weather")
+    });
+    assert!(has_start, "expected ToolUseStart event");
+
+    // Should have ToolUseInputDelta chunks
+    let input_json: String = events
+        .iter()
+        .filter_map(|e| {
+            if let StreamEvent::ToolUseInputDelta { delta, .. } = e {
+                Some(delta.as_str())
+            } else {
+                None
+            }
+        })
+        .collect();
+    assert_eq!(input_json, r#"{"city":"NYC"}"#);
+
+    // Should have ToolUseEnd
+    let has_end = events
+        .iter()
+        .any(|e| matches!(e, StreamEvent::ToolUseEnd { id } if id == "call_stream1"));
+    assert!(has_end, "expected ToolUseEnd event");
+
+    // Should have MessageComplete with assembled tool use
+    let has_complete = events.iter().any(|e| {
+        matches!(e, StreamEvent::MessageComplete(msg) if {
+            matches!(&msg.content[0], ContentBlock::ToolUse { id, name, input }
+                if id == "call_stream1" && name == "get_weather" && input["city"] == "NYC")
+        })
+    });
+    assert!(has_complete, "expected MessageComplete with tool use");
+}
+
+#[tokio::test]
+async fn stream_returns_error_on_non_success_status() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .respond_with(ResponseTemplate::new(429).set_body_json(serde_json::json!({
+            "error": {
+                "type": "rate_limit_error",
+                "message": "Rate limit exceeded. Please retry after 10 seconds."
+            }
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let provider = OpenAi::new("key").base_url(mock_server.uri());
+    let err = provider
+        .complete_stream(minimal_request())
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(err, ProviderError::RateLimit { .. }),
+        "expected RateLimit, got: {err:?}"
+    );
+}
+
+// --- Error status code edge cases ---
+
+#[tokio::test]
+async fn complete_returns_authentication_error_on_403() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .respond_with(ResponseTemplate::new(403).set_body_json(serde_json::json!({
+            "error": {
+                "type": "permission_error",
+                "message": "You do not have access to this resource"
+            }
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let provider = OpenAi::new("key").base_url(mock_server.uri());
+    let err = provider.complete(minimal_request()).await.unwrap_err();
+
+    assert!(
+        matches!(err, ProviderError::Authentication(_)),
+        "expected Authentication on 403, got: {err:?}"
+    );
+    assert!(!err.is_retryable());
+}
+
+// --- Image content in completion request ---
+
+#[tokio::test]
+async fn complete_with_image_content_sends_correct_body() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(success_response_body()))
+        .mount(&mock_server)
+        .await;
+
+    let provider = OpenAi::new("key").base_url(mock_server.uri());
+    let request = CompletionRequest {
+        messages: vec![Message {
+            role: Role::User,
+            content: vec![
+                ContentBlock::Text("What's in this image?".into()),
+                ContentBlock::Image {
+                    source: ImageSource::Url {
+                        url: "https://example.com/photo.jpg".into(),
+                    },
+                },
+            ],
+        }],
+        ..Default::default()
+    };
+
+    let result = provider.complete(request).await;
+    assert!(result.is_ok(), "expected Ok, got: {:?}", result.err());
+}
+
+// --- Embedding edge case tests ---
+
+#[tokio::test]
+async fn embed_extra_fields_merged_into_body() {
+    let mock_server = MockServer::start().await;
+
+    // Verify that extra fields like "user" are merged into the request body
+    Mock::given(method("POST"))
+        .and(path("/v1/embeddings"))
+        .and(wiremock::matchers::body_partial_json(serde_json::json!({
+            "user": "test-user-123"
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(embedding_success_response()))
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+
+    let provider = OpenAi::new("key").base_url(mock_server.uri());
+    let mut extra = HashMap::new();
+    extra.insert(
+        "user".to_string(),
+        serde_json::Value::String("test-user-123".into()),
+    );
+    let request = EmbeddingRequest {
+        model: "text-embedding-3-small".to_string(),
+        input: vec!["hello".to_string()],
+        dimensions: None,
+        extra,
+    };
+
+    let result = provider.embed(request).await;
+    assert!(result.is_ok(), "expected Ok, got: {:?}", result.err());
+}
+
+#[tokio::test]
+async fn embed_returns_authentication_error_on_403() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/v1/embeddings"))
+        .respond_with(ResponseTemplate::new(403).set_body_json(serde_json::json!({
+            "error": {
+                "type": "permission_error",
+                "message": "Forbidden"
+            }
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let provider = OpenAi::new("key").base_url(mock_server.uri());
+    let request = EmbeddingRequest {
+        input: vec!["test".to_string()],
+        ..Default::default()
+    };
+
+    let err = provider.embed(request).await.unwrap_err();
+    assert!(
+        matches!(err, EmbeddingError::Authentication(_)),
+        "expected Authentication on 403, got: {err:?}"
+    );
+}
+
+#[tokio::test]
+async fn embed_returns_server_error_on_500() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/v1/embeddings"))
+        .respond_with(
+            ResponseTemplate::new(500)
+                .set_body_json(serde_json::json!({ "error": { "message": "Internal error" } })),
+        )
+        .mount(&mock_server)
+        .await;
+
+    let provider = OpenAi::new("key").base_url(mock_server.uri());
+    let request = EmbeddingRequest {
+        input: vec!["test".to_string()],
+        ..Default::default()
+    };
+
+    let err = provider.embed(request).await.unwrap_err();
+    assert!(
+        matches!(err, EmbeddingError::Other(_)),
+        "expected Other on 500, got: {err:?}"
+    );
+}
+
+#[tokio::test]
+async fn embed_returns_invalid_request_on_404() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/v1/embeddings"))
+        .respond_with(ResponseTemplate::new(404).set_body_json(serde_json::json!({
+            "error": {
+                "type": "not_found",
+                "message": "Model not found"
+            }
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let provider = OpenAi::new("key").base_url(mock_server.uri());
+    let request = EmbeddingRequest {
+        input: vec!["test".to_string()],
+        ..Default::default()
+    };
+
+    let err = provider.embed(request).await.unwrap_err();
+    assert!(
+        matches!(err, EmbeddingError::InvalidRequest(_)),
+        "expected InvalidRequest on 404, got: {err:?}"
+    );
+}
+
+// --- from_env tests ---
+
+#[tokio::test]
+async fn from_env_missing_api_key_returns_auth_error() {
+    // Temporarily unset the variable
+    let original = std::env::var("OPENAI_API_KEY").ok();
+    // SAFETY: test-only env manipulation; tests in this crate are single-threaded per-test
+    unsafe { std::env::remove_var("OPENAI_API_KEY") };
+
+    let result = OpenAi::from_env();
+    match result {
+        Err(ProviderError::Authentication(_)) => { /* expected */ }
+        Err(other) => panic!("expected Authentication error, got: {other:?}"),
+        Ok(_) => panic!("expected error when OPENAI_API_KEY not set"),
+    }
+
+    // Restore
+    if let Some(val) = original {
+        // SAFETY: restoring original value
+        unsafe { std::env::set_var("OPENAI_API_KEY", val) };
+    }
+}
+
+#[tokio::test]
+async fn from_env_reads_org_id_and_sends_header() {
+    let original_key = std::env::var("OPENAI_API_KEY").ok();
+    let original_org = std::env::var("OPENAI_ORG_ID").ok();
+
+    // SAFETY: test-only env manipulation
+    unsafe {
+        std::env::set_var("OPENAI_API_KEY", "sk-test-env-key");
+        std::env::set_var("OPENAI_ORG_ID", "org-env-test");
+    }
+
+    let client = OpenAi::from_env().unwrap();
+
+    // Verify the org header is sent by making a real request to wiremock
+    let mock_server = MockServer::start().await;
+    // Override base_url to point at mock server
+    let client = client.base_url(mock_server.uri());
+
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .and(header("authorization", "Bearer sk-test-env-key"))
+        .and(header("openai-organization", "org-env-test"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(success_response_body()))
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+
+    let result = client.complete(minimal_request()).await;
+    assert!(result.is_ok(), "expected Ok, got: {:?}", result.err());
+
+    // Restore
+    // SAFETY: restoring original env values
+    unsafe {
+        match original_key {
+            Some(val) => std::env::set_var("OPENAI_API_KEY", val),
+            None => std::env::remove_var("OPENAI_API_KEY"),
+        }
+        match original_org {
+            Some(val) => std::env::set_var("OPENAI_ORG_ID", val),
+            None => std::env::remove_var("OPENAI_ORG_ID"),
+        }
+    }
+}
+
+// --- Streaming finish_reason edge cases ---
+
+#[tokio::test]
+async fn stream_with_empty_content_emits_no_message_complete() {
+    let mock_server = MockServer::start().await;
+
+    // Stream that only has a stop event with no actual content
+    let sse = sse_body(&[
+        r#"{"id":"chatcmpl-empty","object":"chat.completion.chunk","model":"gpt-4o","choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null}]}"#,
+        r#"{"id":"chatcmpl-empty","object":"chat.completion.chunk","model":"gpt-4o","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}"#,
+        "[DONE]",
+    ]);
+
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .respond_with(ResponseTemplate::new(200).set_body_raw(sse, "text/event-stream"))
+        .mount(&mock_server)
+        .await;
+
+    let provider = OpenAi::new("key").base_url(mock_server.uri());
+    let handle = provider.complete_stream(minimal_request()).await.unwrap();
+
+    let events: Vec<StreamEvent> = handle.receiver.collect().await;
+
+    // Should NOT have MessageComplete because no actual content was streamed
+    let has_complete = events
+        .iter()
+        .any(|e| matches!(e, StreamEvent::MessageComplete(_)));
+    assert!(
+        !has_complete,
+        "expected no MessageComplete for empty content stream"
+    );
+}
+
+#[tokio::test]
+async fn stream_with_usage_and_cached_tokens() {
+    let mock_server = MockServer::start().await;
+
+    let sse = sse_body(&[
+        r#"{"id":"chatcmpl-cached","object":"chat.completion.chunk","model":"gpt-4o","choices":[{"index":0,"delta":{"role":"assistant","content":"Ok"},"finish_reason":null}]}"#,
+        r#"{"id":"chatcmpl-cached","object":"chat.completion.chunk","model":"gpt-4o","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":100,"completion_tokens":1,"total_tokens":101,"prompt_tokens_details":{"cached_tokens":80},"completion_tokens_details":{"reasoning_tokens":0}}}"#,
+        "[DONE]",
+    ]);
+
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .respond_with(ResponseTemplate::new(200).set_body_raw(sse, "text/event-stream"))
+        .mount(&mock_server)
+        .await;
+
+    let provider = OpenAi::new("key").base_url(mock_server.uri());
+    let handle = provider.complete_stream(minimal_request()).await.unwrap();
+
+    let events: Vec<StreamEvent> = handle.receiver.collect().await;
+
+    let usage_event = events.iter().find_map(|e| {
+        if let StreamEvent::Usage(u) = e {
+            Some(u)
+        } else {
+            None
+        }
+    });
+    assert!(usage_event.is_some(), "expected Usage event");
+    let usage = usage_event.unwrap();
+    assert_eq!(usage.input_tokens, 100);
+    assert_eq!(usage.output_tokens, 1);
+    assert_eq!(usage.cache_read_tokens, Some(80));
+    assert_eq!(usage.reasoning_tokens, Some(0));
 }
