@@ -150,6 +150,51 @@ while let Some(turn) = steps.next().await {
 - `inject_message(msg)` -- add a message between turns
 - `tools_mut()` -- modify the tool registry between turns
 
+### Distinguishing text responses from tool calls
+
+`TurnResult` is the key abstraction for telling apart a direct LLM message from
+a tool-call round trip. When the model returns plain text and no tool calls, the
+iterator yields `TurnResult::FinalResponse` containing the finished
+`AgentResult`. When the model requests one or more tool calls, the loop executes
+them and yields `TurnResult::ToolsExecuted` with the calls and their results.
+The loop handles dispatch automatically — you just match on the variant.
+
+```rust,ignore
+let mut steps = agent.run_step(Message::user("What's 2 + 2?"), &tool_ctx);
+
+while let Some(turn) = steps.next().await {
+    match turn {
+        TurnResult::ToolsExecuted { calls, results } => {
+            // The model requested tool calls — they've been executed
+            for (call_id, tool_name, input) in &calls {
+                println!("Model called tool '{tool_name}' with {input}");
+            }
+            // results contains the ContentBlock::ToolResult for each call
+            // The loop automatically sends these back to the model
+        }
+        TurnResult::FinalResponse(result) => {
+            // The model returned a text response — no more tool calls
+            println!("Final answer: {}", result.response);
+            println!("Total turns: {}", result.turns);
+        }
+        TurnResult::CompactionOccurred { old_tokens, new_tokens } => {
+            println!("Context compacted: {old_tokens} → {new_tokens} tokens");
+            // Loop continues automatically
+        }
+        TurnResult::MaxTurnsReached => {
+            println!("Turn limit reached without a final response");
+        }
+        TurnResult::Error(e) => {
+            eprintln!("Loop error: {e}");
+        }
+    }
+}
+```
+
+If you only need the final result and don't need turn-by-turn control, use
+`run()` or `run_text()` instead — they drive the loop to completion and return
+`AgentResult` directly.
+
 ## `AgentResult`
 
 Returned by `run()`, `run_text()`, and `TurnResult::FinalResponse`:

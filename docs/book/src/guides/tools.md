@@ -201,6 +201,91 @@ impl ToolMiddleware for RateLimiter {
 }
 ```
 
+### Input validation middleware
+
+A common use case is intercepting tool calls to validate input arguments before
+the tool executes. When validation fails, returning `ToolError::ModelRetry` gives
+the model a hint so it can self-correct rather than crashing the loop.
+
+Here is a closure-based validation middleware that checks URL and numeric range
+arguments:
+
+```rust,ignore
+use neuron_tool::{tool_middleware_fn, ToolRegistry};
+use neuron_types::ToolError;
+
+let mut registry = ToolRegistry::new();
+
+// Input validation middleware — rejects invalid arguments with a hint
+// so the model can self-correct
+registry.add_middleware(tool_middleware_fn(|call, ctx, next| {
+    Box::pin(async move {
+        // Validate URL arguments
+        if let Some(url) = call.input.get("url").and_then(|v| v.as_str()) {
+            if !url.starts_with("https://") {
+                return Err(ToolError::ModelRetry(
+                    format!("url must start with https://, got '{url}'")
+                ));
+            }
+        }
+
+        // Validate numeric ranges
+        if let Some(count) = call.input.get("count").and_then(|v| v.as_u64()) {
+            if count == 0 || count > 100 {
+                return Err(ToolError::ModelRetry(
+                    format!("count must be 1-100, got {count}")
+                ));
+            }
+        }
+
+        // Input is valid — proceed to the tool
+        next.run(call, ctx).await
+    })
+}));
+```
+
+The middleware reads fields from `call.input` (a `serde_json::Value`) and returns
+early with a validation hint when constraints are violated. Because it uses
+`ToolError::ModelRetry`, the agentic loop converts the message into an error tool
+result that the model sees as feedback -- it can then retry the call with
+corrected arguments.
+
+For the struct-based approach, implement `ToolMiddleware` the same way as the
+`RateLimiter` example above, placing validation logic inside the `process` method
+and returning `Err(ToolError::ModelRetry(hint))` on failure.
+
+#### `ToolError` variants for validation
+
+Choose the right error variant depending on whether the model can recover:
+
+| Variant | Behavior | Use when |
+|---|---|---|
+| `ModelRetry(hint)` | Loop sends the hint back to the model as an error tool result. The model retries with corrected arguments. | Validation errors the model can fix: bad format, out-of-range values, missing optional fields |
+| `InvalidInput(msg)` | Propagates as `LoopError::Tool` and stops the loop. | Unrecoverable issues: impossible argument combinations, security violations, malformed JSON |
+
+Use `ModelRetry` as the default for input validation. Reserve `InvalidInput` for
+cases where no amount of retrying will produce valid input.
+
+#### Scoping validation to specific tools
+
+Use per-tool middleware to apply validation only where it is needed:
+
+```rust,ignore
+// This validation runs only when the "fetch_page" tool is called
+registry.add_tool_middleware("fetch_page", tool_middleware_fn(|call, ctx, next| {
+    Box::pin(async move {
+        if let Some(url) = call.input.get("url").and_then(|v| v.as_str()) {
+            if !url.starts_with("https://") {
+                return Err(ToolError::ModelRetry(
+                    format!("fetch_page requires an https:// URL, got '{url}'")
+                ));
+            }
+        }
+        next.run(call, ctx).await
+    })
+}));
+```
+
 ### Middleware execution order
 
 Middleware executes in registration order, wrapping tool calls from outside in:

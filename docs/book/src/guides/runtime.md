@@ -97,6 +97,53 @@ for s in &summaries {
 }
 ```
 
+## Session persistence with AgentLoop
+
+Session persistence and durable execution are two complementary layers.
+`SessionStorage` saves conversation state between runs — when the process exits,
+the session is written to disk (or another backend), and a new process can load
+it later to resume. `DurableContext` protects individual operations *during* a
+run — if the process crashes mid-tool-call, the durable engine journals and
+replays to recover. They compose naturally: `DurableContext` protects during a
+run, `SessionStorage` saves between runs.
+
+```rust,ignore
+use neuron_runtime::{Session, FileSessionStorage, SessionStorage};
+use neuron_loop::AgentLoop;
+use neuron_types::Message;
+
+// --- Save after a conversation ---
+let result = agent.run_text("Hello!", &ctx).await?;
+
+let mut session = Session::new("session-123", std::env::current_dir()?);
+session.messages = result.messages.clone();
+session.state.token_usage = result.usage.clone();
+
+let storage = FileSessionStorage::new("./sessions".into());
+storage.save(&session).await?;
+
+// --- Resume later (new process) ---
+let storage = FileSessionStorage::new("./sessions".into());
+let loaded = storage.load("session-123").await?;
+
+// Build a new agent and continue the conversation
+let mut agent = AgentLoop::builder(provider, context)
+    .tools(tools)
+    .system_prompt("You are a helpful assistant.")
+    .build();
+
+// Feed the loaded history back by running with the conversation context
+// The previous messages provide continuity
+let resume_msg = Message::user("Continue where we left off.");
+let result = agent.run(resume_msg, &ctx).await?;
+```
+
+`AgentResult.messages` contains the full conversation history including tool
+calls and results, so saving it preserves the complete context. When you load
+and resume, the model sees the entire prior exchange — tool invocations, tool
+outputs, assistant reasoning — giving it full continuity without re-executing
+any previous steps.
+
 ## Guardrails
 
 Guardrails are safety checks that run on input (before it reaches the LLM) or
@@ -174,6 +221,73 @@ let mut agent = AgentLoop::builder(provider, context)
     .build();
 agent.add_hook(hook);
 ```
+
+### Complete guardrail integration with AgentLoop
+
+The `InputGuardrail` example above shows how to check user input. Output
+guardrails follow the same trait pattern via `OutputGuardrail`. Here is a
+complete output guardrail that detects PII (email addresses and phone numbers)
+in the model's response, wired into `AgentLoop` end-to-end.
+
+**Implement the guardrail:**
+
+```rust,ignore
+use std::future::Future;
+use neuron_runtime::{OutputGuardrail, GuardrailResult};
+
+struct NoPiiOutput;
+
+impl OutputGuardrail for NoPiiOutput {
+    fn check(&self, output: &str) -> impl Future<Output = GuardrailResult> + Send {
+        async move {
+            // Check for email addresses
+            if output.contains('@') && output.contains('.') {
+                return GuardrailResult::Tripwire(
+                    "Response contains a potential email address".to_string(),
+                );
+            }
+            // Check for phone number patterns (sequences of 10+ digits)
+            let digit_count = output.chars().filter(|c| c.is_ascii_digit()).count();
+            if digit_count >= 10 {
+                return GuardrailResult::Tripwire(
+                    "Response contains a potential phone number".to_string(),
+                );
+            }
+            GuardrailResult::Pass
+        }
+    }
+}
+```
+
+**Wire it into AgentLoop:**
+
+```rust,ignore
+use neuron_runtime::GuardrailHook;
+use neuron_loop::{AgentLoop, LoopError};
+
+let guardrail_hook = GuardrailHook::builder()
+    .output_guardrail(NoPiiOutput)
+    .build();
+
+let mut agent = AgentLoop::builder(provider, context)
+    .tools(tools)
+    .hook(guardrail_hook)
+    .build();
+
+// Handle guardrail rejection
+match agent.run_text("What's John's email?", &ctx).await {
+    Ok(result) => println!("Response: {}", result.response),
+    Err(LoopError::HookTerminated(reason)) => {
+        println!("Guardrail blocked: {reason}");
+        // Present safe fallback to user
+    }
+    Err(e) => eprintln!("Other error: {e}"),
+}
+```
+
+Guardrails are gates, not transformers — they accept (`Pass`), reject
+(`Tripwire`), or flag (`Warn`), but do not modify content. To transform output,
+post-process the `AgentResult` after `run()` returns.
 
 ## TracingHook
 

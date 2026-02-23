@@ -198,6 +198,134 @@ let provider = Ollama::new()
 - `keep_alive` controls how long the model stays in GPU memory
 - Tool definitions use the same format as OpenAI (adopted by Ollama)
 
+## Provider + AgentLoop integration
+
+The most common use of a provider is plugging it into an `AgentLoop` -- the
+commodity agentic while-loop that handles tool dispatch, context management, and
+multi-turn conversation. Here is a complete, self-contained example using OpenAI:
+
+```rust,ignore
+use neuron_context::SlidingWindowStrategy;
+use neuron_loop::AgentLoop;
+use neuron_provider_openai::OpenAi;
+use neuron_tool::ToolRegistry;
+use neuron_types::ToolContext;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // 1. Build the provider
+    let provider = OpenAi::from_env()?.model("gpt-4o");
+
+    // 2. Choose a context strategy (keep last 20 messages, up to 100k tokens)
+    let context = SlidingWindowStrategy::new(20, 100_000);
+
+    // 3. Create a tool registry (empty here -- add tools as needed)
+    let tools = ToolRegistry::new();
+
+    // 4. Assemble the agent loop
+    let mut agent = AgentLoop::builder(provider, context)
+        .system_prompt("You are a helpful assistant.")
+        .max_turns(10)
+        .tools(tools)
+        .build();
+
+    // 5. Run with a plain text message
+    let ctx = ToolContext::default();
+    let result = agent.run_text("Hello!", &ctx).await?;
+    println!("{}", result.response);
+    println!("Turns: {}, Tokens: {} in / {} out",
+        result.turns, result.usage.input_tokens, result.usage.output_tokens);
+
+    Ok(())
+}
+```
+
+This pattern is identical for every `Provider` implementation. Replace
+`OpenAi::from_env()?` with `Anthropic::from_env()?` or `Ollama::from_env()?`
+and nothing else changes -- the builder, context strategy, tool registry, and
+run call all stay the same.
+
+## Implementing a custom provider
+
+If none of the built-in provider crates fit your needs -- for example, you want
+to integrate a proprietary LLM service or a local inference engine -- you can
+implement the `Provider` trait directly:
+
+```rust,ignore
+use std::future::Future;
+use neuron_types::{
+    CompletionRequest, CompletionResponse, ContentBlock, Message,
+    Provider, ProviderError, Role, StopReason, StreamHandle, TokenUsage,
+};
+
+/// A minimal provider that calls a hypothetical LLM API.
+pub struct MyProvider {
+    api_key: String,
+}
+
+impl MyProvider {
+    pub fn new(api_key: impl Into<String>) -> Self {
+        Self {
+            api_key: api_key.into(),
+        }
+    }
+}
+
+impl Provider for MyProvider {
+    fn complete(
+        &self,
+        request: CompletionRequest,
+    ) -> impl Future<Output = Result<CompletionResponse, ProviderError>> + Send {
+        let api_key = self.api_key.clone();
+        async move {
+            // In a real implementation, serialize `request` and send it
+            // to your LLM API using reqwest, hyper, etc.
+            let response_text = format!(
+                "Echo: {}",
+                request.messages.last().map(|m| m.content[0].to_string()).unwrap_or_default()
+            );
+
+            Ok(CompletionResponse {
+                id: "resp-001".to_string(),
+                model: "my-model-v1".to_string(),
+                message: Message::assistant(response_text),
+                usage: TokenUsage {
+                    input_tokens: 10,
+                    output_tokens: 20,
+                    ..Default::default()
+                },
+                stop_reason: StopReason::EndTurn,
+            })
+        }
+    }
+
+    fn complete_stream(
+        &self,
+        _request: CompletionRequest,
+    ) -> impl Future<Output = Result<StreamHandle, ProviderError>> + Send {
+        async {
+            Err(ProviderError::InvalidRequest(
+                "streaming not supported".to_string(),
+            ))
+        }
+    }
+}
+```
+
+### `CompletionResponse` fields
+
+| Field | Type | Meaning |
+|---|---|---|
+| `id` | `String` | Unique identifier from the LLM API (e.g., `"msg_01XFDUDYJgAACzvnptvVoYEL"`). Used for logging and deduplication. |
+| `model` | `String` | The model name that processed the request (e.g., `"gpt-4o"`, `"claude-sonnet-4-20250514"`). |
+| `message` | `Message` | The assistant response. Construct with `Message::assistant("text")` or manually as `Message { role: Role::Assistant, content: vec![ContentBlock::Text(...)] }`. |
+| `usage` | `TokenUsage` | Token counts for the request. Use `..Default::default()` for optional fields (`cache_read_tokens`, `cache_creation_tokens`, `reasoning_tokens`, `iterations`) when your API does not report them. |
+| `stop_reason` | `StopReason` | Why generation stopped. `EndTurn` for normal completion, `ToolUse` when the model wants to call tools, `MaxTokens` if the response was truncated by the token limit. |
+
+The `Provider` trait requires `WasmCompatSend + WasmCompatSync`, which are
+equivalent to `Send + Sync` on native targets. On WASM, these bounds are
+automatically satisfied so your provider can compile for both environments.
+
 ## Error handling
 
 All providers map errors to `ProviderError`, which classifies errors as retryable
