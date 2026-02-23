@@ -150,6 +150,51 @@ while let Some(turn) = steps.next().await {
 - `inject_message(msg)` -- add a message between turns
 - `tools_mut()` -- modify the tool registry between turns
 
+### Distinguishing text responses from tool calls
+
+`TurnResult` is the key abstraction for telling apart a direct LLM message from
+a tool-call round trip. When the model returns plain text and no tool calls, the
+iterator yields `TurnResult::FinalResponse` containing the finished
+`AgentResult`. When the model requests one or more tool calls, the loop executes
+them and yields `TurnResult::ToolsExecuted` with the calls and their results.
+The loop handles dispatch automatically — you just match on the variant.
+
+```rust,ignore
+let mut steps = agent.run_step(Message::user("What's 2 + 2?"), &tool_ctx);
+
+while let Some(turn) = steps.next().await {
+    match turn {
+        TurnResult::ToolsExecuted { calls, results } => {
+            // The model requested tool calls — they've been executed
+            for (call_id, tool_name, input) in &calls {
+                println!("Model called tool '{tool_name}' with {input}");
+            }
+            // results contains the ContentBlock::ToolResult for each call
+            // The loop automatically sends these back to the model
+        }
+        TurnResult::FinalResponse(result) => {
+            // The model returned a text response — no more tool calls
+            println!("Final answer: {}", result.response);
+            println!("Total turns: {}", result.turns);
+        }
+        TurnResult::CompactionOccurred { old_tokens, new_tokens } => {
+            println!("Context compacted: {old_tokens} → {new_tokens} tokens");
+            // Loop continues automatically
+        }
+        TurnResult::MaxTurnsReached => {
+            println!("Turn limit reached without a final response");
+        }
+        TurnResult::Error(e) => {
+            eprintln!("Loop error: {e}");
+        }
+    }
+}
+```
+
+If you only need the final result and don't need turn-by-turn control, use
+`run()` or `run_text()` instead — they drive the loop to completion and return
+`AgentResult` directly.
+
 ## `AgentResult`
 
 Returned by `run()`, `run_text()`, and `TurnResult::FinalResponse`:
@@ -189,6 +234,137 @@ Each iteration of the loop follows this sequence:
 12. **Execute tool calls** (parallel or sequential), firing `PreToolExecution`
     and `PostToolExecution` hooks for each
 13. **Append tool results** as a user message and loop back to step 1
+
+## How tool call processing works
+
+When the LLM decides to use a tool, the loop handles the entire dispatch cycle
+automatically. Here is exactly what happens at the code level:
+
+**Step 1: LLM returns tool calls.** The provider responds with
+`StopReason::ToolUse` and one or more `ContentBlock::ToolUse` blocks in the
+assistant message. Each block contains a `name`, `input` (JSON arguments), and
+a unique `id`.
+
+```rust,ignore
+// Inside the loop — the LLM response contains tool calls:
+// response.stop_reason == StopReason::ToolUse
+// response.message.content == [
+//     ContentBlock::Text("Let me look that up."),
+//     ContentBlock::ToolUse { id: "call_1", name: "get_weather", input: {"city": "Tokyo"} },
+// ]
+```
+
+**Step 2: Extract tool calls.** The loop filters the assistant message for
+`ContentBlock::ToolUse` blocks and collects them as `(id, name, input)` tuples.
+The full assistant message (including any text) is appended to the conversation.
+
+```rust,ignore
+let tool_calls: Vec<_> = response.message.content.iter()
+    .filter_map(|block| {
+        if let ContentBlock::ToolUse { id, name, input } = block {
+            Some((id.clone(), name.clone(), input.clone()))
+        } else {
+            None
+        }
+    })
+    .collect();
+
+// Append the assistant message (with both text and tool use blocks)
+self.messages.push(response.message.clone());
+```
+
+**Step 3: Execute tools via the registry.** Each tool call is dispatched to the
+`ToolRegistry`, which finds the matching tool by name, deserializes the JSON
+input, and calls the tool's `call()` method. Pre- and post-execution hooks fire
+around each call.
+
+```rust,ignore
+// For each tool call, the loop calls execute_single_tool:
+// 1. Fire PreToolExecution hooks (can Skip or Terminate)
+// 2. Call self.tools.execute(tool_name, input, tool_ctx)
+// 3. Fire PostToolExecution hooks
+// 4. Wrap the ToolOutput into a ContentBlock::ToolResult
+```
+
+If `parallel_tool_execution` is `true` and there are multiple tool calls, all
+calls run concurrently via `futures::future::join_all`. Otherwise they execute
+sequentially.
+
+**Step 4: Append results and continue.** The tool results are collected into
+`ContentBlock::ToolResult` blocks (each linked back to the original call by
+`tool_use_id`) and appended as a `User` message. The loop then continues —
+the LLM sees the tool results and can respond with text or call more tools.
+
+```rust,ignore
+// Each tool result looks like:
+// ContentBlock::ToolResult {
+//     tool_use_id: "call_1",
+//     content: [ContentItem::Text("{\"temp\": 22, \"conditions\": \"sunny\"}")],
+//     is_error: false,
+// }
+
+// All results are appended as a single user message
+self.messages.push(Message {
+    role: Role::User,
+    content: tool_result_blocks,
+});
+// Loop continues → LLM sees results → responds or calls more tools
+```
+
+**Special case — `ToolError::ModelRetry`.** If a tool returns
+`Err(ToolError::ModelRetry(hint))`, the loop does **not** propagate an error.
+Instead, it converts the hint into a `ToolResult` with `is_error: true`. The
+model receives the hint and can retry with corrected arguments:
+
+```rust,ignore
+// Tool returns: Err(ToolError::ModelRetry("city must be a valid name, got '123'"))
+// Loop converts to: ContentBlock::ToolResult {
+//     tool_use_id: "call_1",
+//     content: [ContentItem::Text("city must be a valid name, got '123'")],
+//     is_error: true,
+// }
+// Model sees the error and retries: get_weather({"city": "Tokyo"})
+```
+
+### Complete flow diagram
+
+```text
+User: "What's the weather in Tokyo?"
+    │
+    ▼
+┌─────────────────────────────────────────────┐
+│ Turn 1: LLM call                            │
+│   Request: [User: "What's the weather..."]  │
+│   Response: ToolUse(get_weather, {city:      │
+│             "Tokyo"})                        │
+│   StopReason: ToolUse                       │
+└──────────────────┬──────────────────────────┘
+                   │
+                   ▼
+┌─────────────────────────────────────────────┐
+│ Tool execution                              │
+│   Registry dispatches get_weather           │
+│   Tool returns: {temp: 22, conditions:      │
+│                  "sunny"}                    │
+│   Result appended as ToolResult message     │
+└──────────────────┬──────────────────────────┘
+                   │
+                   ▼
+┌─────────────────────────────────────────────┐
+│ Turn 2: LLM call                            │
+│   Request: [User, Assistant(ToolUse),       │
+│             User(ToolResult)]               │
+│   Response: "It's 22°C and sunny in Tokyo." │
+│   StopReason: EndTurn                       │
+└──────────────────┬──────────────────────────┘
+                   │
+                   ▼
+              AgentResult {
+                  response: "It's 22°C and sunny in Tokyo.",
+                  turns: 2,
+                  ...
+              }
+```
 
 ## Cancellation
 

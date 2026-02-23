@@ -72,6 +72,33 @@ let counter = TokenCounter::with_ratio(3.5);
 let strategy = SlidingWindowStrategy::with_counter(20, 100_000, counter);
 ```
 
+**What compaction actually does.** `SlidingWindowStrategy` partitions messages
+by role: system messages are always preserved regardless of the window size,
+and the window count applies only to non-system messages. Here is a concrete
+before/after showing a compaction with `SlidingWindowStrategy::new(2, 500)`:
+
+```text
+Before compaction (7 messages, ~800 tokens):
+  [system] "You are a helpful assistant."
+  [user]   "What is Rust?"
+  [asst]   "Rust is a systems programming language..."
+  [user]   "How about memory safety?"
+  [asst]   "Rust uses ownership and borrowing..."
+  [user]   "What about async?"
+  [asst]   "Rust supports async/await via futures..."
+
+After compaction with SlidingWindowStrategy::new(2, 500):
+  [system] "You are a helpful assistant."    <- always preserved
+  [user]   "What about async?"               <- last 2 non-system messages
+  [asst]   "Rust supports async/await..."    <- last 2 non-system messages
+```
+
+The first four non-system messages are dropped entirely. The system message
+survives because the implementation unconditionally retains all system messages
+before applying the sliding window to the remaining conversation. See
+[`neuron-context/examples/compaction.rs`](https://github.com/DarkBear0/neuron/blob/main/neuron-context/examples/compaction.rs)
+for a runnable demo.
+
 ### `ToolResultClearingStrategy`
 
 Replaces old tool result content with `"[tool result cleared]"` while preserving
