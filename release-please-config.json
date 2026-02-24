@@ -30,6 +30,7 @@
     "neuron-provider-ollama": { "package-name": "neuron-provider-ollama", "changelog-path": "neuron-provider-ollama/CHANGELOG.md" },
     "neuron-mcp": { "package-name": "neuron-mcp", "changelog-path": "neuron-mcp/CHANGELOG.md" },
     "neuron-runtime": { "package-name": "neuron-runtime", "changelog-path": "neuron-runtime/CHANGELOG.md" },
+    "neuron-otel": { "package-name": "neuron-otel", "changelog-path": "neuron-otel/CHANGELOG.md" },
     "neuron": { "package-name": "neuron", "changelog-path": "neuron/CHANGELOG.md" }
   }
 }
