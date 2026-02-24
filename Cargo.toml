@@ -29,18 +29,18 @@ homepage = "https://github.com/secbear/neuron"
 
 [workspace.dependencies]
 # Internal
-neuron-types = { version = "0.2.0", path = "neuron-types" }
-neuron-tool = { version = "0.2.0", path = "neuron-tool" }
-neuron-tool-macros = { version = "0.2.0", path = "neuron-tool-macros" }
-neuron-context = { version = "0.2.0", path = "neuron-context" }
-neuron-loop = { version = "0.2.0", path = "neuron-loop" }
-neuron-runtime = { version = "0.2.0", path = "neuron-runtime" }
-neuron-mcp = { version = "0.2.0", path = "neuron-mcp" }
-neuron-provider-anthropic = { version = "0.2.0", path = "neuron-provider-anthropic" }
-neuron-provider-openai = { version = "0.2.0", path = "neuron-provider-openai" }
-neuron-provider-ollama = { version = "0.2.0", path = "neuron-provider-ollama" }
-neuron-otel = { version = "0.2.0", path = "neuron-otel" }
-neuron = { version = "0.2.0", path = "neuron" }
+neuron-types = { version = "0.3.0", path = "neuron-types" }
+neuron-tool = { version = "0.3.0", path = "neuron-tool" }
+neuron-tool-macros = { version = "0.2.1", path = "neuron-tool-macros" }
+neuron-context = { version = "0.3.0", path = "neuron-context" }
+neuron-loop = { version = "0.3.0", path = "neuron-loop" }
+neuron-runtime = { version = "0.3.0", path = "neuron-runtime" }
+neuron-mcp = { version = "0.3.0", path = "neuron-mcp" }
+neuron-provider-anthropic = { version = "0.3.0", path = "neuron-provider-anthropic" }
+neuron-provider-openai = { version = "0.3.0", path = "neuron-provider-openai" }
+neuron-provider-ollama = { version = "0.3.0", path = "neuron-provider-ollama" }
+neuron-otel = { version = "0.3.0", path = "neuron-otel" }
+neuron = { version = "0.3.0", path = "neuron" }
 
 # External
 serde = { version = "1", features = ["derive"] }
