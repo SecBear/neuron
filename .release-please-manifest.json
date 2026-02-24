@@ -9,6 +9,6 @@
   "neuron-provider-ollama": "0.3.0",
   "neuron-mcp": "0.3.0",
   "neuron-runtime": "0.3.0",
-  "neuron-otel": "0.3.0",
+  "neuron-otel": "0.3.1",
   "neuron": "0.3.0"
 }
