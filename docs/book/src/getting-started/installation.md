@@ -24,6 +24,7 @@ cargo add neuron --features anthropic
 | `ollama` | `neuron-provider-ollama` | No |
 | `mcp` | `neuron-mcp` (Model Context Protocol) | No |
 | `runtime` | `neuron-runtime` (sessions, guardrails) | No |
+| `otel` | `neuron-otel` (OpenTelemetry instrumentation) | No |
 | `full` | All of the above | No |
 
 ## Using Individual Crates

@@ -51,6 +51,10 @@ What ships today:
 - **Property-based tests** -- proptest for serde roundtrips, error classification, token monotonicity, middleware ordering
 - **Criterion benchmarks** -- serialization throughput, token counting, agent loop latency
 - **Fuzz targets** -- cargo-fuzz for all 3 provider response parsers
+- **`UsageLimits`** -- token/request budget enforcement in the agentic loop; `LoopConfig.usage_limits` field, `LoopError::UsageLimitExceeded` variant; inspired by Pydantic AI's usage limit pattern
+- **`TimeoutMiddleware`** -- per-tool execution timeouts via `tokio::time::timeout`; register as global or per-tool middleware to prevent runaway tool calls
+- **`StructuredOutputValidator` + `RetryLimitedValidator`** -- JSON Schema validation middleware returning `ToolError::ModelRetry` for self-correction; validates tool input against schemas and gives the model a chance to retry with a hint, with configurable retry limits
+- **`neuron-otel`** -- OpenTelemetry instrumentation crate implementing `ObservabilityHook` with `tracing` spans following GenAI semantic conventions (`gen_ai.loop.iteration`, `gen_ai.chat`, `gen_ai.execute_tool`, `gen_ai.context.compaction`); opt-in content capture via `OtelConfig`
 
 ## Next
 

@@ -23,6 +23,12 @@ cargo add neuron-tool
 - `ToolCall` -- a tool call in flight: `id`, `name`, and `input` JSON
 - `Next` -- the remaining middleware chain plus the underlying tool. Moved (consumed) when called — each middleware must call `next.run()` exactly once or skip it to short-circuit
 - `tool_middleware_fn()` -- creates middleware from a closure (like axum's `from_fn`)
+- `PermissionChecker` -- middleware that checks tool calls against a `PermissionPolicy`
+- `OutputFormatter` -- middleware that truncates tool output text to a maximum character length
+- `SchemaValidator` -- middleware that validates tool input against JSON Schema (structural checks)
+- `TimeoutMiddleware` -- middleware that enforces per-tool execution timeouts via `tokio::time::timeout`
+- `StructuredOutputValidator` -- middleware that validates tool input against a JSON Schema, returning `ToolError::ModelRetry` on failure for self-correction
+- `RetryLimitedValidator` -- wraps `StructuredOutputValidator` with a maximum retry count to prevent infinite correction loops
 
 ## Usage
 

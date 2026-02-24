@@ -207,6 +207,7 @@ pub enum LoopError {
     Tool(ToolError),
     Context(ContextError),
     MaxTurns(usize),
+    UsageLimitExceeded(String),
     HookTerminated(String),
     Cancelled,
 }
@@ -220,6 +221,7 @@ pub enum LoopError {
 | `Tool` | A tool call failed (excluding `ModelRetry`, which is handled internally). |
 | `Context` | Context compaction failed. |
 | `MaxTurns` | The loop hit the configured turn limit. Contains the limit value. |
+| `UsageLimitExceeded` | A token, request, or tool call budget was exceeded. Contains a descriptive message (e.g., `"output token limit exceeded: 50123 > 50000"`). |
 | `HookTerminated` | An `ObservabilityHook` returned `HookAction::Terminate`. Contains the reason. |
 | `Cancelled` | The loop's cancellation token was triggered. |
 
@@ -259,6 +261,10 @@ match loop_result {
     Err(LoopError::MaxTurns(limit)) => {
         // The agent ran for too many turns without completing.
         eprintln!("Hit {limit} turn limit");
+    }
+    Err(LoopError::UsageLimitExceeded(msg)) => {
+        // A token, request, or tool call budget was exceeded.
+        eprintln!("Usage limit: {msg}");
     }
     Err(LoopError::HookTerminated(reason)) => {
         // A guardrail or hook stopped the loop.

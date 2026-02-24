@@ -758,7 +758,7 @@ async fn tracing_hook_returns_continue() {
 
 #[tokio::test]
 async fn tracing_hook_default() {
-    let hook = TracingHook::default();
+    let hook = TracingHook;
     let event = HookEvent::SessionStart { session_id: "test" };
     let result = hook.on_event(event).await.unwrap();
     assert!(matches!(result, HookAction::Continue));

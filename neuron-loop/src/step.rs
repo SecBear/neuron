@@ -13,7 +13,8 @@ use neuron_types::{
 };
 
 use crate::loop_impl::{
-    AgentLoop, AgentResult, DEFAULT_ACTIVITY_TIMEOUT, accumulate_usage, extract_text,
+    AgentLoop, AgentResult, DEFAULT_ACTIVITY_TIMEOUT, accumulate_usage,
+    check_request_limit, check_token_limits, check_tool_call_limit, extract_text,
     fire_compaction_hooks, fire_loop_iteration_hooks, fire_post_llm_hooks, fire_post_tool_hooks,
     fire_pre_llm_hooks, fire_pre_tool_hooks,
 };
@@ -55,6 +56,8 @@ pub struct StepIterator<'a, P: Provider, C: ContextStrategy> {
     tool_ctx: &'a ToolContext,
     total_usage: TokenUsage,
     turns: usize,
+    request_count: usize,
+    tool_call_count: usize,
     finished: bool,
 }
 
@@ -80,6 +83,14 @@ impl<'a, P: Provider, C: ContextStrategy> StepIterator<'a, P, C> {
         {
             self.finished = true;
             return Some(TurnResult::MaxTurnsReached);
+        }
+
+        // Check request limit (pre-request)
+        if let Some(ref limits) = self.loop_ref.config.usage_limits
+            && let Err(e) = check_request_limit(limits, self.request_count)
+        {
+            self.finished = true;
+            return Some(TurnResult::Error(e));
         }
 
         // Fire LoopIteration hooks
@@ -208,7 +219,16 @@ impl<'a, P: Provider, C: ContextStrategy> StepIterator<'a, P, C> {
 
         // Accumulate usage
         accumulate_usage(&mut self.total_usage, &response.usage);
+        self.request_count += 1;
         self.turns += 1;
+
+        // Check token limits (post-response)
+        if let Some(ref limits) = self.loop_ref.config.usage_limits
+            && let Err(e) = check_token_limits(limits, &self.total_usage)
+        {
+            self.finished = true;
+            return Some(TurnResult::Error(e));
+        }
 
         // Check for tool calls
         let tool_calls: Vec<_> = response
@@ -252,6 +272,15 @@ impl<'a, P: Provider, C: ContextStrategy> StepIterator<'a, P, C> {
             self.finished = true;
             return Some(TurnResult::Error(LoopError::Cancelled));
         }
+
+        // Check tool call limit (pre-tool-call)
+        if let Some(ref limits) = self.loop_ref.config.usage_limits
+            && let Err(e) = check_tool_call_limit(limits, self.tool_call_count, tool_calls.len())
+        {
+            self.finished = true;
+            return Some(TurnResult::Error(e));
+        }
+        self.tool_call_count += tool_calls.len();
 
         // Execute tool calls (parallel or sequential)
         let mut tool_result_blocks = Vec::new();
@@ -364,6 +393,8 @@ impl<P: Provider, C: ContextStrategy> AgentLoop<P, C> {
             tool_ctx,
             total_usage: TokenUsage::default(),
             turns: 0,
+            request_count: 0,
+            tool_call_count: 0,
             finished: false,
         }
     }
@@ -395,6 +426,9 @@ impl<P: Provider, C: ContextStrategy> AgentLoop<P, C> {
         self.messages.push(user_message);
 
         let mut turns: usize = 0;
+        let mut request_count: usize = 0;
+        let mut tool_call_count: usize = 0;
+        let mut total_usage = TokenUsage::default();
 
         loop {
             // Check cancellation
@@ -412,6 +446,18 @@ impl<P: Provider, C: ContextStrategy> AgentLoop<P, C> {
                 let _ = tx
                     .send(StreamEvent::Error(StreamError::non_retryable(format!(
                         "max turns reached ({max})"
+                    ))))
+                    .await;
+                break;
+            }
+
+            // Check request limit (pre-request)
+            if let Some(ref limits) = self.config.usage_limits
+                && let Err(e) = check_request_limit(limits, request_count)
+            {
+                let _ = tx
+                    .send(StreamEvent::Error(StreamError::non_retryable(format!(
+                        "{e}"
                     ))))
                     .await;
                 break;
@@ -511,7 +557,8 @@ impl<P: Provider, C: ContextStrategy> AgentLoop<P, C> {
 
             // Call provider: durable path uses complete() with synthesized events,
             // non-durable path uses complete_stream() for real streaming.
-            let message = if let Some(ref durable) = self.durability {
+            // Returns (Message, TokenUsage) so usage limits can be checked afterwards.
+            let (message, turn_usage) = if let Some(ref durable) = self.durability {
                 // Durable path: use execute_llm_call for journaling/replay
                 let options = neuron_types::ActivityOptions {
                     start_to_close_timeout: DEFAULT_ACTIVITY_TIMEOUT,
@@ -574,7 +621,7 @@ impl<P: Provider, C: ContextStrategy> AgentLoop<P, C> {
                     _ => {}
                 }
 
-                response.message
+                (response.message, response.usage)
             } else {
                 // Non-durable path: use streaming provider call
                 let stream_handle = match self.provider.complete_stream(request).await {
@@ -592,6 +639,7 @@ impl<P: Provider, C: ContextStrategy> AgentLoop<P, C> {
                 // Forward all stream events to the channel, collect the assembled message
                 let mut assembled_message: Option<Message> = None;
                 let mut assembled_response: Option<neuron_types::CompletionResponse> = None;
+                let mut stream_usage = TokenUsage::default();
                 let mut stream = stream_handle.receiver;
 
                 while let Some(event) = stream.next().await {
@@ -600,6 +648,7 @@ impl<P: Provider, C: ContextStrategy> AgentLoop<P, C> {
                             assembled_message = Some(msg.clone());
                         }
                         StreamEvent::Usage(u) => {
+                            stream_usage = u.clone();
                             // Build a partial CompletionResponse for PostLlmCall
                             assembled_response = Some(neuron_types::CompletionResponse {
                                 id: String::new(),
@@ -686,10 +735,24 @@ impl<P: Provider, C: ContextStrategy> AgentLoop<P, C> {
                     }
                 }
 
-                msg
+                (msg, stream_usage)
             };
 
+            request_count += 1;
             turns += 1;
+            accumulate_usage(&mut total_usage, &turn_usage);
+
+            // Check token limits (post-response)
+            if let Some(ref limits) = self.config.usage_limits
+                && let Err(e) = check_token_limits(limits, &total_usage)
+            {
+                let _ = tx
+                    .send(StreamEvent::Error(StreamError::non_retryable(format!(
+                        "{e}"
+                    ))))
+                    .await;
+                break;
+            }
 
             // Check for tool calls
             let tool_calls: Vec<_> = message
@@ -723,6 +786,19 @@ impl<P: Provider, C: ContextStrategy> AgentLoop<P, C> {
                     .await;
                 break;
             }
+
+            // Check tool call limit (pre-tool-call)
+            if let Some(ref limits) = self.config.usage_limits
+                && let Err(e) = check_tool_call_limit(limits, tool_call_count, tool_calls.len())
+            {
+                let _ = tx
+                    .send(StreamEvent::Error(StreamError::non_retryable(format!(
+                        "{e}"
+                    ))))
+                    .await;
+                break;
+            }
+            tool_call_count += tool_calls.len();
 
             // Execute tool calls with hooks and durability
             let mut tool_result_blocks = Vec::new();

@@ -302,7 +302,7 @@ registry.add_tool_middleware("search", auth_mw);  // Runs second, only for "sear
 
 ### Built-in middleware
 
-neuron-tool ships three built-in middleware implementations:
+neuron-tool ships built-in middleware implementations:
 
 - **`PermissionChecker`** -- checks a `PermissionPolicy` before each tool call.
   Returns `ToolError::PermissionDenied` on `Deny` or `Ask` decisions.
@@ -310,6 +310,15 @@ neuron-tool ships three built-in middleware implementations:
   Useful to prevent large tool results from consuming the context window.
 - **`SchemaValidator`** -- validates tool call inputs against their JSON Schema
   before execution. Catches missing required fields and type mismatches.
+- **`TimeoutMiddleware`** -- wraps tool calls with `tokio::time::timeout`.
+  Configurable default timeout and per-tool overrides for tools with different
+  latency characteristics.
+- **`StructuredOutputValidator`** -- validates tool input against the tool's JSON
+  Schema and returns `ToolError::ModelRetry` on failure, giving the model a
+  chance to self-correct with the validation error as a hint.
+- **`RetryLimitedValidator`** -- wraps `StructuredOutputValidator` with a maximum
+  retry count. After the retry limit is exhausted, converts `ModelRetry` to
+  `ToolError::InvalidInput` to stop the loop rather than retrying indefinitely.
 
 ```rust,ignore
 use neuron_tool::builtin::{PermissionChecker, OutputFormatter, SchemaValidator};
@@ -321,6 +330,79 @@ registry.add_middleware(OutputFormatter::new(10_000));
 let validator = SchemaValidator::new(&registry);
 registry.add_middleware(validator);
 ```
+
+#### `TimeoutMiddleware`
+
+Wraps each tool call with `tokio::time::timeout`. If a tool exceeds the
+configured duration, the call is cancelled and returns
+`ToolError::ExecutionFailed` with a timeout message.
+
+```rust,ignore
+use std::time::Duration;
+use neuron_tool::builtin::TimeoutMiddleware;
+
+// Default timeout of 30 seconds for all tools
+let timeout = TimeoutMiddleware::new(Duration::from_secs(30))
+    // Override for specific tools that need more time
+    .with_tool_timeout("slow_search", Duration::from_secs(120))
+    .with_tool_timeout("code_execution", Duration::from_secs(300));
+
+registry.add_middleware(timeout);
+```
+
+The middleware checks the tool name from the `ToolCall` and uses the per-tool
+timeout if one was configured, otherwise the default. This is useful when most
+tools are fast but a few (external API calls, code execution) need longer
+deadlines.
+
+#### `StructuredOutputValidator`
+
+Validates tool input JSON against the tool's JSON Schema before execution. When
+validation fails, it returns `ToolError::ModelRetry` with the validation errors
+as a hint, giving the model a chance to fix its arguments and retry.
+
+```rust,ignore
+use neuron_tool::builtin::StructuredOutputValidator;
+
+// Validate tool output against a JSON Schema, with up to 3 retries
+let schema = serde_json::json!({
+    "type": "object",
+    "required": ["result"],
+    "properties": { "result": { "type": "string" } }
+});
+let validator = StructuredOutputValidator::new(schema, 3);
+registry.add_middleware(validator);
+```
+
+Unlike `SchemaValidator` (which returns `ToolError::InvalidInput` on failure),
+`StructuredOutputValidator` uses the `ModelRetry` self-correction pattern. The
+model receives the validation errors as feedback and can retry with corrected
+arguments. This is directly inspired by Pydantic AI's validation-retry loop.
+
+#### `RetryLimitedValidator`
+
+Wraps `StructuredOutputValidator` with a maximum retry count. After the model
+has retried a specified number of times, the validator converts `ModelRetry`
+to `ToolError::InvalidInput`, stopping the self-correction loop and propagating
+the error.
+
+```rust,ignore
+use neuron_tool::builtin::{RetryLimitedValidator, StructuredOutputValidator};
+
+// Create a structured validator, then wrap it with a retry limit
+let schema = serde_json::json!({
+    "type": "object",
+    "required": ["result"],
+    "properties": { "result": { "type": "string" } }
+});
+let inner = StructuredOutputValidator::new(schema, 3);
+let validator = RetryLimitedValidator::new(inner);
+registry.add_middleware(validator);
+```
+
+This prevents infinite retry loops when the model consistently produces invalid
+input. After the inner validator's retry limit is exhausted,
+`RetryLimitedValidator` converts `ModelRetry` to `ToolError::InvalidInput`.
 
 ## `ToolError::ModelRetry`
 

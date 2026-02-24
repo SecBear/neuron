@@ -2,7 +2,6 @@ use neuron_tool::*;
 use neuron_types::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::future::Future;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -37,12 +36,12 @@ impl Tool for AlwaysFailTool {
         }
     }
 
-    fn call(
+    async fn call(
         &self,
         _args: Self::Args,
         _ctx: &ToolContext,
-    ) -> impl Future<Output = Result<Self::Output, Self::Error>> + Send {
-        async move { Err(AlwaysFailError::Boom) }
+    ) -> Result<Self::Output, Self::Error> {
+        Err(AlwaysFailError::Boom)
     }
 }
 
@@ -89,16 +88,14 @@ impl Tool for ReadFileTool {
         }
     }
 
-    fn call(
+    async fn call(
         &self,
         args: Self::Args,
         _ctx: &ToolContext,
-    ) -> impl Future<Output = Result<Self::Output, Self::Error>> + Send {
-        async move {
-            Ok(ReadFileOutput {
-                content: format!("contents of {}", args.path),
-            })
-        }
+    ) -> Result<Self::Output, Self::Error> {
+        Ok(ReadFileOutput {
+            content: format!("contents of {}", args.path),
+        })
     }
 }
 

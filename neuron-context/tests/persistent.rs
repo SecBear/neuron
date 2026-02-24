@@ -142,7 +142,7 @@ fn many_sections_ordering() {
         let label = format!("Section {i}");
         let pos = rendered
             .find(&label)
-            .expect(&format!("{label} should exist"));
+            .unwrap_or_else(|| panic!("{label} should exist"));
         assert!(
             pos >= last_pos,
             "Section {i} at position {pos} should be after position {last_pos}"

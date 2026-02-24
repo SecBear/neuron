@@ -47,6 +47,7 @@ let agent = AgentLoop::builder(provider, context)
     .system_prompt("You are helpful.")  // SystemPrompt (default: empty)
     .max_turns(10)                      // Option<usize> (default: None = unlimited)
     .parallel_tool_execution(true)      // bool (default: false)
+    .usage_limits(limits)               // UsageLimits (default: no limits)
     .hook(my_logging_hook)              // ObservabilityHook (can add multiple)
     .durability(my_durable_ctx)         // DurableContext (optional)
     .build();
@@ -64,6 +65,7 @@ let config = LoopConfig {
     system_prompt: SystemPrompt::Text("You are a code reviewer.".into()),
     max_turns: Some(20),
     parallel_tool_execution: true,
+    ..Default::default()
 };
 
 let agent = AgentLoop::new(provider, tools, context, config);
@@ -216,24 +218,27 @@ Each iteration of the loop follows this sequence:
    return `LoopError::Cancelled`
 2. **Check max turns** -- if the turn limit is reached, return
    `LoopError::MaxTurns`
-3. **Fire `LoopIteration` hooks**
-4. **Check context compaction** -- call `context.should_compact()` and
+3. **Check usage limits** -- if any token, request, or tool call limit is
+   exceeded, return `LoopError::UsageLimitExceeded`
+4. **Fire `LoopIteration` hooks**
+5. **Check context compaction** -- call `context.should_compact()` and
    `context.compact()` if needed
-5. **Build `CompletionRequest`** from current messages, system prompt, and tool
+6. **Build `CompletionRequest`** from current messages, system prompt, and tool
    definitions
-6. **Fire `PreLlmCall` hooks**
-7. **Call the provider** (or durable context if set)
-8. **Fire `PostLlmCall` hooks**
-9. **Accumulate token usage**
-10. **Check stop reason**:
+7. **Fire `PreLlmCall` hooks**
+8. **Call the provider** (or durable context if set)
+9. **Fire `PostLlmCall` hooks**
+10. **Accumulate token usage**
+11. **Check stop reason**:
     - `StopReason::Compaction` -- append message and continue the loop
     - `StopReason::EndTurn` or no tool calls -- extract text and return
       `AgentResult`
     - `StopReason::ToolUse` -- proceed to tool execution
-11. **Check cancellation** again before tool execution
-12. **Execute tool calls** (parallel or sequential), firing `PreToolExecution`
+12. **Check cancellation** again before tool execution
+13. **Execute tool calls** (parallel or sequential), firing `PreToolExecution`
     and `PostToolExecution` hooks for each
-13. **Append tool results** as a user message and loop back to step 1
+14. **Check usage limits** -- verify tool call count against limit
+15. **Append tool results** as a user message and loop back to step 1
 
 ## How tool call processing works
 
@@ -412,6 +417,78 @@ let agent = AgentLoop::builder(provider, context)
 Parallel execution applies to `run()` and `run_step()`. Streaming (`run_stream()`)
 always executes tools sequentially.
 
+## Usage limits
+
+`UsageLimits` enforces token and request budgets on the agent loop. When any
+limit is exceeded, the loop returns `LoopError::UsageLimitExceeded` with a
+message describing which limit was hit.
+
+```rust,ignore
+use neuron_loop::AgentLoop;
+use neuron_types::UsageLimits;
+
+let limits = UsageLimits::default()
+    .with_input_tokens_limit(500_000)
+    .with_output_tokens_limit(50_000)
+    .with_total_tokens_limit(600_000)
+    .with_request_limit(25)
+    .with_tool_calls_limit(100);
+
+let agent = AgentLoop::builder(provider, context)
+    .tools(registry)
+    .usage_limits(limits)
+    .build();
+```
+
+Each field is optional -- set only the limits you care about. Unset limits are
+not enforced.
+
+| Limit | Checked against |
+|---|---|
+| `input_tokens_limit` | Cumulative `TokenUsage.input_tokens` across all turns |
+| `output_tokens_limit` | Cumulative `TokenUsage.output_tokens` across all turns |
+| `total_tokens_limit` | Sum of cumulative input + output tokens |
+| `request_limit` | Number of LLM calls made (incremented each turn) |
+| `tool_calls_limit` | Number of tool executions (incremented per tool call) |
+
+The loop checks limits at two points:
+
+1. **Before each LLM call** -- checks token and request limits against
+   accumulated usage
+2. **After tool execution** -- checks the tool call count against the limit
+
+When a limit is exceeded, the loop stops immediately and returns
+`LoopError::UsageLimitExceeded` with a descriptive message (e.g.,
+`"output token limit exceeded: 50123 > 50000"`).
+
+You can also construct `UsageLimits` directly:
+
+```rust,ignore
+use neuron_types::UsageLimits;
+
+let limits = UsageLimits {
+    input_tokens_limit: Some(500_000),
+    output_tokens_limit: Some(50_000),
+    total_tokens_limit: None,
+    request_limit: Some(25),
+    tool_calls_limit: None,
+};
+```
+
+Or use `LoopConfig` directly:
+
+```rust,ignore
+use neuron_loop::LoopConfig;
+use neuron_types::UsageLimits;
+
+let config = LoopConfig {
+    usage_limits: Some(UsageLimits::default()
+        .with_total_tokens_limit(1_000_000)
+        .with_request_limit(50)),
+    ..Default::default()
+};
+```
+
 ## Context compaction
 
 The loop supports two independent compaction mechanisms:
@@ -514,6 +591,7 @@ The loop handles the durable/non-durable split transparently. All other behavior
 | `LoopError::Tool(e)` | Tool execution failed (except `ModelRetry`) |
 | `LoopError::Context(e)` | Context compaction failed |
 | `LoopError::MaxTurns(n)` | Turn limit reached |
+| `LoopError::UsageLimitExceeded(msg)` | Token, request, or tool call budget exceeded |
 | `LoopError::HookTerminated(reason)` | A hook returned `Terminate` |
 | `LoopError::Cancelled` | Cancellation token was triggered |
 

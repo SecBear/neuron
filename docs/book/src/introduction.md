@@ -31,6 +31,7 @@ neuron ships the following crates:
 | `neuron-loop` | Configurable `AgentLoop` with streaming, cancellation, parallel tools |
 | `neuron-mcp` | Model Context Protocol client and server (stdio + Streamable HTTP) |
 | `neuron-runtime` | Sessions, guardrails, `TracingHook`, `GuardrailHook`, `DurableContext` |
+| `neuron-otel` | OpenTelemetry instrumentation with GenAI semantic conventions (`gen_ai.*` spans) |
 | `neuron` | Umbrella crate with feature flags for all of the above |
 
 ## Who Is This For?

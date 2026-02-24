@@ -81,6 +81,8 @@ building block.
 | Context compaction strategies | Parallel guardrail orchestration |
 | MCP integration | `StopAtTools` declarative loop termination |
 | Provider crates (one per provider) | `Agent.override()` testing DX |
+| Usage limits and budget enforcement | Custom billing/quota logic |
+| OTel instrumentation (GenAI semantic conventions) | Custom telemetry dashboards |
 | `from_env()`, `Message::user()` conveniences | Sub-agent orchestration registry |
 
 When evaluating a new feature, apply this test before adding it to any crate.
@@ -160,10 +162,12 @@ When making design decisions, apply these filters in order:
 
 ```
 neuron-types                    (zero deps, the foundation)
+neuron-tool-macros              (zero deps, proc macro)
     ^
     |-- neuron-provider-*       (each implements Provider trait)
+    |-- neuron-otel             (OTel instrumentation, GenAI semantic conventions)
     |-- neuron-context          (compaction strategies, token counting)
-    +-- neuron-tool             (Tool trait, registry, middleware)
+    +-- neuron-tool             (Tool trait, registry, middleware; optional dep on neuron-tool-macros)
             ^
             |-- neuron-mcp      (wraps rmcp, bridges to Tool trait)
             |-- neuron-loop     (provider loop with tool dispatch)
@@ -344,6 +348,8 @@ Before completing any PR or commit that touches public API or docs:
 8. mdBook guide pages reflect current API (spot-check changed features)
 9. Run the `doc-audit` skill (`.claude/skills/doc-audit/SKILL.md`) to verify
    documentation-code consistency
+10. Run the `test-audit` skill (`.claude/skills/test-audit/SKILL.md`) to verify
+    test coverage consistency
 
 ---
 

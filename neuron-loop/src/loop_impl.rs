@@ -10,7 +10,7 @@ use neuron_types::{
     ActivityOptions, CompletionRequest, CompletionResponse, ContentBlock, ContentItem,
     ContextStrategy, DurableContext, DurableError, HookAction, HookError, HookEvent, LoopError,
     Message, ObservabilityHook, Provider, ProviderError, Role, StopReason, TokenUsage, ToolContext,
-    ToolError, ToolOutput,
+    ToolError, ToolOutput, UsageLimits,
 };
 
 use crate::config::LoopConfig;
@@ -225,6 +225,8 @@ impl<P: Provider, C: ContextStrategy> AgentLoop<P, C> {
 
         let mut total_usage = TokenUsage::default();
         let mut turns: usize = 0;
+        let mut request_count: usize = 0;
+        let mut tool_call_count: usize = 0;
 
         loop {
             // Check cancellation
@@ -237,6 +239,11 @@ impl<P: Provider, C: ContextStrategy> AgentLoop<P, C> {
                 && turns >= max
             {
                 return Err(LoopError::MaxTurns(max));
+            }
+
+            // Check request limit (pre-request)
+            if let Some(ref limits) = self.config.usage_limits {
+                check_request_limit(limits, request_count)?;
             }
 
             // Fire LoopIteration hooks
@@ -302,7 +309,13 @@ impl<P: Provider, C: ContextStrategy> AgentLoop<P, C> {
 
             // Accumulate usage
             accumulate_usage(&mut total_usage, &response.usage);
+            request_count += 1;
             turns += 1;
+
+            // Check token limits (post-response)
+            if let Some(ref limits) = self.config.usage_limits {
+                check_token_limits(limits, &total_usage)?;
+            }
 
             // Check for tool calls in the response
             let tool_calls: Vec<_> = response
@@ -342,6 +355,12 @@ impl<P: Provider, C: ContextStrategy> AgentLoop<P, C> {
             if tool_ctx.cancellation_token.is_cancelled() {
                 return Err(LoopError::Cancelled);
             }
+
+            // Check tool call limit (pre-tool-call)
+            if let Some(ref limits) = self.config.usage_limits {
+                check_tool_call_limit(limits, tool_call_count, tool_calls.len())?;
+            }
+            tool_call_count += tool_calls.len();
 
             // Execute tool calls and collect results
             let tool_result_blocks = if self.config.parallel_tool_execution && tool_calls.len() > 1
@@ -524,6 +543,13 @@ impl<P: Provider, C: ContextStrategy> AgentLoopBuilder<P, C> {
         self
     }
 
+    /// Set usage limits for the loop (token budgets, request/tool call caps).
+    #[must_use]
+    pub fn usage_limits(mut self, limits: UsageLimits) -> Self {
+        self.config.usage_limits = Some(limits);
+        self
+    }
+
     /// Add an observability hook.
     #[must_use]
     pub fn hook<H: ObservabilityHook + 'static>(mut self, hook: H) -> Self {
@@ -661,6 +687,66 @@ pub(crate) async fn fire_compaction_hooks(
         }
     }
     Ok(None)
+}
+
+// --- Usage limit checks ---
+
+/// Check whether the request count would exceed the configured limit.
+pub(crate) fn check_request_limit(limits: &UsageLimits, request_count: usize) -> Result<(), LoopError> {
+    if let Some(max) = limits.request_limit
+        && request_count >= max
+    {
+        return Err(LoopError::UsageLimitExceeded(format!(
+            "request limit of {max} reached"
+        )));
+    }
+    Ok(())
+}
+
+/// Check whether accumulated tokens exceed any configured token limit.
+pub(crate) fn check_token_limits(limits: &UsageLimits, usage: &TokenUsage) -> Result<(), LoopError> {
+    if let Some(max) = limits.input_tokens_limit
+        && usage.input_tokens > max
+    {
+        return Err(LoopError::UsageLimitExceeded(format!(
+            "input token limit of {max} exceeded (used {})",
+            usage.input_tokens
+        )));
+    }
+    if let Some(max) = limits.output_tokens_limit
+        && usage.output_tokens > max
+    {
+        return Err(LoopError::UsageLimitExceeded(format!(
+            "output token limit of {max} exceeded (used {})",
+            usage.output_tokens
+        )));
+    }
+    if let Some(max) = limits.total_tokens_limit {
+        let total = usage.input_tokens + usage.output_tokens;
+        if total > max {
+            return Err(LoopError::UsageLimitExceeded(format!(
+                "total token limit of {max} exceeded (used {total})"
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// Check whether the tool call count would exceed the configured limit.
+pub(crate) fn check_tool_call_limit(
+    limits: &UsageLimits,
+    current_count: usize,
+    new_calls: usize,
+) -> Result<(), LoopError> {
+    if let Some(max) = limits.tool_calls_limit
+        && current_count + new_calls > max
+    {
+        return Err(LoopError::UsageLimitExceeded(format!(
+            "tool call limit of {max} would be exceeded ({} + {new_calls} calls)",
+            current_count
+        )));
+    }
+    Ok(())
 }
 
 // --- Utility functions ---

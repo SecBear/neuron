@@ -12,6 +12,9 @@ Tool registry with composable middleware pipeline for LLM function calling.
 - `PermissionChecker` -- middleware that checks tool calls against a `PermissionPolicy`. Deny/Ask returns `ToolError::PermissionDenied`.
 - `OutputFormatter` -- middleware that truncates tool output text to a maximum character length. UTF-8 boundary safe.
 - `SchemaValidator` -- middleware that validates tool input against JSON Schema (structural checks: required fields, property types).
+- `TimeoutMiddleware` -- middleware that enforces per-tool execution timeouts. Wraps tool calls in `tokio::time::timeout`.
+- `StructuredOutputValidator` -- middleware that validates tool input against a JSON Schema, returning `ModelRetry` on failure for self-correction.
+- `RetryLimitedValidator` -- wraps `StructuredOutputValidator` with a maximum retry count.
 - `neuron_tool` (proc macro, `macros` feature) -- derive a `Tool` impl from an async function. Re-exported from `neuron-tool-macros`.
 
 ## Key design decisions
@@ -28,7 +31,7 @@ Tool registry with composable middleware pipeline for LLM function calling.
 - `neuron-types` (workspace) -- `Tool`, `ToolDyn`, `ToolContext`, `ToolDefinition`, `ToolOutput`, `ToolError`, `PermissionPolicy`, `WasmBoxedFuture`
 - `neuron-tool-macros` (workspace, optional, `macros` feature) -- `#[neuron_tool]` proc macro
 - `serde`, `serde_json` (workspace) -- JSON handling for tool inputs
-- `tokio` (workspace) -- async runtime
+- `tokio` (workspace, with `time` feature) -- async runtime, used for `TimeoutMiddleware`
 - `tracing` (workspace) -- instrumentation
 
 ## Structure

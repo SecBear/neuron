@@ -20,7 +20,7 @@ neuron-types.workspace = true
 neuron-tool-macros = { workspace = true, optional = true }
 serde.workspace = true
 serde_json.workspace = true
-tokio.workspace = true
+tokio = { workspace = true, features = ["time"] }
 tracing.workspace = true
 
 [dev-dependencies]

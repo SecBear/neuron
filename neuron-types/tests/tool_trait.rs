@@ -1,7 +1,6 @@
 use neuron_types::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::future::Future;
 use std::path::PathBuf;
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -41,16 +40,14 @@ impl Tool for ReadFileTool {
         }
     }
 
-    fn call(
+    async fn call(
         &self,
         args: Self::Args,
         _ctx: &ToolContext,
-    ) -> impl Future<Output = Result<Self::Output, Self::Error>> + Send {
-        async move {
-            Ok(ReadFileOutput {
-                content: format!("contents of {}", args.path),
-            })
-        }
+    ) -> Result<Self::Output, Self::Error> {
+        Ok(ReadFileOutput {
+            content: format!("contents of {}", args.path),
+        })
     }
 }
 

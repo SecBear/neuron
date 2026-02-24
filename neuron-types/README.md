@@ -35,6 +35,7 @@ cargo add neuron-types
 - `EmbeddingRequest` -- embedding model request: model, input texts, optional dimensions
 - `EmbeddingResponse` -- embedding model response: vectors, usage
 - `EmbeddingUsage` -- token counts for an embedding request
+- `UsageLimits` -- token usage budget constraints (request tokens, response tokens, total tokens) enforced by the agentic loop
 
 ## Key Traits
 

@@ -121,6 +121,9 @@ pub enum LoopError {
     /// The loop was cancelled via the cancellation token.
     #[error("cancelled")]
     Cancelled,
+    /// A usage limit was exceeded (token budget, request limit, or tool call limit).
+    #[error("usage limit exceeded: {0}")]
+    UsageLimitExceeded(String),
 }
 
 /// Errors from durable execution operations.

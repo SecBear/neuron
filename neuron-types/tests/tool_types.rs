@@ -194,7 +194,7 @@ fn tool_context_with_environment() {
 fn tool_context_default_has_valid_cwd() {
     let ctx = ToolContext::default();
     // The default cwd should be either the current directory or /tmp
-    assert!(ctx.cwd.exists() || ctx.cwd == std::path::PathBuf::from("/tmp"));
+    assert!(ctx.cwd.exists() || ctx.cwd == std::path::Path::new("/tmp"));
 }
 
 // --- ToolOutput with empty content ---

@@ -30,6 +30,10 @@ neuron is none of those.
 - **Sessions and sub-agents** — persist conversations, spawn isolated sub-agents with filtered tool sets and depth guards
 - **Durable execution** — wrap side effects for crash recovery via Temporal, Restate, or Inngest
 - **Streaming** — real-time token streaming with hook integration across all providers
+- **Usage limits** — `UsageLimits` on `LoopConfig` enforces token budget constraints; `LoopError::UsageLimitExceeded` when exceeded
+- **Tool timeouts** — `TimeoutMiddleware` wraps tool calls in `tokio::time::timeout` to prevent runaway execution
+- **Structured output validation** — `StructuredOutputValidator` validates tool input against JSON Schema, returning `ToolError::ModelRetry` for self-correction; `RetryLimitedValidator` adds a retry cap
+- **OpenTelemetry instrumentation** — `OtelHook` in `neuron-otel` emits `tracing` spans following GenAI semantic conventions with opt-in content capture
 
 ## Installation
 
@@ -78,6 +82,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 | `ollama` | `neuron::ollama` (Ollama local) | no |
 | `mcp` | `neuron::mcp` (Model Context Protocol) | no |
 | `runtime` | `neuron::runtime` (sessions, guardrails) | no |
+| `otel` | `neuron::otel` (OpenTelemetry instrumentation) | no |
 | `full` | All of the above | no |
 
 ## Module Map
@@ -93,6 +98,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 | `neuron::ollama`| `neuron-provider-ollama` | Ollama client (feature-gated) |
 | `neuron::mcp` | `neuron-mcp` | McpClient, McpToolBridge (feature-gated) |
 | `neuron::runtime`| `neuron-runtime` | Sessions, guardrails (feature-gated) |
+| `neuron::otel` | `neuron-otel` | OTel instrumentation (feature-gated) |
 
 > **Note:** `loop` is a Rust keyword, so the loop module is accessed as
 > `neuron::r#loop`. In practice, import types directly from the prelude or
@@ -114,6 +120,7 @@ Each block is also available as a standalone crate:
 | [`neuron-provider-ollama`](https://docs.rs/neuron-provider-ollama) | Ollama (local NDJSON streaming) |
 | [`neuron-mcp`](https://docs.rs/neuron-mcp) | MCP client + server |
 | [`neuron-runtime`](https://docs.rs/neuron-runtime) | Sessions, sub-agents, guardrails, durability |
+| [`neuron-otel`](https://docs.rs/neuron-otel) | OTel instrumentation — GenAI semantic conventions |
 
 ## Comparison
 
@@ -130,6 +137,10 @@ How neuron compares to the two most established Rust alternatives:
 | Guardrails / sandbox | `InputGuardrail`, `OutputGuardrail`, `PermissionPolicy`, `Sandbox` | None | None |
 | Sessions | `SessionStorage` trait + impls | None | None |
 | Vector stores / RAG | None | Many integrations | None |
+| Usage limits | `UsageLimits` token/request budget | None | None |
+| Tool timeouts | `TimeoutMiddleware` per-tool | None | None |
+| Structured output validation | `StructuredOutputValidator` with self-correction | None | None |
+| OpenTelemetry | GenAI semantic conventions (`neuron-otel`) | Full integration | None |
 | Embeddings | None | `EmbeddingModel` trait | Yes |
 
 **Where others lead today:** Rig has a larger provider and vector store

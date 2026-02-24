@@ -85,7 +85,7 @@ async fn clears_old_tool_results_keeps_recent() {
     // Collect all tool result contents
     let tool_result_contents: Vec<String> = result
         .iter()
-        .filter_map(|m| extract_tool_result_content(m))
+        .filter_map(extract_tool_result_content)
         .collect();
 
     assert_eq!(tool_result_contents.len(), 5);
@@ -255,7 +255,7 @@ async fn keep_recent_zero_clears_all_tool_results() {
         .expect("compact should succeed");
     let tool_contents: Vec<String> = result
         .iter()
-        .filter_map(|m| extract_tool_result_content(m))
+        .filter_map(extract_tool_result_content)
         .collect();
     // Both cleared
     assert_eq!(tool_contents.len(), 2);

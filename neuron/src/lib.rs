@@ -56,6 +56,12 @@ pub mod runtime {
     pub use neuron_runtime::*;
 }
 
+/// OpenTelemetry instrumentation with GenAI semantic conventions.
+#[cfg(feature = "otel")]
+pub mod otel {
+    pub use neuron_otel::*;
+}
+
 // === Prelude — convenient imports for common usage ===
 
 /// Common imports for working with agent blocks.

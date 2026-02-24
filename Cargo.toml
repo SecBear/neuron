@@ -11,6 +11,7 @@ members = [
   "neuron-provider-ollama",
   "neuron-mcp",
   "neuron-runtime",
+  "neuron-otel",
   "neuron",
 ]
 exclude = [
@@ -38,6 +39,7 @@ neuron-mcp = { version = "0.2.0", path = "neuron-mcp" }
 neuron-provider-anthropic = { version = "0.2.0", path = "neuron-provider-anthropic" }
 neuron-provider-openai = { version = "0.2.0", path = "neuron-provider-openai" }
 neuron-provider-ollama = { version = "0.2.0", path = "neuron-provider-ollama" }
+neuron-otel = { version = "0.2.0", path = "neuron-otel" }
 neuron = { version = "0.2.0", path = "neuron" }
 
 # External

@@ -13,7 +13,7 @@ use neuron_types::{
     ContextError, ContextStrategy, DurableContext, DurableError, HookAction, HookError, HookEvent,
     LoopError, Message, ObservabilityHook, ProviderError, Role, StopReason, StreamEvent,
     StreamHandle, SystemPrompt, TokenUsage, Tool, ToolContext, ToolDefinition, ToolDyn, ToolError,
-    ToolOutput, WasmBoxedFuture,
+    ToolOutput, UsageLimits, WasmBoxedFuture,
 };
 use tokio_util::sync::CancellationToken;
 
@@ -167,6 +167,7 @@ fn test_neuron_loop_construction() {
         system_prompt: SystemPrompt::Text("You are a helpful assistant.".to_string()),
         max_turns: Some(5),
         parallel_tool_execution: false,
+        ..LoopConfig::default()
     };
 
     let agent = AgentLoop::new(provider, tools, context, config);
@@ -1596,10 +1597,9 @@ async fn test_sequential_tool_execution_order() {
             &self,
             event: HookEvent<'_>,
         ) -> impl Future<Output = Result<HookAction, HookError>> + Send {
-            if let HookEvent::PreToolExecution { input, .. } = &event {
-                if let Some(text) = input.get("text").and_then(|v| v.as_str()) {
-                    self.order.lock().expect("lock").push(text.to_string());
-                }
+            if let HookEvent::PreToolExecution { input, .. } = &event
+                && let Some(text) = input.get("text").and_then(|v| v.as_str()) {
+                self.order.lock().expect("lock").push(text.to_string());
             }
             std::future::ready(Ok(HookAction::Continue))
         }
@@ -2516,4 +2516,745 @@ async fn test_run_step_sequential_tool_error() {
     }
 
     assert!(iter.next().await.is_none());
+}
+
+// ==========================================================================
+// UsageLimits enforcement tests
+// ==========================================================================
+
+#[tokio::test]
+async fn test_usage_limits_request_limit_exceeded() {
+    // Provider always returns tool calls. With request_limit = 1, the first
+    // request succeeds (returning a tool call), but the second iteration
+    // fails the pre-request limit check.
+    let provider = MockProvider::new(vec![
+        tool_use_response("call-1", "echo", serde_json::json!({"text": "first"})),
+        // Second response would be consumed if the limit didn't fire first.
+        text_response("Should not reach this"),
+    ]);
+
+    let mut tools = ToolRegistry::new();
+    tools.register(EchoTool);
+
+    let context = SlidingWindowStrategy::new(10, 100_000);
+    let config = LoopConfig {
+        usage_limits: Some(UsageLimits::default().with_request_limit(1)),
+        ..LoopConfig::default()
+    };
+
+    let mut agent = AgentLoop::new(provider, tools, context, config);
+    let user_msg = Message {
+        role: Role::User,
+        content: vec![ContentBlock::Text("Keep going".to_string())],
+    };
+
+    let err = agent.run(user_msg, &test_tool_context()).await.unwrap_err();
+    match err {
+        LoopError::UsageLimitExceeded(msg) => {
+            assert!(
+                msg.contains("request limit"),
+                "expected 'request limit' in message, got: {msg}"
+            );
+        }
+        other => panic!("expected UsageLimitExceeded, got: {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn test_usage_limits_token_limit_exceeded() {
+    // Mock returns a response with high token usage that exceeds the total
+    // tokens limit. The check happens post-response (after accumulate_usage).
+    let high_usage_response = CompletionResponse {
+        id: "test-id".to_string(),
+        model: "mock-model".to_string(),
+        message: Message {
+            role: Role::Assistant,
+            content: vec![ContentBlock::Text("big response".to_string())],
+        },
+        usage: TokenUsage {
+            input_tokens: 500,
+            output_tokens: 600,
+            ..Default::default()
+        },
+        stop_reason: StopReason::EndTurn,
+    };
+
+    let provider = MockProvider::new(vec![high_usage_response]);
+    let tools = ToolRegistry::new();
+    let context = SlidingWindowStrategy::new(10, 100_000);
+    let config = LoopConfig {
+        // Total tokens limit of 100 — the response uses 500 + 600 = 1100
+        usage_limits: Some(UsageLimits::default().with_total_tokens_limit(100)),
+        ..LoopConfig::default()
+    };
+
+    let mut agent = AgentLoop::new(provider, tools, context, config);
+    let user_msg = Message {
+        role: Role::User,
+        content: vec![ContentBlock::Text("Hi".to_string())],
+    };
+
+    let err = agent.run(user_msg, &test_tool_context()).await.unwrap_err();
+    match err {
+        LoopError::UsageLimitExceeded(msg) => {
+            assert!(
+                msg.contains("total token limit"),
+                "expected 'total token limit' in message, got: {msg}"
+            );
+        }
+        other => panic!("expected UsageLimitExceeded, got: {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn test_usage_limits_tool_call_limit_exceeded() {
+    // Provider returns a response with 3 tool calls, but the tool_calls_limit
+    // is 2. The check happens before tool execution.
+    let provider = MockProvider::new(vec![multi_tool_use_response(&[
+        ("call-1", "echo", serde_json::json!({"text": "a"})),
+        ("call-2", "echo", serde_json::json!({"text": "b"})),
+        ("call-3", "echo", serde_json::json!({"text": "c"})),
+    ])]);
+
+    let mut tools = ToolRegistry::new();
+    tools.register(EchoTool);
+
+    let context = SlidingWindowStrategy::new(10, 100_000);
+    let config = LoopConfig {
+        usage_limits: Some(UsageLimits::default().with_tool_calls_limit(2)),
+        ..LoopConfig::default()
+    };
+
+    let mut agent = AgentLoop::new(provider, tools, context, config);
+    let user_msg = Message {
+        role: Role::User,
+        content: vec![ContentBlock::Text("Run all three".to_string())],
+    };
+
+    let err = agent.run(user_msg, &test_tool_context()).await.unwrap_err();
+    match err {
+        LoopError::UsageLimitExceeded(msg) => {
+            assert!(
+                msg.contains("tool call limit"),
+                "expected 'tool call limit' in message, got: {msg}"
+            );
+        }
+        other => panic!("expected UsageLimitExceeded, got: {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn test_usage_limits_none_allows_unlimited() {
+    // No usage limits — the loop runs normally through tool calls and completes.
+    let provider = MockProvider::new(vec![
+        tool_use_response("call-1", "echo", serde_json::json!({"text": "hello"})),
+        text_response("All done, no limits"),
+    ]);
+
+    let mut tools = ToolRegistry::new();
+    tools.register(EchoTool);
+
+    let context = SlidingWindowStrategy::new(10, 100_000);
+    let config = LoopConfig {
+        usage_limits: None, // explicitly no limits
+        ..LoopConfig::default()
+    };
+
+    let mut agent = AgentLoop::new(provider, tools, context, config);
+    let user_msg = Message {
+        role: Role::User,
+        content: vec![ContentBlock::Text("Go".to_string())],
+    };
+
+    let result = agent
+        .run(user_msg, &test_tool_context())
+        .await
+        .expect("run should succeed without usage limits");
+
+    assert_eq!(result.response, "All done, no limits");
+    assert_eq!(result.turns, 2);
+    // Usage should be accumulated normally: 10+10 input, 5+5 output
+    assert_eq!(result.usage.input_tokens, 20);
+    assert_eq!(result.usage.output_tokens, 10);
+}
+
+// ==========================================================================
+// Additional UsageLimits tests
+// ==========================================================================
+
+#[tokio::test]
+async fn test_usage_limits_input_tokens_limit_exceeded() {
+    // Mock returns a response whose input tokens exceed the configured limit.
+    // Default text_response uses input_tokens=10, so set limit to 5.
+    let provider = MockProvider::new(vec![text_response("big input")]);
+    let tools = ToolRegistry::new();
+    let context = SlidingWindowStrategy::new(10, 100_000);
+    let config = LoopConfig {
+        usage_limits: Some(UsageLimits::default().with_input_tokens_limit(5)),
+        ..LoopConfig::default()
+    };
+
+    let mut agent = AgentLoop::new(provider, tools, context, config);
+    let user_msg = Message {
+        role: Role::User,
+        content: vec![ContentBlock::Text("Hi".to_string())],
+    };
+
+    let err = agent.run(user_msg, &test_tool_context()).await.unwrap_err();
+    match err {
+        LoopError::UsageLimitExceeded(msg) => {
+            assert!(
+                msg.contains("input token limit"),
+                "expected 'input token limit' in message, got: {msg}"
+            );
+        }
+        other => panic!("expected UsageLimitExceeded for input tokens, got: {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn test_usage_limits_output_tokens_limit_exceeded() {
+    // Mock returns a response whose output tokens exceed the configured limit.
+    // Default text_response uses output_tokens=5, so set limit to 3.
+    let provider = MockProvider::new(vec![text_response("big output")]);
+    let tools = ToolRegistry::new();
+    let context = SlidingWindowStrategy::new(10, 100_000);
+    let config = LoopConfig {
+        usage_limits: Some(UsageLimits::default().with_output_tokens_limit(3)),
+        ..LoopConfig::default()
+    };
+
+    let mut agent = AgentLoop::new(provider, tools, context, config);
+    let user_msg = Message {
+        role: Role::User,
+        content: vec![ContentBlock::Text("Hi".to_string())],
+    };
+
+    let err = agent.run(user_msg, &test_tool_context()).await.unwrap_err();
+    match err {
+        LoopError::UsageLimitExceeded(msg) => {
+            assert!(
+                msg.contains("output token limit"),
+                "expected 'output token limit' in message, got: {msg}"
+            );
+        }
+        other => panic!("expected UsageLimitExceeded for output tokens, got: {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn test_usage_limits_zero_request_limit() {
+    // With request_limit=0, the very first iteration should fail the pre-request
+    // check before any LLM call is made.
+    let provider = MockProvider::new(vec![text_response("Should not reach")]);
+    let tools = ToolRegistry::new();
+    let context = SlidingWindowStrategy::new(10, 100_000);
+    let config = LoopConfig {
+        usage_limits: Some(UsageLimits::default().with_request_limit(0)),
+        ..LoopConfig::default()
+    };
+
+    let mut agent = AgentLoop::new(provider, tools, context, config);
+    let user_msg = Message {
+        role: Role::User,
+        content: vec![ContentBlock::Text("Hi".to_string())],
+    };
+
+    let err = agent.run(user_msg, &test_tool_context()).await.unwrap_err();
+    match err {
+        LoopError::UsageLimitExceeded(msg) => {
+            assert!(
+                msg.contains("request limit"),
+                "expected 'request limit' in message, got: {msg}"
+            );
+        }
+        other => panic!("expected UsageLimitExceeded for zero request limit, got: {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn test_usage_limits_exact_boundary_passes() {
+    // Set request_limit to 1. The mock returns EndTurn on the first call (no
+    // tool calls). Should succeed because 1 request <= 1 limit (the check is
+    // request_count >= max, and request_count is 0 when checked pre-request).
+    let provider = MockProvider::new(vec![text_response("Exactly one request")]);
+    let tools = ToolRegistry::new();
+    let context = SlidingWindowStrategy::new(10, 100_000);
+    let config = LoopConfig {
+        usage_limits: Some(UsageLimits::default().with_request_limit(1)),
+        ..LoopConfig::default()
+    };
+
+    let mut agent = AgentLoop::new(provider, tools, context, config);
+    let user_msg = Message {
+        role: Role::User,
+        content: vec![ContentBlock::Text("Hi".to_string())],
+    };
+
+    let result = agent
+        .run(user_msg, &test_tool_context())
+        .await
+        .expect("run should succeed with exactly 1 request within limit of 1");
+
+    assert_eq!(result.response, "Exactly one request");
+    assert_eq!(result.turns, 1);
+}
+
+#[tokio::test]
+async fn test_usage_limits_multiple_limits_first_hit_wins() {
+    // Set request_limit=2 and total_tokens_limit=10. The first response uses
+    // 10+5=15 total tokens, which exceeds the 10 total token limit. The token
+    // limit should fire before the request limit is reached.
+    let provider = MockProvider::new(vec![
+        tool_use_response("call-1", "echo", serde_json::json!({"text": "a"})),
+        text_response("Should not reach"),
+    ]);
+
+    let mut tools = ToolRegistry::new();
+    tools.register(EchoTool);
+
+    let context = SlidingWindowStrategy::new(10, 100_000);
+    let config = LoopConfig {
+        usage_limits: Some(
+            UsageLimits::default()
+                .with_request_limit(2)
+                .with_total_tokens_limit(10),
+        ),
+        ..LoopConfig::default()
+    };
+
+    let mut agent = AgentLoop::new(provider, tools, context, config);
+    let user_msg = Message {
+        role: Role::User,
+        content: vec![ContentBlock::Text("Go".to_string())],
+    };
+
+    let err = agent.run(user_msg, &test_tool_context()).await.unwrap_err();
+    match err {
+        LoopError::UsageLimitExceeded(msg) => {
+            assert!(
+                msg.contains("total token limit"),
+                "expected 'total token limit' in message (should fire before request limit), got: {msg}"
+            );
+        }
+        other => panic!("expected UsageLimitExceeded for total tokens, got: {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn test_usage_limits_step_iterator_enforced() {
+    // Use run_step() instead of run(). Set request_limit=1.
+    // First step should succeed (tool call). Second step should fail
+    // because request_count (1) >= request_limit (1).
+    let provider = MockProvider::new(vec![
+        tool_use_response("call-1", "echo", serde_json::json!({"text": "hello"})),
+        text_response("Should not reach"),
+    ]);
+
+    let mut tools = ToolRegistry::new();
+    tools.register(EchoTool);
+
+    let context = SlidingWindowStrategy::new(10, 100_000);
+    let config = LoopConfig {
+        usage_limits: Some(UsageLimits::default().with_request_limit(1)),
+        ..LoopConfig::default()
+    };
+
+    let mut agent = AgentLoop::new(provider, tools, context, config);
+    let user_msg = Message {
+        role: Role::User,
+        content: vec![ContentBlock::Text("Go".to_string())],
+    };
+    let tool_ctx = test_tool_context();
+    let mut iter = agent.run_step(user_msg, &tool_ctx);
+
+    // First turn: tool call succeeds (request_count was 0 < 1)
+    let result = iter.next().await.expect("should have a turn");
+    assert!(
+        matches!(result, TurnResult::ToolsExecuted { .. }),
+        "expected ToolsExecuted, got: {result:?}"
+    );
+
+    // Second turn: request limit exceeded (request_count is now 1 >= 1)
+    let result = iter.next().await.expect("should have a turn");
+    match result {
+        TurnResult::Error(LoopError::UsageLimitExceeded(msg)) => {
+            assert!(
+                msg.contains("request limit"),
+                "expected 'request limit' in message, got: {msg}"
+            );
+        }
+        other => panic!("expected TurnResult::Error(UsageLimitExceeded), got: {other:?}"),
+    }
+
+    // Iterator should be finished
+    assert!(iter.next().await.is_none());
+}
+
+#[test]
+fn test_usage_limits_builder_methods() {
+    // Verify UsageLimits::default() has all fields as None.
+    let defaults = UsageLimits::default();
+    assert_eq!(defaults.request_limit, None);
+    assert_eq!(defaults.tool_calls_limit, None);
+    assert_eq!(defaults.input_tokens_limit, None);
+    assert_eq!(defaults.output_tokens_limit, None);
+    assert_eq!(defaults.total_tokens_limit, None);
+
+    // Verify builder methods set the correct fields.
+    let limits = UsageLimits::default()
+        .with_request_limit(10)
+        .with_tool_calls_limit(20)
+        .with_input_tokens_limit(1000)
+        .with_output_tokens_limit(500)
+        .with_total_tokens_limit(1500);
+
+    assert_eq!(limits.request_limit, Some(10));
+    assert_eq!(limits.tool_calls_limit, Some(20));
+    assert_eq!(limits.input_tokens_limit, Some(1000));
+    assert_eq!(limits.output_tokens_limit, Some(500));
+    assert_eq!(limits.total_tokens_limit, Some(1500));
+}
+
+#[tokio::test]
+async fn test_usage_limits_tool_calls_cumulative_across_turns() {
+    // First turn: 2 tool calls (within limit of 2).
+    // Second turn: 1 more tool call. Cumulative count (2 + 1 = 3) exceeds limit of 2.
+    let provider = MockProvider::new(vec![
+        multi_tool_use_response(&[
+            ("call-1", "echo", serde_json::json!({"text": "a"})),
+            ("call-2", "echo", serde_json::json!({"text": "b"})),
+        ]),
+        tool_use_response("call-3", "echo", serde_json::json!({"text": "c"})),
+        text_response("Should not reach"),
+    ]);
+
+    let mut tools = ToolRegistry::new();
+    tools.register(EchoTool);
+
+    let context = SlidingWindowStrategy::new(10, 100_000);
+    let config = LoopConfig {
+        usage_limits: Some(UsageLimits::default().with_tool_calls_limit(2)),
+        ..LoopConfig::default()
+    };
+
+    let mut agent = AgentLoop::new(provider, tools, context, config);
+    let user_msg = Message {
+        role: Role::User,
+        content: vec![ContentBlock::Text("Run many tools".to_string())],
+    };
+
+    let err = agent.run(user_msg, &test_tool_context()).await.unwrap_err();
+    match err {
+        LoopError::UsageLimitExceeded(msg) => {
+            assert!(
+                msg.contains("tool call limit"),
+                "expected 'tool call limit' in message, got: {msg}"
+            );
+        }
+        other => panic!("expected UsageLimitExceeded for cumulative tool calls, got: {other:?}"),
+    }
+}
+
+// ==========================================================================
+// UsageLimits enforcement in run_stream() tests
+// ==========================================================================
+
+#[tokio::test]
+async fn test_usage_limits_request_limit_in_stream() {
+    // With request_limit=1, the first request succeeds (tool call), but the
+    // second iteration triggers the request limit check.
+    let provider = MockStreamProvider::new(vec![
+        tool_use_response("call-1", "echo", serde_json::json!({"text": "first"})),
+        text_response("Should not reach this"),
+    ]);
+
+    let mut tools = ToolRegistry::new();
+    tools.register(EchoTool);
+
+    let context = SlidingWindowStrategy::new(10, 100_000);
+    let config = LoopConfig {
+        usage_limits: Some(UsageLimits::default().with_request_limit(1)),
+        ..LoopConfig::default()
+    };
+
+    let mut agent = AgentLoop::new(provider, tools, context, config);
+    let user_msg = Message {
+        role: Role::User,
+        content: vec![ContentBlock::Text("Keep going".to_string())],
+    };
+
+    let mut rx = agent.run_stream(user_msg, &test_tool_context()).await;
+
+    let mut events = Vec::new();
+    while let Some(event) = rx.recv().await {
+        events.push(event);
+    }
+
+    // Should end with an error event about the request limit
+    let has_limit_error = events.iter().any(|e| {
+        if let StreamEvent::Error(err) = e {
+            err.message.contains("request limit")
+        } else {
+            false
+        }
+    });
+    assert!(
+        has_limit_error,
+        "expected request limit error in stream events, got: {events:?}"
+    );
+}
+
+#[tokio::test]
+async fn test_usage_limits_token_limit_in_stream() {
+    // The provider returns a response with high token usage exceeding the limit.
+    let high_usage_response = CompletionResponse {
+        id: "test-id".to_string(),
+        model: "mock-model".to_string(),
+        message: Message {
+            role: Role::Assistant,
+            content: vec![ContentBlock::Text("done".to_string())],
+        },
+        usage: TokenUsage {
+            input_tokens: 50,
+            output_tokens: 100,
+            ..Default::default()
+        },
+        stop_reason: StopReason::EndTurn,
+    };
+
+    let provider = MockStreamProvider::new(vec![high_usage_response]);
+    let tools = ToolRegistry::new();
+    let context = SlidingWindowStrategy::new(10, 100_000);
+    let config = LoopConfig {
+        usage_limits: Some(UsageLimits::default().with_total_tokens_limit(100)),
+        ..LoopConfig::default()
+    };
+
+    let mut agent = AgentLoop::new(provider, tools, context, config);
+    let user_msg = Message {
+        role: Role::User,
+        content: vec![ContentBlock::Text("Hello".to_string())],
+    };
+
+    let mut rx = agent.run_stream(user_msg, &test_tool_context()).await;
+
+    let mut events = Vec::new();
+    while let Some(event) = rx.recv().await {
+        events.push(event);
+    }
+
+    // Total usage is 150, limit is 100 — should trigger token limit error
+    let has_token_error = events.iter().any(|e| {
+        if let StreamEvent::Error(err) = e {
+            err.message.contains("total token limit")
+        } else {
+            false
+        }
+    });
+    assert!(
+        has_token_error,
+        "expected total token limit error in stream events, got: {events:?}"
+    );
+}
+
+#[tokio::test]
+async fn test_usage_limits_tool_call_limit_in_stream() {
+    // Provider returns 3 tool calls but limit is 2.
+    let response = CompletionResponse {
+        id: "test-id".to_string(),
+        model: "mock-model".to_string(),
+        message: Message {
+            role: Role::Assistant,
+            content: vec![
+                ContentBlock::ToolUse {
+                    id: "c1".to_string(),
+                    name: "echo".to_string(),
+                    input: serde_json::json!({"text": "a"}),
+                },
+                ContentBlock::ToolUse {
+                    id: "c2".to_string(),
+                    name: "echo".to_string(),
+                    input: serde_json::json!({"text": "b"}),
+                },
+                ContentBlock::ToolUse {
+                    id: "c3".to_string(),
+                    name: "echo".to_string(),
+                    input: serde_json::json!({"text": "c"}),
+                },
+            ],
+        },
+        usage: TokenUsage::default(),
+        stop_reason: StopReason::ToolUse,
+    };
+
+    let provider = MockStreamProvider::new(vec![response]);
+
+    let mut tools = ToolRegistry::new();
+    tools.register(EchoTool);
+
+    let context = SlidingWindowStrategy::new(10, 100_000);
+    let config = LoopConfig {
+        usage_limits: Some(UsageLimits::default().with_tool_calls_limit(2)),
+        ..LoopConfig::default()
+    };
+
+    let mut agent = AgentLoop::new(provider, tools, context, config);
+    let user_msg = Message {
+        role: Role::User,
+        content: vec![ContentBlock::Text("Run tools".to_string())],
+    };
+
+    let mut rx = agent.run_stream(user_msg, &test_tool_context()).await;
+
+    let mut events = Vec::new();
+    while let Some(event) = rx.recv().await {
+        events.push(event);
+    }
+
+    let has_tool_limit_error = events.iter().any(|e| {
+        if let StreamEvent::Error(err) = e {
+            err.message.contains("tool call limit")
+        } else {
+            false
+        }
+    });
+    assert!(
+        has_tool_limit_error,
+        "expected tool call limit error in stream events, got: {events:?}"
+    );
+}
+
+// ==========================================================================
+// Streaming tool execution parity tests
+// ==========================================================================
+
+#[tokio::test]
+async fn test_run_stream_multi_tool_all_results() {
+    // Provider returns 2 tool calls in one response, then a final text.
+    // Streaming always executes tools sequentially, but all results must
+    // be produced and fed back to the provider.
+    let provider = MockStreamProvider::new(vec![
+        multi_tool_use_response(&[
+            ("call-1", "echo", serde_json::json!({"text": "alpha"})),
+            ("call-2", "echo", serde_json::json!({"text": "beta"})),
+        ]),
+        text_response("Both tools executed"),
+    ]);
+
+    let mut tools = ToolRegistry::new();
+    tools.register(EchoTool);
+
+    let context = SlidingWindowStrategy::new(10, 100_000);
+    // parallel_tool_execution is irrelevant for streaming (always sequential)
+    let config = LoopConfig {
+        parallel_tool_execution: true,
+        ..LoopConfig::default()
+    };
+
+    let mut agent = AgentLoop::new(provider, tools, context, config);
+    let user_msg = Message {
+        role: Role::User,
+        content: vec![ContentBlock::Text("Run both".to_string())],
+    };
+
+    let mut rx = agent.run_stream(user_msg, &test_tool_context()).await;
+
+    let mut events = Vec::new();
+    while let Some(event) = rx.recv().await {
+        events.push(event);
+    }
+
+    // Should have text deltas from the final response
+    let text_deltas: Vec<_> = events
+        .iter()
+        .filter_map(|e| {
+            if let StreamEvent::TextDelta(text) = e {
+                Some(text.as_str())
+            } else {
+                None
+            }
+        })
+        .collect();
+    assert!(
+        text_deltas.contains(&"Both tools executed"),
+        "expected final text delta, got: {text_deltas:?}"
+    );
+
+    // Should NOT have any error events
+    let errors: Vec<_> = events
+        .iter()
+        .filter(|e| matches!(e, StreamEvent::Error(_)))
+        .collect();
+    assert!(errors.is_empty(), "unexpected errors: {errors:?}");
+}
+
+#[tokio::test]
+async fn test_run_stream_sequential_tool_order() {
+    // Streaming always executes tools sequentially regardless of
+    // parallel_tool_execution config. Verify execution order via hooks.
+    let provider = MockStreamProvider::new(vec![
+        multi_tool_use_response(&[
+            ("call-1", "echo", serde_json::json!({"text": "first"})),
+            ("call-2", "echo", serde_json::json!({"text": "second"})),
+            ("call-3", "echo", serde_json::json!({"text": "third"})),
+        ]),
+        text_response("All done"),
+    ]);
+
+    let mut tools = ToolRegistry::new();
+    tools.register(EchoTool);
+
+    let context = SlidingWindowStrategy::new(10, 100_000);
+    let config = LoopConfig {
+        // Set to true to prove streaming ignores this and stays sequential
+        parallel_tool_execution: true,
+        ..LoopConfig::default()
+    };
+
+    let mut agent = AgentLoop::new(provider, tools, context, config);
+
+    let call_order: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+    let call_order_clone = call_order.clone();
+
+    struct StreamOrderTracker {
+        order: Arc<Mutex<Vec<String>>>,
+    }
+
+    impl ObservabilityHook for StreamOrderTracker {
+        fn on_event(
+            &self,
+            event: HookEvent<'_>,
+        ) -> impl Future<Output = Result<HookAction, HookError>> + Send {
+            if let HookEvent::PreToolExecution { input, .. } = &event
+                && let Some(text) = input.get("text").and_then(|v| v.as_str())
+            {
+                self.order.lock().expect("lock").push(text.to_string());
+            }
+            std::future::ready(Ok(HookAction::Continue))
+        }
+    }
+
+    agent.add_hook(StreamOrderTracker {
+        order: call_order_clone,
+    });
+
+    let user_msg = Message {
+        role: Role::User,
+        content: vec![ContentBlock::Text("Run all".to_string())],
+    };
+
+    let mut rx = agent.run_stream(user_msg, &test_tool_context()).await;
+    while let Some(_event) = rx.recv().await {}
+
+    let log = call_order.lock().expect("lock");
+    assert_eq!(
+        *log,
+        vec![
+            "first".to_string(),
+            "second".to_string(),
+            "third".to_string()
+        ],
+        "streaming should execute tools sequentially in order, got: {log:?}"
+    );
 }
