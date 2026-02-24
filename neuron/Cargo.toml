@@ -1,6 +1,6 @@
 [package]
 name = "neuron"
-version = "0.2.0"
+version = "0.3.0"
 edition.workspace = true
 rust-version.workspace = true
 description = "Rust library for production AI agents — composable tool middleware, context compaction, MCP, sessions, and guardrails"
