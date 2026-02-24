@@ -168,18 +168,10 @@ impl ObservabilityHook for OtelHook {
                 });
             }
             HookEvent::SessionStart { session_id } => {
-                tracing::info!(
-                    gen_ai.system = "neuron",
-                    session_id,
-                    "gen_ai.session.start"
-                );
+                tracing::info!(gen_ai.system = "neuron", session_id, "gen_ai.session.start");
             }
             HookEvent::SessionEnd { session_id } => {
-                tracing::info!(
-                    gen_ai.system = "neuron",
-                    session_id,
-                    "gen_ai.session.end"
-                );
+                tracing::info!(gen_ai.system = "neuron", session_id, "gen_ai.session.end");
             }
         }
         std::future::ready(Ok(HookAction::Continue))

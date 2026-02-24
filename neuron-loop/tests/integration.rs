@@ -1598,7 +1598,8 @@ async fn test_sequential_tool_execution_order() {
             event: HookEvent<'_>,
         ) -> impl Future<Output = Result<HookAction, HookError>> + Send {
             if let HookEvent::PreToolExecution { input, .. } = &event
-                && let Some(text) = input.get("text").and_then(|v| v.as_str()) {
+                && let Some(text) = input.get("text").and_then(|v| v.as_str())
+            {
                 self.order.lock().expect("lock").push(text.to_string());
             }
             std::future::ready(Ok(HookAction::Continue))

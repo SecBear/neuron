@@ -270,19 +270,20 @@ impl ToolMiddleware for TimeoutMiddleware {
         next: Next<'a>,
     ) -> WasmBoxedFuture<'a, Result<ToolOutput, ToolError>> {
         Box::pin(async move {
-            let timeout = self.per_tool.get(&call.name).unwrap_or(&self.default_timeout);
+            let timeout = self
+                .per_tool
+                .get(&call.name)
+                .unwrap_or(&self.default_timeout);
             match tokio::time::timeout(*timeout, next.run(call, ctx)).await {
                 Ok(result) => result,
-                Err(_elapsed) => Err(ToolError::ExecutionFailed(Box::new(
-                    std::io::Error::new(
-                        std::io::ErrorKind::TimedOut,
-                        format!(
-                            "tool '{}' timed out after {:.1}s",
-                            call.name,
-                            timeout.as_secs_f64()
-                        ),
+                Err(_elapsed) => Err(ToolError::ExecutionFailed(Box::new(std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    format!(
+                        "tool '{}' timed out after {:.1}s",
+                        call.name,
+                        timeout.as_secs_f64()
                     ),
-                ))),
+                )))),
             }
         })
     }
@@ -386,8 +387,7 @@ impl ToolMiddleware for RetryLimitedValidator {
                 )));
             }
             // Reset attempt counter on success
-            self.attempts
-                .store(0, std::sync::atomic::Ordering::Relaxed);
+            self.attempts.store(0, std::sync::atomic::Ordering::Relaxed);
             next.run(call, ctx).await
         })
     }

@@ -300,9 +300,7 @@ async fn test_otel_hook_post_tool_execution_with_error() {
     let hook = OtelHook::default();
 
     let error_output = ToolOutput {
-        content: vec![ContentItem::Text(
-            "Error: file not found".to_string(),
-        )],
+        content: vec![ContentItem::Text("Error: file not found".to_string())],
         structured_content: None,
         is_error: true,
     };

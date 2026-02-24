@@ -255,10 +255,7 @@ async fn test_timeout_middleware_per_tool_override() {
 async fn test_structured_output_validator_accepts_valid_input() {
     let mut registry = ToolRegistry::new();
     registry.register_dyn(std::sync::Arc::new(PassthroughTool));
-    registry.add_tool_middleware(
-        "result",
-        StructuredOutputValidator::new(person_schema(), 3),
-    );
+    registry.add_tool_middleware("result", StructuredOutputValidator::new(person_schema(), 3));
 
     let ctx = test_ctx();
     let result = registry
@@ -285,10 +282,7 @@ async fn test_structured_output_validator_accepts_valid_input() {
 async fn test_structured_output_validator_rejects_invalid_input() {
     let mut registry = ToolRegistry::new();
     registry.register_dyn(std::sync::Arc::new(PassthroughTool));
-    registry.add_tool_middleware(
-        "result",
-        StructuredOutputValidator::new(person_schema(), 3),
-    );
+    registry.add_tool_middleware("result", StructuredOutputValidator::new(person_schema(), 3));
 
     let ctx = test_ctx();
     // Pass a string where schema expects an integer for "age"
@@ -319,10 +313,7 @@ async fn test_structured_output_validator_rejects_invalid_input() {
 async fn test_structured_output_validator_missing_required_field() {
     let mut registry = ToolRegistry::new();
     registry.register_dyn(std::sync::Arc::new(PassthroughTool));
-    registry.add_tool_middleware(
-        "result",
-        StructuredOutputValidator::new(person_schema(), 3),
-    );
+    registry.add_tool_middleware("result", StructuredOutputValidator::new(person_schema(), 3));
 
     let ctx = test_ctx();
     // Missing the required "age" field
@@ -474,10 +465,7 @@ async fn test_retry_limited_validator_resets_on_success() {
             &ctx,
         )
         .await;
-    assert!(
-        result.is_ok(),
-        "valid input should pass: {result:?}"
-    );
+    assert!(result.is_ok(), "valid input should pass: {result:?}");
 
     // Another bad attempt after reset -- counter should start from 0 again
     let result = registry
@@ -627,10 +615,7 @@ async fn test_structured_output_validator_non_object_schema() {
 
     let mut registry = ToolRegistry::new();
     registry.register_dyn(Arc::new(PassthroughTool));
-    registry.add_tool_middleware(
-        "result",
-        StructuredOutputValidator::new(string_schema, 3),
-    );
+    registry.add_tool_middleware("result", StructuredOutputValidator::new(string_schema, 3));
 
     let ctx = test_ctx();
     // Pass an object (which is NOT a string) — should still succeed because
@@ -659,19 +644,12 @@ async fn test_structured_output_validator_boolean_type_mismatch() {
 
     let mut registry = ToolRegistry::new();
     registry.register_dyn(Arc::new(PassthroughTool));
-    registry.add_tool_middleware(
-        "result",
-        StructuredOutputValidator::new(schema, 3),
-    );
+    registry.add_tool_middleware("result", StructuredOutputValidator::new(schema, 3));
 
     let ctx = test_ctx();
     // Pass a string where boolean is expected
     let result = registry
-        .execute(
-            "result",
-            serde_json::json!({"active": "yes"}),
-            &ctx,
-        )
+        .execute("result", serde_json::json!({"active": "yes"}), &ctx)
         .await;
 
     match result {
@@ -701,19 +679,12 @@ async fn test_structured_output_validator_array_type_mismatch() {
 
     let mut registry = ToolRegistry::new();
     registry.register_dyn(Arc::new(PassthroughTool));
-    registry.add_tool_middleware(
-        "result",
-        StructuredOutputValidator::new(schema, 3),
-    );
+    registry.add_tool_middleware("result", StructuredOutputValidator::new(schema, 3));
 
     let ctx = test_ctx();
     // Pass a string where array is expected
     let result = registry
-        .execute(
-            "result",
-            serde_json::json!({"tags": "not-an-array"}),
-            &ctx,
-        )
+        .execute("result", serde_json::json!({"tags": "not-an-array"}), &ctx)
         .await;
 
     match result {
@@ -735,10 +706,7 @@ async fn test_structured_output_validator_array_type_mismatch() {
 async fn test_structured_output_validator_error_message_content() {
     let mut registry = ToolRegistry::new();
     registry.register_dyn(Arc::new(PassthroughTool));
-    registry.add_tool_middleware(
-        "result",
-        StructuredOutputValidator::new(person_schema(), 3),
-    );
+    registry.add_tool_middleware("result", StructuredOutputValidator::new(person_schema(), 3));
 
     let ctx = test_ctx();
     // Trigger a validation failure — missing required field
@@ -767,10 +735,7 @@ async fn test_structured_output_validator_unlimited_retries() {
     registry.register_dyn(Arc::new(PassthroughTool));
     // The standalone StructuredOutputValidator has no retry cap —
     // it always returns ModelRetry on failure, regardless of how many times.
-    registry.add_tool_middleware(
-        "result",
-        StructuredOutputValidator::new(person_schema(), 3),
-    );
+    registry.add_tool_middleware("result", StructuredOutputValidator::new(person_schema(), 3));
 
     let ctx = test_ctx();
 
@@ -793,10 +758,7 @@ async fn test_structured_output_validator_unlimited_retries() {
 async fn test_structured_output_validator_valid_after_invalid() {
     let mut registry = ToolRegistry::new();
     registry.register_dyn(Arc::new(PassthroughTool));
-    registry.add_tool_middleware(
-        "result",
-        StructuredOutputValidator::new(person_schema(), 3),
-    );
+    registry.add_tool_middleware("result", StructuredOutputValidator::new(person_schema(), 3));
 
     let ctx = test_ctx();
 
@@ -856,9 +818,7 @@ async fn test_retry_limited_validator_zero_max_retries() {
                 "error should mention '0 retries', got: {msg}"
             );
         }
-        other => panic!(
-            "expected InvalidInput immediately with max_retries=0, got: {other:?}"
-        ),
+        other => panic!("expected InvalidInput immediately with max_retries=0, got: {other:?}"),
     }
 }
 
@@ -899,9 +859,7 @@ async fn test_retry_limited_validator_one_max_retry() {
                 "error should mention '1 retries', got: {msg}"
             );
         }
-        other => panic!(
-            "expected InvalidInput after exceeding max_retries=1, got: {other:?}"
-        ),
+        other => panic!("expected InvalidInput after exceeding max_retries=1, got: {other:?}"),
     }
 }
 

@@ -11,10 +11,7 @@ fn provider_error_display() {
 
 #[test]
 fn provider_error_is_retryable() {
-    assert!(
-        ProviderError::Network(Box::new(std::io::Error::other("timeout")))
-        .is_retryable()
-    );
+    assert!(ProviderError::Network(Box::new(std::io::Error::other("timeout"))).is_retryable());
     assert!(ProviderError::RateLimit { retry_after: None }.is_retryable());
     assert!(ProviderError::Timeout(Duration::from_secs(5)).is_retryable());
     assert!(ProviderError::ServiceUnavailable("down".into()).is_retryable());

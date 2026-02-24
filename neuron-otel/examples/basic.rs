@@ -48,9 +48,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("SessionStart   -> {action:?}");
 
     // 2. Loop iteration
-    let action = hook
-        .on_event(HookEvent::LoopIteration { turn: 0 })
-        .await?;
+    let action = hook.on_event(HookEvent::LoopIteration { turn: 0 }).await?;
     println!("LoopIteration  -> {action:?}");
 
     // 3. Pre-LLM call

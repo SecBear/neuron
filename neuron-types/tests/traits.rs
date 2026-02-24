@@ -4,10 +4,7 @@ use std::time::Duration;
 struct NoopHook;
 
 impl ObservabilityHook for NoopHook {
-    async fn on_event(
-        &self,
-        _event: HookEvent<'_>,
-    ) -> Result<HookAction, HookError> {
+    async fn on_event(&self, _event: HookEvent<'_>) -> Result<HookAction, HookError> {
         Ok(HookAction::Continue)
     }
 }

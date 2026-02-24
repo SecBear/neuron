@@ -13,10 +13,10 @@ use neuron_types::{
 };
 
 use crate::loop_impl::{
-    AgentLoop, AgentResult, DEFAULT_ACTIVITY_TIMEOUT, accumulate_usage,
-    check_request_limit, check_token_limits, check_tool_call_limit, extract_text,
-    fire_compaction_hooks, fire_loop_iteration_hooks, fire_post_llm_hooks, fire_post_tool_hooks,
-    fire_pre_llm_hooks, fire_pre_tool_hooks,
+    AgentLoop, AgentResult, DEFAULT_ACTIVITY_TIMEOUT, accumulate_usage, check_request_limit,
+    check_token_limits, check_tool_call_limit, extract_text, fire_compaction_hooks,
+    fire_loop_iteration_hooks, fire_post_llm_hooks, fire_post_tool_hooks, fire_pre_llm_hooks,
+    fire_pre_tool_hooks,
 };
 
 /// The result of a single turn in the agentic loop.

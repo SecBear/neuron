@@ -692,7 +692,10 @@ pub(crate) async fn fire_compaction_hooks(
 // --- Usage limit checks ---
 
 /// Check whether the request count would exceed the configured limit.
-pub(crate) fn check_request_limit(limits: &UsageLimits, request_count: usize) -> Result<(), LoopError> {
+pub(crate) fn check_request_limit(
+    limits: &UsageLimits,
+    request_count: usize,
+) -> Result<(), LoopError> {
     if let Some(max) = limits.request_limit
         && request_count >= max
     {
@@ -704,7 +707,10 @@ pub(crate) fn check_request_limit(limits: &UsageLimits, request_count: usize) ->
 }
 
 /// Check whether accumulated tokens exceed any configured token limit.
-pub(crate) fn check_token_limits(limits: &UsageLimits, usage: &TokenUsage) -> Result<(), LoopError> {
+pub(crate) fn check_token_limits(
+    limits: &UsageLimits,
+    usage: &TokenUsage,
+) -> Result<(), LoopError> {
     if let Some(max) = limits.input_tokens_limit
         && usage.input_tokens > max
     {
