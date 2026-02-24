@@ -51,21 +51,33 @@ jobs:
 
           for crate in "${CRATES[@]}"; do
             echo "::group::$crate"
-            OUTPUT=$(cargo publish -p "$crate" 2>&1) && {
-              echo "Published $crate successfully"
-              echo "::endgroup::"
-              sleep 5  # brief pause for index propagation
-              continue
-            }
-            if echo "$OUTPUT" | grep -q "already uploaded"; then
-              echo "$crate already published, skipping"
-              echo "::endgroup::"
-              continue
-            fi
-            echo "$OUTPUT"
+            # --no-verify skips rebuild (CI already validated).
+            # Retry up to 3 times with 30s delay for index propagation.
+            PUBLISHED=false
+            for attempt in 1 2 3; do
+              OUTPUT=$(cargo publish -p "$crate" --no-verify 2>&1) && {
+                echo "Published $crate successfully"
+                PUBLISHED=true
+                break
+              }
+              if echo "$OUTPUT" | grep -q "already uploaded"; then
+                echo "$crate already published, skipping"
+                PUBLISHED=true
+                break
+              fi
+              if [ "$attempt" -lt 3 ]; then
+                echo "Attempt $attempt failed, waiting 30s for index propagation..."
+                echo "$OUTPUT"
+                sleep 30
+              fi
+            done
             echo "::endgroup::"
-            echo "::error::Failed to publish $crate"
-            exit 1
+            if [ "$PUBLISHED" = "false" ]; then
+              echo "$OUTPUT"
+              echo "::error::Failed to publish $crate after 3 attempts"
+              exit 1
+            fi
+            sleep 10  # pause for index propagation before next crate
           done
           echo "All crates published successfully"
         env:
