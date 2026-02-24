@@ -62,7 +62,7 @@ jobs:
                 PUBLISHED=true
                 break
               }
-              if echo "$OUTPUT" | grep -q "already uploaded"; then
+              if echo "$OUTPUT" | grep -qE "already uploaded|already exists"; then
                 echo "$crate already published, skipping"
                 PUBLISHED=true
                 break
