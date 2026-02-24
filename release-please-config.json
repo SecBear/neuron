@@ -20,17 +20,17 @@
     "README.md"
   ],
   "packages": {
-    "neuron-types": { "package-name": "neuron-types", "changelog-path": "neuron-types/CHANGELOG.md" },
-    "neuron-tool-macros": { "package-name": "neuron-tool-macros", "changelog-path": "neuron-tool-macros/CHANGELOG.md" },
-    "neuron-tool": { "package-name": "neuron-tool", "changelog-path": "neuron-tool/CHANGELOG.md" },
-    "neuron-context": { "package-name": "neuron-context", "changelog-path": "neuron-context/CHANGELOG.md" },
-    "neuron-loop": { "package-name": "neuron-loop", "changelog-path": "neuron-loop/CHANGELOG.md" },
-    "neuron-provider-anthropic": { "package-name": "neuron-provider-anthropic", "changelog-path": "neuron-provider-anthropic/CHANGELOG.md" },
-    "neuron-provider-openai": { "package-name": "neuron-provider-openai", "changelog-path": "neuron-provider-openai/CHANGELOG.md" },
-    "neuron-provider-ollama": { "package-name": "neuron-provider-ollama", "changelog-path": "neuron-provider-ollama/CHANGELOG.md" },
-    "neuron-mcp": { "package-name": "neuron-mcp", "changelog-path": "neuron-mcp/CHANGELOG.md" },
-    "neuron-runtime": { "package-name": "neuron-runtime", "changelog-path": "neuron-runtime/CHANGELOG.md" },
-    "neuron-otel": { "package-name": "neuron-otel", "changelog-path": "neuron-otel/CHANGELOG.md" },
-    "neuron": { "package-name": "neuron", "changelog-path": "neuron/CHANGELOG.md" }
+    "neuron-types": { "package-name": "neuron-types", "changelog-path": "CHANGELOG.md" },
+    "neuron-tool-macros": { "package-name": "neuron-tool-macros", "changelog-path": "CHANGELOG.md" },
+    "neuron-tool": { "package-name": "neuron-tool", "changelog-path": "CHANGELOG.md" },
+    "neuron-context": { "package-name": "neuron-context", "changelog-path": "CHANGELOG.md" },
+    "neuron-loop": { "package-name": "neuron-loop", "changelog-path": "CHANGELOG.md" },
+    "neuron-provider-anthropic": { "package-name": "neuron-provider-anthropic", "changelog-path": "CHANGELOG.md" },
+    "neuron-provider-openai": { "package-name": "neuron-provider-openai", "changelog-path": "CHANGELOG.md" },
+    "neuron-provider-ollama": { "package-name": "neuron-provider-ollama", "changelog-path": "CHANGELOG.md" },
+    "neuron-mcp": { "package-name": "neuron-mcp", "changelog-path": "CHANGELOG.md" },
+    "neuron-runtime": { "package-name": "neuron-runtime", "changelog-path": "CHANGELOG.md" },
+    "neuron-otel": { "package-name": "neuron-otel", "changelog-path": "CHANGELOG.md" },
+    "neuron": { "package-name": "neuron", "changelog-path": "CHANGELOG.md" }
   }
 }

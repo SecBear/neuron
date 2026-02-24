@@ -7,6 +7,13 @@ on:
 permissions:
   contents: read
 
+# Serialize publish runs so crates publish in dependency order.
+# When a combined release PR merges, multiple releases fire at once —
+# only one workflow run publishes; the rest skip already-published crates.
+concurrency:
+  group: cargo-publish
+  cancel-in-progress: false
+
 env:
   CARGO_TERM_COLOR: always
 
@@ -20,31 +27,43 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      - name: Determine crate from release tag
-        id: crate
+      - name: Publish workspace crates in dependency order
         run: |
-          TAG="${{ github.event.release.tag_name }}"
-          # Tag format: <crate-name>/v<version> (e.g. neuron-types/v0.3.0)
-          CRATE="${TAG%%/v*}"
-          echo "name=$CRATE" >> "$GITHUB_OUTPUT"
-          echo "Publishing crate: $CRATE"
+          # Dependency order: leaves first, umbrella last.
+          # Matches the dependency graph in CLAUDE.md.
+          CRATES=(
+            neuron-types
+            neuron-tool-macros
+            neuron-context
+            neuron-provider-anthropic
+            neuron-provider-openai
+            neuron-provider-ollama
+            neuron-otel
+            neuron-tool
+            neuron-mcp
+            neuron-loop
+            neuron-runtime
+            neuron
+          )
 
-      - name: Publish to crates.io
-        run: |
-          # Retry up to 3 times with 30s delay to handle crates.io index
-          # propagation when a dependency was just published.
-          for attempt in 1 2 3; do
-            echo "Attempt $attempt: publishing ${{ steps.crate.outputs.name }}"
-            if cargo publish -p ${{ steps.crate.outputs.name }}; then
-              echo "Published successfully"
-              exit 0
+          for crate in "${CRATES[@]}"; do
+            echo "::group::$crate"
+            OUTPUT=$(cargo publish -p "$crate" 2>&1) && {
+              echo "Published $crate successfully"
+              echo "::endgroup::"
+              sleep 5  # brief pause for index propagation
+              continue
+            }
+            if echo "$OUTPUT" | grep -q "already uploaded"; then
+              echo "$crate already published, skipping"
+              echo "::endgroup::"
+              continue
             fi
-            if [ "$attempt" -lt 3 ]; then
-              echo "Publish failed, waiting 30s for index propagation..."
-              sleep 30
-            fi
+            echo "$OUTPUT"
+            echo "::endgroup::"
+            echo "::error::Failed to publish $crate"
+            exit 1
           done
-          echo "Failed to publish after 3 attempts"
-          exit 1
+          echo "All crates published successfully"
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
