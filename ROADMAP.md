@@ -60,7 +60,10 @@ What ships today:
 
 Near-term planned work:
 
-_(All items shipped — see Now section)_
+- **Usage limits** -- `UsageLimits` struct with request, tool call, and token budgets; enforced at 3 check points in the agent loop (pre-request, post-response, pre-tool-call). `LoopError::UsageLimitExceeded` on breach.
+- **Tool timeout middleware** -- `TimeoutMiddleware` in `neuron-tool` with per-tool duration overrides. Wraps tool execution in `tokio::time::timeout`.
+- **Structured output middleware** -- `StructuredOutputMiddleware` that injects a result tool with a JSON Schema, validates output, and feeds validation errors back to the model via `ToolError::ModelRetry`.
+- **OpenTelemetry instrumentation** -- `neuron-otel` crate implementing `ObservabilityHook` with OTel GenAI semantic conventions (`gen_ai.*` namespace). Uses `tracing` spans; users bring their own subscriber.
 
 ## Later
 

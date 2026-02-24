@@ -1053,7 +1053,7 @@ dependencies = [
 
 [[package]]
 name = "neuron"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "futures",
  "neuron-context",
@@ -1076,7 +1076,7 @@ dependencies = [
 
 [[package]]
 name = "neuron-context"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "criterion",
  "neuron-types",
@@ -1089,7 +1089,7 @@ dependencies = [
 
 [[package]]
 name = "neuron-loop"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "chrono",
  "criterion",
@@ -1108,7 +1108,7 @@ dependencies = [
 
 [[package]]
 name = "neuron-mcp"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "neuron-tool",
  "neuron-types",
@@ -1122,7 +1122,7 @@ dependencies = [
 
 [[package]]
 name = "neuron-otel"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "neuron-types",
  "serde_json",
@@ -1133,7 +1133,7 @@ dependencies = [
 
 [[package]]
 name = "neuron-provider-anthropic"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "async-stream",
  "bytes",
@@ -1149,7 +1149,7 @@ dependencies = [
 
 [[package]]
 name = "neuron-provider-ollama"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "async-stream",
  "bytes",
@@ -1166,7 +1166,7 @@ dependencies = [
 
 [[package]]
 name = "neuron-provider-openai"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "async-stream",
  "bytes",
@@ -1182,7 +1182,7 @@ dependencies = [
 
 [[package]]
 name = "neuron-runtime"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "chrono",
  "neuron-context",
@@ -1203,7 +1203,7 @@ dependencies = [
 
 [[package]]
 name = "neuron-tool"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "neuron-tool-macros",
  "neuron-types",
@@ -1219,7 +1219,7 @@ dependencies = [
 
 [[package]]
 name = "neuron-tool-macros"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1228,7 +1228,7 @@ dependencies = [
 
 [[package]]
 name = "neuron-types"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "chrono",
  "criterion",
