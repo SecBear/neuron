@@ -1,6 +1,6 @@
 [package]
 name = "neuron-provider-openai"
-version = "0.2.0"
+version = "0.3.0"
 edition.workspace = true
 rust-version.workspace = true
 description = "OpenAI Chat Completions API client for Rust — streaming, tool use, and structured output. Compatible with Azure, Groq, and OpenAI-compatible endpoints. Part of neuron."
