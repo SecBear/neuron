@@ -1,6 +1,6 @@
 [package]
 name = "neuron-context"
-version = "0.3.0"
+version = "0.4.0"
 edition.workspace = true
 rust-version.workspace = true
 description = "LLM context management for long-running agents — sliding window, token counting, and compaction strategies"

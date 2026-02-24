@@ -1,6 +1,6 @@
 [package]
 name = "neuron-otel"
-version = "0.3.0"
+version = "0.4.0"
 edition.workspace = true
 rust-version.workspace = true
 description = "OpenTelemetry instrumentation for AI agents — GenAI semantic conventions with tracing spans"
