@@ -73,6 +73,7 @@ need to get productive:
 | `neuron-provider-ollama`    | Ollama — local LLM inference with NDJSON streaming            |
 | `neuron-mcp`                | MCP client and server — stdio, HTTP, tool bridging            |
 | `neuron-runtime`            | Sessions, sub-agents, guardrails, durable execution           |
+| `neuron-otel`               | OTel instrumentation — GenAI semantic conventions with tracing spans |
 | `neuron`                    | Umbrella crate with feature flags                             |
 
 ## Feature Flags (neuron)
@@ -84,6 +85,7 @@ need to get productive:
 | `ollama`    | Ollama local provider              | no      |
 | `mcp`       | Model Context Protocol integration | no      |
 | `runtime`   | Sessions, sub-agents, guardrails   | no      |
+| `otel`      | OpenTelemetry instrumentation       | no      |
 | `full`      | All of the above                   | no      |
 
 ## Architecture
@@ -92,6 +94,7 @@ need to get productive:
 neuron-types                    (zero deps, the foundation)
     ^
     |-- neuron-provider-*       (each implements Provider trait)
+    |-- neuron-otel             (OTel instrumentation, GenAI semantic conventions)
     |-- neuron-context          (compaction strategies, token counting)
     +-- neuron-tool             (Tool trait, registry, middleware)
             ^
@@ -121,7 +124,10 @@ How neuron compares to the two most established Rust alternatives, based on
 | Sessions | `SessionStorage` trait + impls | None | None |
 | Vector stores / RAG | None | Many integrations | None |
 | Embeddings | None | `EmbeddingModel` trait | Yes |
-| OpenTelemetry | Trait only | Full integration | None |
+| Usage limits | `UsageLimits` token/request budget | None | None |
+| Tool timeouts | `TimeoutMiddleware` per-tool | None | None |
+| Structured output validation | `StructuredOutputValidator` with self-correction | None | None |
+| OpenTelemetry | GenAI semantic conventions (`neuron-otel`) | Full integration | None |
 
 **Where others lead today:** Rig has a larger provider and vector store
 ecosystem with an extensive example set. genai covers many providers in one

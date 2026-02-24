@@ -2,6 +2,7 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 
 use neuron_types::{
     ContentItem, PermissionDecision, PermissionPolicy, ToolContext, ToolError, ToolOutput,
@@ -226,5 +227,168 @@ fn json_type_name(value: &serde_json::Value) -> &'static str {
         serde_json::Value::String(_) => "string",
         serde_json::Value::Array(_) => "array",
         serde_json::Value::Object(_) => "object",
+    }
+}
+
+/// Middleware that enforces a timeout on tool execution.
+///
+/// Wraps the downstream tool call in [`tokio::time::timeout`]. If the tool
+/// does not complete within the configured duration, returns
+/// `ToolError::ExecutionFailed` with a descriptive message so the model
+/// can adapt.
+///
+/// Per-tool overrides allow different timeouts for tools with known
+/// different latency profiles (e.g., web scraping vs. simple computation).
+pub struct TimeoutMiddleware {
+    default_timeout: Duration,
+    per_tool: HashMap<String, Duration>,
+}
+
+impl TimeoutMiddleware {
+    /// Create a new timeout middleware with the given default timeout.
+    #[must_use]
+    pub fn new(default_timeout: Duration) -> Self {
+        Self {
+            default_timeout,
+            per_tool: HashMap::new(),
+        }
+    }
+
+    /// Set a per-tool timeout override.
+    #[must_use]
+    pub fn with_tool_timeout(mut self, tool_name: impl Into<String>, timeout: Duration) -> Self {
+        self.per_tool.insert(tool_name.into(), timeout);
+        self
+    }
+}
+
+impl ToolMiddleware for TimeoutMiddleware {
+    fn process<'a>(
+        &'a self,
+        call: &'a ToolCall,
+        ctx: &'a ToolContext,
+        next: Next<'a>,
+    ) -> WasmBoxedFuture<'a, Result<ToolOutput, ToolError>> {
+        Box::pin(async move {
+            let timeout = self
+                .per_tool
+                .get(&call.name)
+                .unwrap_or(&self.default_timeout);
+            match tokio::time::timeout(*timeout, next.run(call, ctx)).await {
+                Ok(result) => result,
+                Err(_elapsed) => Err(ToolError::ExecutionFailed(Box::new(std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    format!(
+                        "tool '{}' timed out after {:.1}s",
+                        call.name,
+                        timeout.as_secs_f64()
+                    ),
+                )))),
+            }
+        })
+    }
+}
+
+/// Middleware that validates structured output from a tool against a JSON Schema.
+///
+/// When attached to a "result" tool, this validates the model's JSON input
+/// against the expected schema. On validation failure, returns
+/// [`ToolError::ModelRetry`] with a description of what went wrong so the
+/// model can self-correct.
+///
+/// This implements the tool-based structured output pattern used by
+/// instructor, Pydantic AI, and Rig: inject a tool with the output schema,
+/// force the model to call it, and validate.
+pub struct StructuredOutputValidator {
+    schema: serde_json::Value,
+    max_retries: usize,
+}
+
+impl StructuredOutputValidator {
+    /// Create a new structured output validator.
+    ///
+    /// The `schema` should be a JSON Schema object describing the expected
+    /// output shape. `max_retries` limits how many times the model can
+    /// retry on validation failure (0 means fail immediately on first error).
+    #[must_use]
+    pub fn new(schema: serde_json::Value, max_retries: usize) -> Self {
+        Self {
+            schema,
+            max_retries,
+        }
+    }
+}
+
+impl ToolMiddleware for StructuredOutputValidator {
+    fn process<'a>(
+        &'a self,
+        call: &'a ToolCall,
+        ctx: &'a ToolContext,
+        next: Next<'a>,
+    ) -> WasmBoxedFuture<'a, Result<ToolOutput, ToolError>> {
+        Box::pin(async move {
+            // Validate the input (which IS the structured output from the model)
+            // against the schema before passing to the tool
+            if let Err(e) = validate_input(&call.input, &self.schema) {
+                // Return ModelRetry so the model can self-correct
+                return Err(ToolError::ModelRetry(format!(
+                    "Output validation failed: {e}. Please fix the output to match the schema."
+                )));
+            }
+            next.run(call, ctx).await
+        })
+    }
+}
+
+/// Tracks retry count for structured output validation.
+///
+/// Wraps [`StructuredOutputValidator`] and enforces a maximum number of
+/// retries. After `max_retries` validation failures, converts the error
+/// to `ToolError::InvalidInput` (non-retryable).
+pub struct RetryLimitedValidator {
+    inner: StructuredOutputValidator,
+    attempts: std::sync::atomic::AtomicUsize,
+}
+
+impl RetryLimitedValidator {
+    /// Create a new retry-limited validator wrapping a [`StructuredOutputValidator`].
+    #[must_use]
+    pub fn new(validator: StructuredOutputValidator) -> Self {
+        Self {
+            inner: validator,
+            attempts: std::sync::atomic::AtomicUsize::new(0),
+        }
+    }
+}
+
+impl ToolMiddleware for RetryLimitedValidator {
+    fn process<'a>(
+        &'a self,
+        call: &'a ToolCall,
+        ctx: &'a ToolContext,
+        next: Next<'a>,
+    ) -> WasmBoxedFuture<'a, Result<ToolOutput, ToolError>> {
+        Box::pin(async move {
+            if let Err(e) = validate_input(&call.input, &self.inner.schema) {
+                let attempt = self
+                    .attempts
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                if attempt >= self.inner.max_retries {
+                    return Err(ToolError::InvalidInput(format!(
+                        "Output validation failed after {} retries: {e}",
+                        self.inner.max_retries
+                    )));
+                }
+                return Err(ToolError::ModelRetry(format!(
+                    "Output validation failed (attempt {}/{}): {e}. \
+                     Please fix the output to match the schema.",
+                    attempt + 1,
+                    self.inner.max_retries
+                )));
+            }
+            // Reset attempt counter on success
+            self.attempts.store(0, std::sync::atomic::Ordering::Relaxed);
+            next.run(call, ctx).await
+        })
     }
 }

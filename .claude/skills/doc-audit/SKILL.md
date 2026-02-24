@@ -29,7 +29,7 @@ the same set appears in each of these files:
 | File | Section to check |
 |------|-----------------|
 | `CLAUDE.md` | Dependency graph ASCII art |
-| `llms.txt` | "Crates" section (~lines 43-55) |
+| `llms.txt` | "Crates" section (search for each crate name) |
 | `README.md` | "Crates" table |
 | `docs/book/src/introduction.md` | "What's Included" table |
 

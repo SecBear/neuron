@@ -22,11 +22,12 @@ Foundation crate for neuron. Zero logic — pure types, traits, serde.
 - `HookEvent`, `HookAction` — observability hook event and action types
 - `ActivityOptions`, `RetryPolicy` — durable execution configuration
 - `PermissionDecision` — permission check result (Allow, Deny, Ask)
+- `UsageLimits` — token usage limits (request tokens, response tokens, total tokens) checked by the agentic loop
 
 ## Error types
 - `ProviderError` — LLM provider errors with `is_retryable()` classification
 - `ToolError` — tool execution errors (`NotFound`, `InvalidInput`, `ExecutionFailed`, `PermissionDenied`, `Cancelled`)
-- `LoopError` — agentic loop errors (`Provider`, `Tool`, `Context`, `MaxTurns`, `HookTerminated`, `Cancelled`)
+- `LoopError` — agentic loop errors (`Provider`, `Tool`, `Context`, `MaxTurns`, `HookTerminated`, `Cancelled`, `UsageLimitExceeded`)
 - `ContextError` — context compaction errors
 - `DurableError` — durable execution errors
 - `HookError` — observability hook errors

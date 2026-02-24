@@ -1,15 +1,11 @@
 use neuron_types::*;
-use std::future::Future;
 use std::time::Duration;
 
 struct NoopHook;
 
 impl ObservabilityHook for NoopHook {
-    fn on_event(
-        &self,
-        _event: HookEvent<'_>,
-    ) -> impl Future<Output = Result<HookAction, HookError>> + Send {
-        async { Ok(HookAction::Continue) }
+    async fn on_event(&self, _event: HookEvent<'_>) -> Result<HookAction, HookError> {
+        Ok(HookAction::Continue)
     }
 }
 

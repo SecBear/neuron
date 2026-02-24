@@ -8,10 +8,12 @@ circular dependencies.
 
 ```text
 neuron-types                    (zero deps, the foundation)
+neuron-tool-macros              (zero deps, proc macro)
     ^
     |-- neuron-provider-*       (each implements Provider trait)
+    |-- neuron-otel             (OTel instrumentation, GenAI semantic conventions)
     |-- neuron-context          (compaction strategies, token counting)
-    +-- neuron-tool             (Tool trait, registry, middleware)
+    +-- neuron-tool             (Tool trait, registry, middleware; optional dep on neuron-tool-macros)
             ^
             |-- neuron-mcp      (wraps rmcp, bridges to Tool trait)
             |-- neuron-loop     (provider loop with tool dispatch)
@@ -56,6 +58,22 @@ neuron crates.
 Adding a new provider means creating a new crate that implements `Provider`.
 No existing code changes.
 
+### neuron-otel (leaf node)
+
+Implements the `ObservabilityHook` trait using OpenTelemetry tracing spans with
+`gen_ai.*` GenAI semantic conventions. Emits structured spans for LLM calls,
+tool executions, and loop iterations following the emerging OpenTelemetry GenAI
+semantic conventions specification.
+
+Depends only on `neuron-types` (plus `tracing` and `opentelemetry` for span
+emission). Like provider crates, it is a leaf node with no knowledge of other
+neuron crates.
+
+### neuron-tool-macros (leaf node)
+
+Proc macro crate providing `#[neuron_tool]` for deriving `Tool` implementations
+from annotated async functions. Zero workspace dependencies.
+
 ### neuron-tool (leaf node)
 
 Implements the tool system:
@@ -64,7 +82,8 @@ Implements the tool system:
 - Tool middleware pipeline (axum-style `from_fn`)
 - Type erasure via the `ToolDyn` blanket impl
 
-Depends only on `neuron-types`.
+Depends on `neuron-types` and optionally on `neuron-tool-macros` (via `macros`
+feature flag).
 
 ### neuron-mcp
 

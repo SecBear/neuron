@@ -5,7 +5,7 @@ Agentic while loop for neuron. Composes Provider + Tool + Context.
 ## Key types
 - `AgentLoop<P, C>` — the core loop, generic over Provider and ContextStrategy
 - `AgentLoopBuilder<P, C>` — builder pattern for constructing AgentLoop
-- `LoopConfig` — system prompt, max turns, parallel tool execution
+- `LoopConfig` — system prompt, max turns, parallel tool execution, `usage_limits: Option<UsageLimits>`
 - `AgentResult` — final response, messages, usage, turn count
 - `TurnResult` — per-turn result enum for step-by-step iteration
 - `StepIterator` — drives the loop one turn at a time
@@ -51,6 +51,20 @@ always executes tools sequentially (parallel streaming is a future enhancement).
   it to a `ToolOutput` with `is_error: true` and the hint as content
 - The model sees the hint and can retry with corrected arguments
 - Does NOT propagate as `LoopError::Tool`
+
+## Usage limits
+When `LoopConfig.usage_limits` is `Some(UsageLimits)`, the loop enforces token
+budget constraints at three check points:
+
+1. **After each LLM response** — cumulative input/output/total tokens are
+   compared against the limits immediately after the provider returns.
+2. **After tool execution (in `run()`)** — checked again before the next
+   iteration in case tool output pushed usage over the threshold.
+3. **After each step (in `StepIterator`)** — checked at the start of
+   `next()` so callers driving the loop manually also get enforcement.
+
+When any limit is exceeded the loop returns
+`LoopError::UsageLimitExceeded(description)`.
 
 ## Architecture
 - Depends on `neuron-types` (traits) and `neuron-tool` (ToolRegistry)

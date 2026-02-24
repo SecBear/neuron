@@ -1,0 +1,50 @@
+name: publish
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Determine crate from release tag
+        id: crate
+        run: |
+          TAG="${{ github.event.release.tag_name }}"
+          # Tag format: <crate-name>/v<version> (e.g. neuron-types/v0.3.0)
+          CRATE="${TAG%%/v*}"
+          echo "name=$CRATE" >> "$GITHUB_OUTPUT"
+          echo "Publishing crate: $CRATE"
+
+      - name: Publish to crates.io
+        run: |
+          # Retry up to 3 times with 30s delay to handle crates.io index
+          # propagation when a dependency was just published.
+          for attempt in 1 2 3; do
+            echo "Attempt $attempt: publishing ${{ steps.crate.outputs.name }}"
+            if cargo publish -p ${{ steps.crate.outputs.name }}; then
+              echo "Published successfully"
+              exit 0
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              echo "Publish failed, waiting 30s for index propagation..."
+              sleep 30
+            fi
+          done
+          echo "Failed to publish after 3 attempts"
+          exit 1
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}

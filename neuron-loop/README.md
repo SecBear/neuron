@@ -19,7 +19,7 @@ cargo add neuron-loop
 
 - `AgentLoop<P, C>` -- the core loop, generic over [`Provider`](https://docs.rs/neuron-types/latest/neuron_types/trait.Provider.html) and [`ContextStrategy`](https://docs.rs/neuron-types/latest/neuron_types/trait.ContextStrategy.html)
 - `AgentLoopBuilder<P, C>` -- builder for constructing an `AgentLoop` with optional configuration
-- `LoopConfig` -- system prompt, max turns, parallel tool execution flag
+- `LoopConfig` -- system prompt, max turns, parallel tool execution flag, optional `UsageLimits`
 - `AgentResult` -- final output: response text, all messages, cumulative token usage, turn count
 - `TurnResult` -- per-turn result for step-by-step iteration:
   - `ToolsExecuted { calls, results }` — tool calls were made and executed
@@ -143,6 +143,33 @@ let mut agent = AgentLoop::builder(provider, context)
     .parallel_tool_execution(true)
     .build();
 ```
+
+## Usage Limits
+
+Set `LoopConfig.usage_limits` to enforce token budget constraints across the
+entire loop. When cumulative usage exceeds any configured limit, the loop
+returns `LoopError::UsageLimitExceeded`.
+
+```rust,ignore
+use neuron_loop::{AgentLoop, LoopConfig};
+use neuron_types::UsageLimits;
+
+let limits = UsageLimits::default()
+    .with_input_tokens_limit(50_000)
+    .with_output_tokens_limit(10_000)
+    .with_total_tokens_limit(60_000);
+
+let mut agent = AgentLoop::builder(provider, context)
+    .usage_limits(limits)
+    .build();
+
+// The loop will return Err(LoopError::UsageLimitExceeded(_))
+// if any limit is exceeded during execution.
+```
+
+Limits are checked after each LLM response and after tool execution. This is
+inspired by Pydantic AI's usage limit pattern, ported to Rust with compile-time
+type safety.
 
 ## Architecture
 

@@ -57,15 +57,13 @@ impl Provider for MockProvider {
         }
     }
 
-    fn complete_stream(
+    async fn complete_stream(
         &self,
         _request: CompletionRequest,
-    ) -> impl Future<Output = Result<StreamHandle, ProviderError>> + Send {
-        async {
-            Err(ProviderError::InvalidRequest(
-                "streaming not supported in mock".to_string(),
-            ))
-        }
+    ) -> Result<StreamHandle, ProviderError> {
+        Err(ProviderError::InvalidRequest(
+            "streaming not supported in mock".to_string(),
+        ))
     }
 }
 
@@ -197,22 +195,20 @@ fn should_compact_respects_threshold() {
 struct FailingProvider;
 
 impl Provider for FailingProvider {
-    fn complete(
+    async fn complete(
         &self,
         _request: CompletionRequest,
-    ) -> impl Future<Output = Result<CompletionResponse, ProviderError>> + Send {
-        async {
-            Err(ProviderError::InvalidRequest(
-                "Internal server error".to_string(),
-            ))
-        }
+    ) -> Result<CompletionResponse, ProviderError> {
+        Err(ProviderError::InvalidRequest(
+            "Internal server error".to_string(),
+        ))
     }
 
-    fn complete_stream(
+    async fn complete_stream(
         &self,
         _request: CompletionRequest,
-    ) -> impl Future<Output = Result<StreamHandle, ProviderError>> + Send {
-        async { Err(ProviderError::InvalidRequest("not supported".to_string())) }
+    ) -> Result<StreamHandle, ProviderError> {
+        Err(ProviderError::InvalidRequest("not supported".to_string()))
     }
 }
 
@@ -356,34 +352,32 @@ async fn only_system_messages_still_calls_provider() {
 struct MultiBlockProvider;
 
 impl Provider for MultiBlockProvider {
-    fn complete(
+    async fn complete(
         &self,
         _request: CompletionRequest,
-    ) -> impl Future<Output = Result<CompletionResponse, ProviderError>> + Send {
-        async {
-            Ok(CompletionResponse {
-                id: "mock-id".to_string(),
-                model: "mock-model".to_string(),
-                message: Message {
-                    role: Role::Assistant,
-                    content: vec![
-                        ContentBlock::Text("Part one.".to_string()),
-                        ContentBlock::Text("Part two.".to_string()),
-                    ],
-                },
-                usage: TokenUsage {
-                    ..Default::default()
-                },
-                stop_reason: StopReason::EndTurn,
-            })
-        }
+    ) -> Result<CompletionResponse, ProviderError> {
+        Ok(CompletionResponse {
+            id: "mock-id".to_string(),
+            model: "mock-model".to_string(),
+            message: Message {
+                role: Role::Assistant,
+                content: vec![
+                    ContentBlock::Text("Part one.".to_string()),
+                    ContentBlock::Text("Part two.".to_string()),
+                ],
+            },
+            usage: TokenUsage {
+                ..Default::default()
+            },
+            stop_reason: StopReason::EndTurn,
+        })
     }
 
-    fn complete_stream(
+    async fn complete_stream(
         &self,
         _request: CompletionRequest,
-    ) -> impl Future<Output = Result<StreamHandle, ProviderError>> + Send {
-        async { Err(ProviderError::InvalidRequest("not supported".to_string())) }
+    ) -> Result<StreamHandle, ProviderError> {
+        Err(ProviderError::InvalidRequest("not supported".to_string()))
     }
 }
 
@@ -407,38 +401,36 @@ async fn multi_block_response_joined_with_newline() {
 struct NonTextBlockProvider;
 
 impl Provider for NonTextBlockProvider {
-    fn complete(
+    async fn complete(
         &self,
         _request: CompletionRequest,
-    ) -> impl Future<Output = Result<CompletionResponse, ProviderError>> + Send {
-        async {
-            Ok(CompletionResponse {
-                id: "mock-id".to_string(),
-                model: "mock-model".to_string(),
-                message: Message {
-                    role: Role::Assistant,
-                    content: vec![
-                        ContentBlock::Text("Actual summary.".to_string()),
-                        ContentBlock::ToolUse {
-                            id: "tc1".to_string(),
-                            name: "search".to_string(),
-                            input: serde_json::json!({}),
-                        },
-                    ],
-                },
-                usage: TokenUsage {
-                    ..Default::default()
-                },
-                stop_reason: StopReason::EndTurn,
-            })
-        }
+    ) -> Result<CompletionResponse, ProviderError> {
+        Ok(CompletionResponse {
+            id: "mock-id".to_string(),
+            model: "mock-model".to_string(),
+            message: Message {
+                role: Role::Assistant,
+                content: vec![
+                    ContentBlock::Text("Actual summary.".to_string()),
+                    ContentBlock::ToolUse {
+                        id: "tc1".to_string(),
+                        name: "search".to_string(),
+                        input: serde_json::json!({}),
+                    },
+                ],
+            },
+            usage: TokenUsage {
+                ..Default::default()
+            },
+            stop_reason: StopReason::EndTurn,
+        })
     }
 
-    fn complete_stream(
+    async fn complete_stream(
         &self,
         _request: CompletionRequest,
-    ) -> impl Future<Output = Result<StreamHandle, ProviderError>> + Send {
-        async { Err(ProviderError::InvalidRequest("not supported".to_string())) }
+    ) -> Result<StreamHandle, ProviderError> {
+        Err(ProviderError::InvalidRequest("not supported".to_string()))
     }
 }
 

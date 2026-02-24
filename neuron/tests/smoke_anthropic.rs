@@ -388,6 +388,7 @@ async fn smoke_full_neuron_loop() {
         ),
         max_turns: Some(5),
         parallel_tool_execution: false,
+        ..Default::default()
     };
 
     let mut agent = AgentLoop::new(provider, tools, context, config);

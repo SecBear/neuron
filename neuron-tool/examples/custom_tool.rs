@@ -84,9 +84,8 @@ async fn main() {
     println!("\nTool output:");
     println!("  is_error: {}", output.is_error);
     for item in &output.content {
-        match item {
-            neuron_types::ContentItem::Text(text) => println!("  content: {text}"),
-            _ => {}
+        if let neuron_types::ContentItem::Text(text) = item {
+            println!("  content: {text}");
         }
     }
     if let Some(structured) = &output.structured_content {

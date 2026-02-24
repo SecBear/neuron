@@ -11,7 +11,7 @@ fn stream_event_text_delta() {
 
 #[test]
 fn stream_event_tool_use_demux() {
-    let events = vec![
+    let events = [
         StreamEvent::ToolUseStart {
             id: "t1".into(),
             name: "read_file".into(),
@@ -206,7 +206,7 @@ fn stream_event_clone() {
 
 #[test]
 fn stream_event_multiple_tool_use_interleaved() {
-    let events = vec![
+    let events = [
         StreamEvent::ToolUseStart {
             id: "t1".into(),
             name: "search".into(),

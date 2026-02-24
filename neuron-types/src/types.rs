@@ -504,6 +504,72 @@ impl Default for ToolContext {
     }
 }
 
+/// Resource usage limits for the agentic loop.
+///
+/// Controls how many requests, tool calls, and tokens the loop may consume
+/// before terminating with `LoopError::UsageLimitExceeded`.
+/// All limits are optional — only set limits are enforced.
+///
+/// # Example
+///
+/// ```
+/// use neuron_types::UsageLimits;
+///
+/// let limits = UsageLimits::default()
+///     .with_request_limit(50)
+///     .with_total_tokens_limit(100_000);
+/// ```
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct UsageLimits {
+    /// Maximum number of LLM requests (provider calls) allowed.
+    pub request_limit: Option<usize>,
+    /// Maximum number of tool calls allowed across all turns.
+    pub tool_calls_limit: Option<usize>,
+    /// Maximum input tokens allowed across all turns.
+    pub input_tokens_limit: Option<usize>,
+    /// Maximum output tokens allowed across all turns.
+    pub output_tokens_limit: Option<usize>,
+    /// Maximum total tokens (input + output) allowed across all turns.
+    pub total_tokens_limit: Option<usize>,
+}
+
+impl UsageLimits {
+    /// Set the maximum number of LLM requests.
+    #[must_use]
+    pub fn with_request_limit(mut self, limit: usize) -> Self {
+        self.request_limit = Some(limit);
+        self
+    }
+
+    /// Set the maximum number of tool calls.
+    #[must_use]
+    pub fn with_tool_calls_limit(mut self, limit: usize) -> Self {
+        self.tool_calls_limit = Some(limit);
+        self
+    }
+
+    /// Set the maximum input tokens.
+    #[must_use]
+    pub fn with_input_tokens_limit(mut self, limit: usize) -> Self {
+        self.input_tokens_limit = Some(limit);
+        self
+    }
+
+    /// Set the maximum output tokens.
+    #[must_use]
+    pub fn with_output_tokens_limit(mut self, limit: usize) -> Self {
+        self.output_tokens_limit = Some(limit);
+        self
+    }
+
+    /// Set the maximum total tokens (input + output).
+    #[must_use]
+    pub fn with_total_tokens_limit(mut self, limit: usize) -> Self {
+        self.total_tokens_limit = Some(limit);
+        self
+    }
+}
+
 /// Reports progress for long-running tool operations.
 pub trait ProgressReporter: WasmCompatSend + WasmCompatSync {
     /// Report progress.

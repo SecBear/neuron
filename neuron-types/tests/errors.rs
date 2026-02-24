@@ -11,13 +11,7 @@ fn provider_error_display() {
 
 #[test]
 fn provider_error_is_retryable() {
-    assert!(
-        ProviderError::Network(Box::new(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            "timeout"
-        )))
-        .is_retryable()
-    );
+    assert!(ProviderError::Network(Box::new(std::io::Error::other("timeout"))).is_retryable());
     assert!(ProviderError::RateLimit { retry_after: None }.is_retryable());
     assert!(ProviderError::Timeout(Duration::from_secs(5)).is_retryable());
     assert!(ProviderError::ServiceUnavailable("down".into()).is_retryable());
@@ -40,10 +34,7 @@ fn tool_error_display() {
 
 #[test]
 fn context_error_from_provider() {
-    let pe = ProviderError::Network(Box::new(std::io::Error::new(
-        std::io::ErrorKind::Other,
-        "fail",
-    )));
+    let pe = ProviderError::Network(Box::new(std::io::Error::other("fail")));
     let ce: ContextError = pe.into();
     assert!(ce.to_string().contains("provider error"));
 }
@@ -148,10 +139,7 @@ fn provider_error_stream_error_display() {
 
 #[test]
 fn provider_error_other_display() {
-    let err = ProviderError::Other(Box::new(std::io::Error::new(
-        std::io::ErrorKind::Other,
-        "unknown failure",
-    )));
+    let err = ProviderError::Other(Box::new(std::io::Error::other("unknown failure")));
     let display = err.to_string();
     assert!(display.contains("unknown failure"));
     assert!(!err.is_retryable());
@@ -274,10 +262,7 @@ fn durable_error_continue_as_new_display() {
 
 #[test]
 fn durable_error_other_display() {
-    let err = DurableError::Other(Box::new(std::io::Error::new(
-        std::io::ErrorKind::Other,
-        "temporal unavailable",
-    )));
+    let err = DurableError::Other(Box::new(std::io::Error::other("temporal unavailable")));
     let display = err.to_string();
     assert!(display.contains("temporal unavailable"));
 }
@@ -310,10 +295,7 @@ fn mcp_error_transport_display() {
 
 #[test]
 fn mcp_error_other_display() {
-    let err = McpError::Other(Box::new(std::io::Error::new(
-        std::io::ErrorKind::Other,
-        "unknown MCP failure",
-    )));
+    let err = McpError::Other(Box::new(std::io::Error::other("unknown MCP failure")));
     let display = err.to_string();
     assert!(display.contains("unknown MCP failure"));
 }
@@ -330,10 +312,7 @@ fn hook_error_failed_display() {
 
 #[test]
 fn hook_error_other_display() {
-    let err = HookError::Other(Box::new(std::io::Error::new(
-        std::io::ErrorKind::Other,
-        "serialization failure",
-    )));
+    let err = HookError::Other(Box::new(std::io::Error::other("serialization failure")));
     let display = err.to_string();
     assert!(display.contains("serialization failure"));
 }
@@ -385,10 +364,7 @@ fn embedding_error_network_display() {
 
 #[test]
 fn embedding_error_other_display() {
-    let err = EmbeddingError::Other(Box::new(std::io::Error::new(
-        std::io::ErrorKind::Other,
-        "unknown embedding error",
-    )));
+    let err = EmbeddingError::Other(Box::new(std::io::Error::other("unknown embedding error")));
     let display = err.to_string();
     assert!(display.contains("unknown embedding error"));
     assert!(!err.is_retryable());
@@ -422,10 +398,7 @@ fn storage_error_io_display() {
 
 #[test]
 fn storage_error_other_display() {
-    let err = StorageError::Other(Box::new(std::io::Error::new(
-        std::io::ErrorKind::Other,
-        "database connection lost",
-    )));
+    let err = StorageError::Other(Box::new(std::io::Error::other("database connection lost")));
     let display = err.to_string();
     assert!(display.contains("database connection lost"));
 }
@@ -450,10 +423,7 @@ fn sandbox_error_setup_failed_display() {
 
 #[test]
 fn sandbox_error_other_display() {
-    let err = SandboxError::Other(Box::new(std::io::Error::new(
-        std::io::ErrorKind::Other,
-        "unknown sandbox issue",
-    )));
+    let err = SandboxError::Other(Box::new(std::io::Error::other("unknown sandbox issue")));
     let display = err.to_string();
     assert!(display.contains("unknown sandbox issue"));
 }

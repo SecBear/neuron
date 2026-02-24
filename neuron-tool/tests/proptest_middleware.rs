@@ -46,12 +46,12 @@ impl Tool for NoOpTool {
         }
     }
 
-    fn call(
+    async fn call(
         &self,
         _args: Self::Args,
         _ctx: &ToolContext,
-    ) -> impl std::future::Future<Output = Result<Self::Output, Self::Error>> + Send {
-        async { Ok(serde_json::json!(null)) }
+    ) -> Result<Self::Output, Self::Error> {
+        Ok(serde_json::json!(null))
     }
 }
 

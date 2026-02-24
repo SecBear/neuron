@@ -1,33 +1,30 @@
 use neuron_types::*;
-use std::future::Future;
 
 /// A mock provider that always returns a fixed response.
 struct MockProvider;
 
 impl Provider for MockProvider {
-    fn complete(
+    async fn complete(
         &self,
         _request: CompletionRequest,
-    ) -> impl Future<Output = Result<CompletionResponse, ProviderError>> + Send {
-        async {
-            Ok(CompletionResponse {
-                id: "mock_1".into(),
-                model: "mock".into(),
-                message: Message {
-                    role: Role::Assistant,
-                    content: vec![ContentBlock::Text("mock response".into())],
-                },
-                usage: TokenUsage::default(),
-                stop_reason: StopReason::EndTurn,
-            })
-        }
+    ) -> Result<CompletionResponse, ProviderError> {
+        Ok(CompletionResponse {
+            id: "mock_1".into(),
+            model: "mock".into(),
+            message: Message {
+                role: Role::Assistant,
+                content: vec![ContentBlock::Text("mock response".into())],
+            },
+            usage: TokenUsage::default(),
+            stop_reason: StopReason::EndTurn,
+        })
     }
 
-    fn complete_stream(
+    async fn complete_stream(
         &self,
         _request: CompletionRequest,
-    ) -> impl Future<Output = Result<StreamHandle, ProviderError>> + Send {
-        async { Err(ProviderError::Other("streaming not implemented".into())) }
+    ) -> Result<StreamHandle, ProviderError> {
+        Err(ProviderError::Other("streaming not implemented".into()))
     }
 }
 

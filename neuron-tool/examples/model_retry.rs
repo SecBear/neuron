@@ -86,9 +86,8 @@ async fn main() {
 
     println!("Success:");
     for item in &output.content {
-        match item {
-            neuron_types::ContentItem::Text(text) => println!("  {text}"),
-            _ => {}
+        if let neuron_types::ContentItem::Text(text) = item {
+            println!("  {text}");
         }
     }
 }

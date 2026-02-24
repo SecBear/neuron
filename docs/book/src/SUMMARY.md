@@ -18,6 +18,7 @@
 - [Runtime](guides/runtime.md)
 - [Embeddings](guides/embeddings.md)
 - [Testing Agents](guides/testing.md)
+- [Observability](guides/observability.md)
 
 # Architecture
 

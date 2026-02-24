@@ -15,9 +15,12 @@ its architecture with other popular options in the Rust and Python ecosystems.
 | **Provider abstraction** | Trait in types crate, impl per crate | Trait + built-in impls | Google-focused, extensible | OpenAI-only | Multi-provider |
 | **Tool system** | Typed trait + type erasure + middleware | Typed trait, no middleware | Typed with annotations | Function decorators | Function decorators with typed args |
 | **Middleware** | axum-style `from_fn` pipeline | None | None | Hooks | None |
+| **Usage limits** | `UsageLimits` (tokens, requests, tool calls) | None | None | None | `UsageLimits` (tokens, requests) |
+| **Tool timeouts** | `TimeoutMiddleware` (per-tool configurable) | None | None | None | None |
 | **Context management** | Client-side + server-side compaction | Manual | Built-in | Built-in | Manual |
 | **Durable execution** | `DurableContext` trait (Temporal/Restate) | None | None | None | None |
 | **Async model** | RPITIT (native, no alloc) | `#[async_trait]` (boxed) | `#[async_trait]` (boxed) | Python async | Python async |
+| **OpenTelemetry** | `neuron-otel` with GenAI semantic conventions | None | None | Built-in tracing | None |
 | **MCP support** | Via `neuron-mcp` (wraps rmcp) | Community | Limited | Built-in | Limited |
 | **Graph/DAG** | Not included (SDK layer) | Not included | LangGraph port | Not included | Not included |
 | **Maturity** | Early | Established | Early | Established | Established |
@@ -107,7 +110,11 @@ Python agents. neuron adopted its `ModelRetry` self-correction pattern.
 - **ModelRetry adoption.** neuron's `ToolError::ModelRetry(String)` is directly
   inspired by Pydantic AI. When a tool returns `ModelRetry`, the hint is
   converted to an error tool result so the model can self-correct.
-- **Middleware.** Pydantic AI has no tool middleware pipeline.
+- **UsageLimits adoption.** neuron's `UsageLimits` is inspired by Pydantic AI's
+  budget enforcement, extended with tool call limits.
+- **Middleware.** Pydantic AI has no tool middleware pipeline. neuron provides
+  `TimeoutMiddleware`, `StructuredOutputValidator`, and `RetryLimitedValidator`
+  as composable middleware.
 
 ## What neuron does not do
 

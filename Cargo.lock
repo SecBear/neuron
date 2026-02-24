@@ -1059,6 +1059,7 @@ dependencies = [
  "neuron-context",
  "neuron-loop",
  "neuron-mcp",
+ "neuron-otel",
  "neuron-provider-anthropic",
  "neuron-provider-ollama",
  "neuron-provider-openai",
@@ -1117,6 +1118,17 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tracing",
+]
+
+[[package]]
+name = "neuron-otel"
+version = "0.2.0"
+dependencies = [
+ "neuron-types",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

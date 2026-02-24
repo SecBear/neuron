@@ -19,7 +19,8 @@ openai = ["dep:neuron-provider-openai"]
 ollama = ["dep:neuron-provider-ollama"]
 mcp = ["dep:neuron-mcp"]
 runtime = ["dep:neuron-runtime"]
-full = ["anthropic", "openai", "ollama", "mcp", "runtime"]
+otel = ["dep:neuron-otel"]
+full = ["anthropic", "openai", "ollama", "mcp", "runtime", "otel"]
 
 [dependencies]
 neuron-types.workspace = true
@@ -31,6 +32,7 @@ neuron-provider-openai = { workspace = true, optional = true }
 neuron-provider-ollama = { workspace = true, optional = true }
 neuron-mcp = { workspace = true, optional = true }
 neuron-runtime = { workspace = true, optional = true }
+neuron-otel = { workspace = true, optional = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

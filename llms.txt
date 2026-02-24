@@ -18,6 +18,7 @@ Dependencies flow upward. Each block depends only on neuron-types and the blocks
 neuron-types                    (zero deps, the foundation)
     ^
     |-- neuron-provider-*       (each implements Provider trait)
+    |-- neuron-otel             (OTel instrumentation, GenAI semantic conventions)
     |-- neuron-context          (compaction strategies, token counting)
     +-- neuron-tool             (Tool trait, registry, middleware)
             ^
@@ -51,7 +52,8 @@ neuron-types                    (zero deps, the foundation)
 - [neuron-provider-ollama](https://docs.rs/neuron-provider-ollama): Ollama local inference — any GGUF model, NDJSON streaming
 - [neuron-mcp](https://docs.rs/neuron-mcp): MCP integration — McpClient, McpToolBridge, McpServer (wraps rmcp)
 - [neuron-runtime](https://docs.rs/neuron-runtime): Production runtime — SessionStorage, InputGuardrail/OutputGuardrail, GuardrailHook, LocalDurableContext, TracingHook, Sandbox
-- [neuron](https://docs.rs/neuron): Umbrella crate with feature flags (anthropic, openai, ollama, mcp, runtime, full)
+- [neuron-otel](https://docs.rs/neuron-otel): OTel instrumentation — GenAI semantic conventions with tracing spans
+- [neuron](https://docs.rs/neuron): Umbrella crate with feature flags (anthropic, openai, ollama, mcp, runtime, otel, full)
 
 ## Features
 
@@ -65,6 +67,10 @@ neuron-types                    (zero deps, the foundation)
 - **Observability** — `TracingHook` maps all hook events to structured `tracing` spans; use with `tracing-opentelemetry` for OTel export
 - **Server-side compaction** — `ContextManagement` request field, loop continues automatically on `StopReason::Compaction`
 - **Self-correction** — `ToolError::ModelRetry` converts tool errors to hints for the model to retry
+- **Usage limits** — `UsageLimits` enforces per-run token and request budgets, checked by the agent loop
+- **Timeout middleware** — `TimeoutMiddleware` wraps tool calls with configurable deadlines
+- **Structured output validation** — `StructuredOutputValidator` validates and retries LLM responses against JSON Schema
+- **OpenTelemetry** — `neuron-otel` provides GenAI semantic conventions with `tracing` spans for full observability
 - **Convenience** — `Message::user()`, `ToolContext::default()`, `from_env()` on all providers
 
 ## Landscape: how neuron compares
@@ -131,6 +137,7 @@ Most decomposed Rust agent framework (agent, model, tool, runner, graph, session
 - [Parallel tools](https://github.com/secbear/neuron/blob/main/neuron-loop/examples/parallel_tools.rs): Concurrent tool execution via join_all
 - [Full production](https://github.com/secbear/neuron/blob/main/neuron-runtime/examples/full_production.rs): Sessions + guardrails + TracingHook composed
 - [Testing agents](https://github.com/secbear/neuron/blob/main/neuron/examples/testing_agents.rs): Mock provider patterns for unit testing agents
+- [OTel instrumentation](https://github.com/secbear/neuron/blob/main/neuron-otel/examples/basic.rs): OtelHook with GenAI semantic convention tracing spans
 
 ## Requirements
 
