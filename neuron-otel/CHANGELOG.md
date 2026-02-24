@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.3.0](https://github.com/SecBear/neuron/compare/neuron-otel-v0.2.0...neuron-otel-v0.3.0) (2026-02-24)
+## [0.3.0](https://github.com/SecBear/neuron/releases/tag/neuron-otel-v0.3.0) (2026-02-24)
 
 
 ### Features
