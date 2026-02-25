@@ -2,7 +2,7 @@
 //! Context strategy implementations for neuron-turn.
 //!
 //! Provides [`SlidingWindow`] for dropping oldest messages when context
-//! exceeds a limit. [`NoCompaction`] is in neuron-turn itself.
+//! exceeds a limit. `NoCompaction` is in neuron-turn itself.
 
 use neuron_turn::context::ContextStrategy;
 use neuron_turn::types::{ContentPart, ProviderMessage};
