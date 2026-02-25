@@ -9,6 +9,7 @@ members = [
   "neuron-hooks",
   "neuron-tool",
   "neuron-turn",
+  "neuron-context",
 ]
 
 [workspace.package]
