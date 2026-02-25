@@ -44,7 +44,7 @@ struct ResolvedConfig {
 /// A full-featured Operator implementation with a ReAct loop.
 ///
 /// Generic over `P: Provider` (not object-safe). The object-safe boundary
-/// is `layer0::Turn`, which `NeuronTurn<P>` implements via `#[async_trait]`.
+/// is `layer0::Operator`, which `NeuronTurn<P>` implements via `#[async_trait]`.
 pub struct NeuronTurn<P: Provider> {
     provider: P,
     tools: ToolRegistry,

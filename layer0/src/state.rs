@@ -93,7 +93,7 @@ impl SearchResult {
 /// go through Effects in OperatorOutput.
 ///
 /// This trait exists to enforce the read/write asymmetry at the
-/// type level. A Turn receives `&dyn StateReader`, not `&dyn StateStore`.
+/// type level. An Operator receives `&dyn StateReader`, not `&dyn StateStore`.
 #[async_trait]
 pub trait StateReader: Send + Sync {
     /// Read a value by key within a scope.
