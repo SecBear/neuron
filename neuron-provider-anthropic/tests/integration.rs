@@ -1,0 +1,76 @@
+//! Integration test: real Anthropic Haiku call through the full stack.
+
+use layer0::content::Content;
+use layer0::turn::{ExitReason, Turn, TurnInput, TriggerType};
+use neuron_context::SlidingWindow;
+use neuron_hooks::HookRegistry;
+use neuron_provider_anthropic::AnthropicProvider;
+use neuron_tool::ToolRegistry;
+use neuron_turn::{NeuronTurn, NeuronTurnConfig};
+use std::sync::Arc;
+
+#[tokio::test]
+#[ignore] // Requires ANTHROPIC_API_KEY environment variable
+async fn real_haiku_simple_completion() {
+    let api_key = std::env::var("ANTHROPIC_API_KEY").expect("ANTHROPIC_API_KEY not set");
+
+    let provider = AnthropicProvider::new(api_key);
+    let tools = ToolRegistry::new();
+    let strategy = Box::new(SlidingWindow::new());
+    let hooks = HookRegistry::new();
+    let store = Arc::new(neuron_state_memory::MemoryStore::new()) as Arc<dyn layer0::StateReader>;
+
+    let config = NeuronTurnConfig {
+        system_prompt: "You are a helpful assistant. Be very concise.".into(),
+        default_model: "claude-haiku-4-5-20251001".into(),
+        default_max_tokens: 128,
+        default_max_turns: 5,
+    };
+
+    let turn = NeuronTurn::new(provider, tools, strategy, hooks, store, config);
+
+    let input = TurnInput::new(
+        Content::text("Say hello in exactly 3 words."),
+        TriggerType::User,
+    );
+
+    let output = turn.execute(input).await.unwrap();
+
+    assert_eq!(output.exit_reason, ExitReason::Complete);
+    assert!(output.message.as_text().is_some());
+    let text = output.message.as_text().unwrap();
+    assert!(!text.is_empty());
+    assert!(output.metadata.tokens_in > 0);
+    assert!(output.metadata.tokens_out > 0);
+    assert!(output.metadata.cost > rust_decimal::Decimal::ZERO);
+    assert_eq!(output.metadata.turns_used, 1);
+    assert!(output.effects.is_empty());
+}
+
+#[tokio::test]
+#[ignore] // Requires ANTHROPIC_API_KEY environment variable
+async fn neuron_turn_is_object_safe_as_arc_dyn_turn() {
+    let api_key = std::env::var("ANTHROPIC_API_KEY").expect("ANTHROPIC_API_KEY not set");
+
+    let provider = AnthropicProvider::new(api_key);
+    let tools = ToolRegistry::new();
+    let strategy = Box::new(SlidingWindow::new());
+    let hooks = HookRegistry::new();
+    let store = Arc::new(neuron_state_memory::MemoryStore::new()) as Arc<dyn layer0::StateReader>;
+
+    let config = NeuronTurnConfig {
+        system_prompt: "You are a helpful assistant.".into(),
+        default_model: "claude-haiku-4-5-20251001".into(),
+        default_max_tokens: 64,
+        default_max_turns: 3,
+    };
+
+    // Prove NeuronTurn<P> can be used as Arc<dyn Turn>
+    let turn: Arc<dyn Turn> = Arc::new(NeuronTurn::new(
+        provider, tools, strategy, hooks, store, config,
+    ));
+
+    let input = TurnInput::new(Content::text("Say hi."), TriggerType::User);
+    let output = turn.execute(input).await.unwrap();
+    assert_eq!(output.exit_reason, ExitReason::Complete);
+}
