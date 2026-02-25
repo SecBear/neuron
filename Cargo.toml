@@ -8,6 +8,7 @@ members = [
   "neuron-orch-local",
   "neuron-hooks",
   "neuron-tool",
+  "neuron-turn",
 ]
 
 [workspace.package]
