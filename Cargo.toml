@@ -4,6 +4,7 @@ members = [
   "layer0",
   "neuron-state-memory",
   "neuron-state-fs",
+  "neuron-env-local",
 ]
 
 [workspace.package]
