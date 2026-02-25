@@ -2,6 +2,8 @@
 resolver = "2"
 members = [
   "layer0",
+  "neuron-state-memory",
+  "neuron-state-fs",
 ]
 
 [workspace.package]
