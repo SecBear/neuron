@@ -1,19 +1,14 @@
 #![deny(missing_docs)]
-//! ReAct loop implementing `layer0::Operator`.
+//! Shared toolkit for building operators.
 //!
-//! This crate provides [`NeuronTurn`], a full-featured implementation of
-//! the [`layer0::Operator`] trait. It runs a ReAct loop: call the model,
-//! execute tools, repeat until done.
-//!
-//! Key traits defined here:
-//! - [`Provider`] — LLM provider interface (not object-safe, uses RPITIT)
-//! - [`ContextStrategy`] — context window management
+//! Provides the [`Provider`] trait for making model calls,
+//! [`ContextStrategy`] for managing context between calls,
+//! and all the types needed by operator implementations.
 
 pub mod config;
 pub mod context;
 pub mod convert;
 pub mod provider;
-pub mod turn;
 pub mod types;
 
 // Re-exports
@@ -24,5 +19,4 @@ pub use convert::{
     parts_to_content,
 };
 pub use provider::{Provider, ProviderError};
-pub use turn::NeuronTurn;
 pub use types::*;

@@ -9,6 +9,7 @@ members = [
   "neuron-hooks",
   "neuron-tool",
   "neuron-turn",
+  "neuron-op-react",
   "neuron-context",
   "neuron-provider-anthropic",
 ]

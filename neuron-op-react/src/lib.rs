@@ -1,10 +1,13 @@
-//! NeuronTurn — the ReAct loop implementing `layer0::Operator`.
+#![deny(missing_docs)]
+//! ReAct operator — model + tools in a reasoning loop.
+//!
+//! Implements `layer0::Operator` by running the Reason-Act-Observe cycle:
+//! assemble context → call model → execute tools → repeat until done.
 
-use crate::config::NeuronTurnConfig;
-use crate::context::ContextStrategy;
-use crate::convert::{content_to_user_message, parts_to_content};
-use crate::provider::Provider;
-use crate::types::*;
+use neuron_turn::context::ContextStrategy;
+use neuron_turn::convert::{content_to_user_message, parts_to_content};
+use neuron_turn::provider::Provider;
+use neuron_turn::types::*;
 use async_trait::async_trait;
 use layer0::content::Content;
 use layer0::duration::DurationMs;
@@ -20,6 +23,29 @@ use neuron_tool::ToolRegistry;
 use rust_decimal::Decimal;
 use std::sync::Arc;
 use std::time::Instant;
+
+/// Static configuration for a ReactOperator instance.
+pub struct ReactConfig {
+    /// Base system prompt.
+    pub system_prompt: String,
+    /// Default model identifier.
+    pub default_model: String,
+    /// Default max tokens per response.
+    pub default_max_tokens: u32,
+    /// Default max turns before stopping.
+    pub default_max_turns: u32,
+}
+
+impl Default for ReactConfig {
+    fn default() -> Self {
+        Self {
+            system_prompt: String::new(),
+            default_model: String::new(),
+            default_max_tokens: 4096,
+            default_max_turns: 10,
+        }
+    }
+}
 
 /// Names of tools that produce Effects instead of executing locally.
 const EFFECT_TOOL_NAMES: &[&str] = &[
@@ -44,25 +70,25 @@ struct ResolvedConfig {
 /// A full-featured Operator implementation with a ReAct loop.
 ///
 /// Generic over `P: Provider` (not object-safe). The object-safe boundary
-/// is `layer0::Operator`, which `NeuronTurn<P>` implements via `#[async_trait]`.
-pub struct NeuronTurn<P: Provider> {
+/// is `layer0::Operator`, which `ReactOperator<P>` implements via `#[async_trait]`.
+pub struct ReactOperator<P: Provider> {
     provider: P,
     tools: ToolRegistry,
     context_strategy: Box<dyn ContextStrategy>,
     hooks: HookRegistry,
     state_reader: Arc<dyn layer0::StateReader>,
-    config: NeuronTurnConfig,
+    config: ReactConfig,
 }
 
-impl<P: Provider> NeuronTurn<P> {
-    /// Create a new NeuronTurn with all dependencies.
+impl<P: Provider> ReactOperator<P> {
+    /// Create a new ReactOperator with all dependencies.
     pub fn new(
         provider: P,
         tools: ToolRegistry,
         context_strategy: Box<dyn ContextStrategy>,
         hooks: HookRegistry,
         state_reader: Arc<dyn layer0::StateReader>,
-        config: NeuronTurnConfig,
+        config: ReactConfig,
     ) -> Self {
         Self {
             provider,
@@ -261,7 +287,7 @@ impl<P: Provider> NeuronTurn<P> {
 }
 
 #[async_trait]
-impl<P: Provider + 'static> Operator for NeuronTurn<P> {
+impl<P: Provider + 'static> Operator for ReactOperator<P> {
     async fn execute(&self, input: OperatorInput) -> Result<OperatorOutput, OperatorError> {
         let start = Instant::now();
         let config = self.resolve_config(&input);
@@ -637,8 +663,8 @@ fn parse_scope(s: &str) -> Scope {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::context::NoCompaction;
-    use crate::provider::ProviderError;
+    use neuron_turn::context::NoCompaction;
+    use neuron_turn::provider::ProviderError;
     use neuron_hooks::HookRegistry;
     use neuron_tool::ToolRegistry;
     use serde_json::json;
@@ -646,7 +672,7 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Mutex;
 
-    // ── Mock Provider ──────────────────────────────────
+    // -- Mock Provider --
 
     struct MockProvider {
         responses: Mutex<VecDeque<ProviderResponse>>,
@@ -683,7 +709,7 @@ mod tests {
         }
     }
 
-    // ── Mock StateReader ───────────────────────────────
+    // -- Mock StateReader --
 
     struct NullStateReader;
 
@@ -713,7 +739,7 @@ mod tests {
         }
     }
 
-    // ── Mock Tool ──────────────────────────────────────
+    // -- Mock Tool --
 
     struct EchoTool;
 
@@ -742,7 +768,7 @@ mod tests {
         }
     }
 
-    // ── Helpers ────────────────────────────────────────
+    // -- Helpers --
 
     fn simple_text_response(text: &str) -> ProviderResponse {
         ProviderResponse {
@@ -784,25 +810,25 @@ mod tests {
         }
     }
 
-    fn make_turn<P: Provider>(provider: P) -> NeuronTurn<P> {
-        NeuronTurn::new(
+    fn make_op<P: Provider>(provider: P) -> ReactOperator<P> {
+        ReactOperator::new(
             provider,
             ToolRegistry::new(),
             Box::new(NoCompaction),
             HookRegistry::new(),
             Arc::new(NullStateReader),
-            NeuronTurnConfig::default(),
+            ReactConfig::default(),
         )
     }
 
-    fn make_turn_with_tools<P: Provider>(provider: P, tools: ToolRegistry) -> NeuronTurn<P> {
-        NeuronTurn::new(
+    fn make_op_with_tools<P: Provider>(provider: P, tools: ToolRegistry) -> ReactOperator<P> {
+        ReactOperator::new(
             provider,
             tools,
             Box::new(NoCompaction),
             HookRegistry::new(),
             Arc::new(NullStateReader),
-            NeuronTurnConfig::default(),
+            ReactConfig::default(),
         )
     }
 
@@ -810,14 +836,14 @@ mod tests {
         OperatorInput::new(Content::text(text), layer0::operator::TriggerType::User)
     }
 
-    // ── Tests ──────────────────────────────────────────
+    // -- Tests --
 
     #[tokio::test]
     async fn simple_completion() {
         let provider = MockProvider::new(vec![simple_text_response("Hello!")]);
-        let turn = make_turn(provider);
+        let op = make_op(provider);
 
-        let output = turn.execute(simple_input("Hi")).await.unwrap();
+        let output = op.execute(simple_input("Hi")).await.unwrap();
 
         assert_eq!(output.exit_reason, ExitReason::Complete);
         assert_eq!(output.message.as_text().unwrap(), "Hello!");
@@ -835,9 +861,9 @@ mod tests {
         ]);
         let mut tools = ToolRegistry::new();
         tools.register(Arc::new(EchoTool));
-        let turn = make_turn_with_tools(provider, tools);
+        let op = make_op_with_tools(provider, tools);
 
-        let output = turn.execute(simple_input("Use echo")).await.unwrap();
+        let output = op.execute(simple_input("Use echo")).await.unwrap();
 
         assert_eq!(output.exit_reason, ExitReason::Complete);
         assert_eq!(output.metadata.turns_used, 2);
@@ -851,10 +877,10 @@ mod tests {
             tool_use_response("tu_1", "nonexistent_tool", json!({})),
             simple_text_response("Got an error."),
         ]);
-        let turn = make_turn(provider);
+        let op = make_op(provider);
 
         // Should not panic — unknown tool produces an error result but loop continues
-        let output = turn.execute(simple_input("Use nonexistent")).await.unwrap();
+        let output = op.execute(simple_input("Use nonexistent")).await.unwrap();
         assert_eq!(output.exit_reason, ExitReason::Complete);
         // The tool call was recorded
         assert_eq!(output.metadata.tools_called.len(), 1);
@@ -872,21 +898,21 @@ mod tests {
         let mut tools = ToolRegistry::new();
         tools.register(Arc::new(EchoTool));
 
-        let mut turn = NeuronTurn::new(
+        let mut op = ReactOperator::new(
             provider,
             tools,
             Box::new(NoCompaction),
             HookRegistry::new(),
             Arc::new(NullStateReader),
-            NeuronTurnConfig {
+            ReactConfig {
                 default_max_turns: 2,
                 ..Default::default()
             },
         );
         // Avoid unused warning
-        let _ = &mut turn;
+        let _ = &mut op;
 
-        let turn = NeuronTurn::new(
+        let op = ReactOperator::new(
             MockProvider::new(vec![
                 tool_use_response("tu_1", "echo", json!({})),
                 tool_use_response("tu_2", "echo", json!({})),
@@ -900,13 +926,13 @@ mod tests {
             Box::new(NoCompaction),
             HookRegistry::new(),
             Arc::new(NullStateReader),
-            NeuronTurnConfig {
+            ReactConfig {
                 default_max_turns: 2,
                 ..Default::default()
             },
         );
 
-        let output = turn.execute(simple_input("loop")).await.unwrap();
+        let output = op.execute(simple_input("loop")).await.unwrap();
         assert_eq!(output.exit_reason, ExitReason::MaxTurns);
         assert_eq!(output.metadata.turns_used, 2);
     }
@@ -920,13 +946,13 @@ mod tests {
         ]);
         let mut tools = ToolRegistry::new();
         tools.register(Arc::new(EchoTool));
-        let turn = NeuronTurn::new(
+        let op = ReactOperator::new(
             provider,
             tools,
             Box::new(NoCompaction),
             HookRegistry::new(),
             Arc::new(NullStateReader),
-            NeuronTurnConfig::default(),
+            ReactConfig::default(),
         );
 
         let mut input = simple_input("spend");
@@ -934,7 +960,7 @@ mod tests {
         tc.max_cost = Some(Decimal::new(15, 5)); // $0.00015
         input.config = Some(tc);
 
-        let output = turn.execute(input).await.unwrap();
+        let output = op.execute(input).await.unwrap();
         // First call costs $0.0002 > $0.00015, so BudgetExhausted after second call
         assert_eq!(output.exit_reason, ExitReason::BudgetExhausted);
     }
@@ -949,9 +975,9 @@ mod tests {
             cost: None,
             truncated: None,
         }]);
-        let turn = make_turn(provider);
+        let op = make_op(provider);
 
-        let result = turn.execute(simple_input("Hi")).await;
+        let result = op.execute(simple_input("Hi")).await;
         assert!(result.is_err());
         match result.unwrap_err() {
             OperatorError::Model(msg) => assert!(msg.contains("max_tokens")),
@@ -969,9 +995,9 @@ mod tests {
             cost: None,
             truncated: None,
         }]);
-        let turn = make_turn(provider);
+        let op = make_op(provider);
 
-        let result = turn.execute(simple_input("Hi")).await;
+        let result = op.execute(simple_input("Hi")).await;
         assert!(result.is_err());
         match result.unwrap_err() {
             OperatorError::Model(msg) => assert!(msg.contains("content filtered")),
@@ -987,9 +1013,9 @@ mod tests {
         ]);
         let mut tools = ToolRegistry::new();
         tools.register(Arc::new(EchoTool));
-        let turn = make_turn_with_tools(provider, tools);
+        let op = make_op_with_tools(provider, tools);
 
-        let output = turn.execute(simple_input("Hi")).await.unwrap();
+        let output = op.execute(simple_input("Hi")).await.unwrap();
 
         // First call: $0.0002, second call: $0.0001
         assert_eq!(output.metadata.cost, Decimal::new(3, 4));
@@ -998,9 +1024,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn turn_config_overrides_defaults() {
+    async fn operator_config_overrides_defaults() {
         let provider = MockProvider::new(vec![simple_text_response("Hi")]);
-        let turn = make_turn(provider);
+        let op = make_op(provider);
 
         let mut input = simple_input("test");
         let mut tc = layer0::operator::OperatorConfig::default();
@@ -1009,7 +1035,7 @@ mod tests {
         tc.max_turns = Some(5);
         input.config = Some(tc);
 
-        let output = turn.execute(input).await.unwrap();
+        let output = op.execute(input).await.unwrap();
         assert_eq!(output.exit_reason, ExitReason::Complete);
     }
 
@@ -1031,9 +1057,9 @@ mod tests {
             },
             simple_text_response("Memory written."),
         ]);
-        let turn = make_turn(provider);
+        let op = make_op(provider);
 
-        let output = turn.execute(simple_input("Write memory")).await.unwrap();
+        let output = op.execute(simple_input("Write memory")).await.unwrap();
 
         assert_eq!(output.effects.len(), 1);
         match &output.effects[0] {
@@ -1060,26 +1086,26 @@ mod tests {
     }
 
     #[test]
-    fn neuron_turn_implements_turn_trait() {
-        // Compile-time check: NeuronTurn<MockProvider> implements Turn
+    fn react_operator_implements_operator_trait() {
+        // Compile-time check: ReactOperator<MockProvider> implements Operator
         fn _assert_operator<T: Operator>() {}
-        _assert_operator::<NeuronTurn<MockProvider>>();
+        _assert_operator::<ReactOperator<MockProvider>>();
     }
 
     #[tokio::test]
-    async fn neuron_turn_as_arc_dyn_turn() {
-        // NeuronTurn<P> can be used as Arc<dyn Operator>
+    async fn react_operator_as_arc_dyn_operator() {
+        // ReactOperator<P> can be used as Arc<dyn Operator>
         let provider = MockProvider::new(vec![simple_text_response("Hello!")]);
-        let turn: Arc<dyn Operator> = Arc::new(NeuronTurn::new(
+        let op: Arc<dyn Operator> = Arc::new(ReactOperator::new(
             provider,
             ToolRegistry::new(),
             Box::new(NoCompaction),
             HookRegistry::new(),
             Arc::new(NullStateReader),
-            NeuronTurnConfig::default(),
+            ReactConfig::default(),
         ));
 
-        let output = turn
+        let output = op
             .execute(simple_input("Hi"))
             .await
             .unwrap();
@@ -1087,7 +1113,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn provider_retryable_error_maps_to_turn_retryable() {
+    async fn provider_retryable_error_maps_to_retryable() {
         struct ErrorProvider;
         impl Provider for ErrorProvider {
             fn complete(
@@ -1099,16 +1125,16 @@ mod tests {
             }
         }
 
-        let turn = NeuronTurn::new(
+        let op = ReactOperator::new(
             ErrorProvider,
             ToolRegistry::new(),
             Box::new(NoCompaction),
             HookRegistry::new(),
             Arc::new(NullStateReader),
-            NeuronTurnConfig::default(),
+            ReactConfig::default(),
         );
 
-        let result = turn.execute(simple_input("test")).await;
+        let result = op.execute(simple_input("test")).await;
         assert!(matches!(result, Err(OperatorError::Retryable(_))));
     }
 
@@ -1147,9 +1173,9 @@ mod tests {
 
         let mut tools = ToolRegistry::new();
         tools.register(Arc::new(EchoTool));
-        let turn = make_turn_with_tools(counting_provider, tools);
+        let op = make_op_with_tools(counting_provider, tools);
 
-        turn.execute(simple_input("Multi-turn")).await.unwrap();
+        op.execute(simple_input("Multi-turn")).await.unwrap();
         // Only counting_provider was called — provider was called 3 times
         assert_eq!(call_count.load(Ordering::SeqCst), 3);
         // The unused `provider` variable should not cause issues

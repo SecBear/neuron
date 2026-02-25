@@ -4,9 +4,9 @@ use layer0::content::Content;
 use layer0::operator::{ExitReason, Operator, OperatorInput, TriggerType};
 use neuron_context::SlidingWindow;
 use neuron_hooks::HookRegistry;
+use neuron_op_react::{ReactOperator, ReactConfig};
 use neuron_provider_anthropic::AnthropicProvider;
 use neuron_tool::ToolRegistry;
-use neuron_turn::{NeuronTurn, NeuronTurnConfig};
 use std::sync::Arc;
 
 #[tokio::test]
@@ -20,14 +20,14 @@ async fn real_haiku_simple_completion() {
     let hooks = HookRegistry::new();
     let store = Arc::new(neuron_state_memory::MemoryStore::new()) as Arc<dyn layer0::StateReader>;
 
-    let config = NeuronTurnConfig {
+    let config = ReactConfig {
         system_prompt: "You are a helpful assistant. Be very concise.".into(),
         default_model: "claude-haiku-4-5-20251001".into(),
         default_max_tokens: 128,
         default_max_turns: 5,
     };
 
-    let op = NeuronTurn::new(provider, tools, strategy, hooks, store, config);
+    let op = ReactOperator::new(provider, tools, strategy, hooks, store, config);
 
     let input = OperatorInput::new(
         Content::text("Say hello in exactly 3 words."),
@@ -58,15 +58,15 @@ async fn neuron_turn_is_object_safe_as_arc_dyn_operator() {
     let hooks = HookRegistry::new();
     let store = Arc::new(neuron_state_memory::MemoryStore::new()) as Arc<dyn layer0::StateReader>;
 
-    let config = NeuronTurnConfig {
+    let config = ReactConfig {
         system_prompt: "You are a helpful assistant.".into(),
         default_model: "claude-haiku-4-5-20251001".into(),
         default_max_tokens: 64,
         default_max_turns: 3,
     };
 
-    // Prove NeuronTurn<P> can be used as Arc<dyn Operator>
-    let op: Arc<dyn Operator> = Arc::new(NeuronTurn::new(
+    // Prove ReactOperator<P> can be used as Arc<dyn Operator>
+    let op: Arc<dyn Operator> = Arc::new(ReactOperator::new(
         provider, tools, strategy, hooks, store, config,
     ));
 

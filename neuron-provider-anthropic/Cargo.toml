@@ -19,3 +19,4 @@ neuron-tool = { path = "../neuron-tool" }
 neuron-hooks = { path = "../neuron-hooks" }
 neuron-context = { path = "../neuron-context" }
 neuron-state-memory = { path = "../neuron-state-memory" }
+neuron-op-react = { path = "../neuron-op-react" }
