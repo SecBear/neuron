@@ -6,6 +6,7 @@ members = [
   "neuron-state-fs",
   "neuron-env-local",
   "neuron-orch-local",
+  "neuron-hooks",
 ]
 
 [workspace.package]
