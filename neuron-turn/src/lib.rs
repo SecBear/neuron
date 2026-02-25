@@ -9,7 +9,9 @@
 //! - [`Provider`] — LLM provider interface (not object-safe, uses RPITIT)
 //! - [`ContextStrategy`] — context window management
 
+pub mod provider;
 pub mod types;
 
 // Re-exports
+pub use provider::{Provider, ProviderError};
 pub use types::*;
