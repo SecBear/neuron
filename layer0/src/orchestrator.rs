@@ -1,12 +1,12 @@
-//! The Orchestrator protocol — how turns from different agents compose.
+//! The Orchestrator protocol — how operators from different agents compose.
 
-use crate::{error::OrchError, id::*, turn::TurnInput, turn::TurnOutput};
+use crate::{error::OrchError, id::*, operator::OperatorInput, operator::OperatorOutput};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
 /// Protocol ② — Orchestration
 ///
-/// How turns from different agents compose, and how execution
+/// How operators from different agents compose, and how execution
 /// survives failures. Durability and composition are inseparable —
 /// Temporal replay IS orchestration IS crash recovery. They're the
 /// same system.
@@ -22,16 +22,16 @@ use serde::{Deserialize, Serialize};
 /// network hop to another continent. The trait is transport-agnostic.
 #[async_trait]
 pub trait Orchestrator: Send + Sync {
-    /// Dispatch a single turn to an agent. May execute locally or
+    /// Dispatch a single operator invocation to an agent. May execute locally or
     /// remotely. May be durable or fire-and-forget. The trait doesn't
     /// specify — the implementation decides.
     async fn dispatch(
         &self,
         agent: &AgentId,
-        input: TurnInput,
-    ) -> Result<TurnOutput, OrchError>;
+        input: OperatorInput,
+    ) -> Result<OperatorOutput, OrchError>;
 
-    /// Dispatch multiple turns in parallel. The implementation decides
+    /// Dispatch multiple operator invocations in parallel. The implementation decides
     /// whether this is tokio::join!, Temporal child workflows, parallel
     /// HTTP requests, or something else.
     ///
@@ -39,8 +39,8 @@ pub trait Orchestrator: Send + Sync {
     /// Individual tasks may fail independently.
     async fn dispatch_many(
         &self,
-        tasks: Vec<(AgentId, TurnInput)>,
-    ) -> Vec<Result<TurnOutput, OrchError>>;
+        tasks: Vec<(AgentId, OperatorInput)>,
+    ) -> Vec<Result<OperatorOutput, OrchError>>;
 
     /// Fire-and-forget signal to a running workflow.
     /// Used for: inter-agent messaging, user feedback injection,
@@ -49,7 +49,7 @@ pub trait Orchestrator: Send + Sync {
     /// Returns Ok(()) when the signal is accepted (not when it's
     /// processed — that's async by nature).
     ///
-    /// Uses [`crate::effect::SignalPayload`] — the same type turns use to
+    /// Uses [`crate::effect::SignalPayload`] — the same type operators use to
     /// declare signals as effects. One type, two sides of the boundary.
     async fn signal(
         &self,

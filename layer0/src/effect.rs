@@ -1,14 +1,14 @@
-//! Effect system — side-effects declared by turns for external execution.
+//! Effect system — side-effects declared by operators for external execution.
 
 use crate::id::*;
 use serde::{Deserialize, Serialize};
 
-/// A side-effect declared by a turn. NOT executed by the turn —
+/// A side-effect declared by an operator. NOT executed by the operator —
 /// the calling layer decides when and how to execute it.
 ///
-/// This is the key composability mechanism. A turn running in-process
-/// has its effects executed by a simple loop. A turn running in Temporal
-/// has its effects serialized into the workflow history. A turn running
+/// This is the key composability mechanism. An operator running in-process
+/// has its effects executed by a simple loop. An operator running in Temporal
+/// has its effects serialized into the workflow history. An operator running
 /// in a test harness has its effects captured for assertions.
 ///
 /// The Custom variant ensures future effect types can be represented
@@ -45,17 +45,17 @@ pub enum Effect {
     },
 
     /// Request that the orchestrator dispatch another agent.
-    /// This is how delegation works — the turn doesn't call the
+    /// This is how delegation works — the operator doesn't call the
     /// other agent directly, it asks the orchestrator to do it.
     Delegate {
         /// The agent to delegate to.
         agent: AgentId,
         /// The input to send to the delegated agent.
-        input: Box<TurnInput>,
+        input: Box<OperatorInput>,
     },
 
     /// Hand off the conversation to another agent. Unlike Delegate,
-    /// the current turn is done — the next agent takes over.
+    /// the current operator is done — the next agent takes over.
     Handoff {
         /// The agent to hand off to.
         agent: AgentId,
@@ -86,8 +86,8 @@ pub enum Effect {
     },
 }
 
-// Forward-declare TurnInput usage for the Delegate variant.
-use crate::turn::TurnInput;
+// Forward-declare OperatorInput usage for the Delegate variant.
+use crate::operator::OperatorInput;
 
 /// Where state lives. Scopes are hierarchical — a session scope
 /// is narrower than a workflow scope, which is narrower than global.

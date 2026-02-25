@@ -1,12 +1,12 @@
 //! The Environment protocol — isolation, credentials, and resource constraints.
 
-use crate::{error::EnvError, turn::TurnInput, turn::TurnOutput};
+use crate::{error::EnvError, operator::OperatorInput, operator::OperatorOutput};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
 /// Protocol ④ — Environment
 ///
-/// How a turn executes within an isolated context. Handles isolation,
+/// How an operator executes within an isolated context. Handles isolation,
 /// credentials, and resource constraints. The environment mediates
 /// between the caller and the execution context.
 ///
@@ -17,32 +17,32 @@ use serde::{Deserialize, Serialize};
 /// - WasmEnvironment: sandboxed Wasm runtime
 ///
 /// The critical insight: the Environment owns or has access to whatever
-/// it needs to execute a turn — the same pattern as Orchestrator.
-/// `run()` takes only data (`TurnInput` + `EnvironmentSpec`), not a
-/// function reference. How the Environment resolves and invokes a Turn
+/// it needs to execute an operator — the same pattern as Orchestrator.
+/// `run()` takes only data (`OperatorInput` + `EnvironmentSpec`), not a
+/// function reference. How the Environment resolves and invokes an Operator
 /// is an internal concern.
 ///
-/// For `LocalEnvironment`, the turn is stored as an `Arc<dyn Turn>`
+/// For `LocalEnvironment`, the operator is stored as an `Arc<dyn Operator>`
 /// field at construction time. For `DockerEnvironment`, container
-/// configuration is stored — it serializes the `TurnInput`, runs a
-/// turn process inside the container, and deserializes the `TurnOutput`.
+/// configuration is stored — it serializes the `OperatorInput`, runs an
+/// operator process inside the container, and deserializes the `OperatorOutput`.
 /// Same trait, radically different isolation.
 #[async_trait]
 pub trait Environment: Send + Sync {
-    /// Execute a turn within this environment's isolation boundary.
+    /// Execute an operator within this environment's isolation boundary.
     ///
     /// The implementation:
     /// 1. Provisions any required isolation (container, sandbox, etc.)
     /// 2. Injects credentials according to the spec
     /// 3. Applies resource limits
-    /// 4. Executes the turn (mechanism is internal to the implementation)
+    /// 4. Executes the operator (mechanism is internal to the implementation)
     /// 5. Captures the output
     /// 6. Tears down the isolation context
     async fn run(
         &self,
-        input: TurnInput,
+        input: OperatorInput,
         spec: &EnvironmentSpec,
-    ) -> Result<TurnOutput, EnvError>;
+    ) -> Result<OperatorOutput, EnvError>;
 }
 
 /// Declarative specification for an execution environment.

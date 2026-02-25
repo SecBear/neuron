@@ -1,7 +1,7 @@
 //! Integration test: real Anthropic Haiku call through the full stack.
 
 use layer0::content::Content;
-use layer0::turn::{ExitReason, Turn, TurnInput, TriggerType};
+use layer0::operator::{ExitReason, Operator, OperatorInput, TriggerType};
 use neuron_context::SlidingWindow;
 use neuron_hooks::HookRegistry;
 use neuron_provider_anthropic::AnthropicProvider;
@@ -27,14 +27,14 @@ async fn real_haiku_simple_completion() {
         default_max_turns: 5,
     };
 
-    let turn = NeuronTurn::new(provider, tools, strategy, hooks, store, config);
+    let op = NeuronTurn::new(provider, tools, strategy, hooks, store, config);
 
-    let input = TurnInput::new(
+    let input = OperatorInput::new(
         Content::text("Say hello in exactly 3 words."),
         TriggerType::User,
     );
 
-    let output = turn.execute(input).await.unwrap();
+    let output = op.execute(input).await.unwrap();
 
     assert_eq!(output.exit_reason, ExitReason::Complete);
     assert!(output.message.as_text().is_some());
@@ -49,7 +49,7 @@ async fn real_haiku_simple_completion() {
 
 #[tokio::test]
 #[ignore] // Requires ANTHROPIC_API_KEY environment variable
-async fn neuron_turn_is_object_safe_as_arc_dyn_turn() {
+async fn neuron_turn_is_object_safe_as_arc_dyn_operator() {
     let api_key = std::env::var("ANTHROPIC_API_KEY").expect("ANTHROPIC_API_KEY not set");
 
     let provider = AnthropicProvider::new(api_key);
@@ -65,12 +65,12 @@ async fn neuron_turn_is_object_safe_as_arc_dyn_turn() {
         default_max_turns: 3,
     };
 
-    // Prove NeuronTurn<P> can be used as Arc<dyn Turn>
-    let turn: Arc<dyn Turn> = Arc::new(NeuronTurn::new(
+    // Prove NeuronTurn<P> can be used as Arc<dyn Operator>
+    let op: Arc<dyn Operator> = Arc::new(NeuronTurn::new(
         provider, tools, strategy, hooks, store, config,
     ));
 
-    let input = TurnInput::new(Content::text("Say hi."), TriggerType::User);
-    let output = turn.execute(input).await.unwrap();
+    let input = OperatorInput::new(Content::text("Say hi."), TriggerType::User);
+    let output = op.execute(input).await.unwrap();
     assert_eq!(output.exit_reason, ExitReason::Complete);
 }

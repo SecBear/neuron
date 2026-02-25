@@ -3,16 +3,16 @@
 use crate::effect::SignalPayload;
 use crate::error::OrchError;
 use crate::id::{AgentId, WorkflowId};
+use crate::operator::{Operator, OperatorInput, OperatorOutput};
 use crate::orchestrator::{Orchestrator, QueryPayload};
-use crate::turn::{Turn, TurnInput, TurnOutput};
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-/// In-process orchestrator that dispatches turns to registered agents.
-/// Uses `Arc<dyn Turn>` for true concurrent dispatch via `tokio::spawn`.
+/// In-process orchestrator that dispatches operator invocations to registered agents.
+/// Uses `Arc<dyn Operator>` for true concurrent dispatch via `tokio::spawn`.
 pub struct LocalOrchestrator {
-    agents: HashMap<String, Arc<dyn Turn>>,
+    agents: HashMap<String, Arc<dyn Operator>>,
 }
 
 impl LocalOrchestrator {
@@ -24,8 +24,8 @@ impl LocalOrchestrator {
     }
 
     /// Register an agent with the orchestrator.
-    pub fn register(&mut self, id: AgentId, turn: Arc<dyn Turn>) {
-        self.agents.insert(id.0, turn);
+    pub fn register(&mut self, id: AgentId, operator: Arc<dyn Operator>) {
+        self.agents.insert(id.0, operator);
     }
 }
 
@@ -40,27 +40,27 @@ impl Orchestrator for LocalOrchestrator {
     async fn dispatch(
         &self,
         agent: &AgentId,
-        input: TurnInput,
-    ) -> Result<TurnOutput, OrchError> {
-        let turn = self
+        input: OperatorInput,
+    ) -> Result<OperatorOutput, OrchError> {
+        let operator = self
             .agents
             .get(agent.as_str())
             .ok_or_else(|| OrchError::AgentNotFound(agent.to_string()))?;
-        turn.execute(input).await.map_err(OrchError::TurnError)
+        operator.execute(input).await.map_err(OrchError::OperatorError)
     }
 
     async fn dispatch_many(
         &self,
-        tasks: Vec<(AgentId, TurnInput)>,
-    ) -> Vec<Result<TurnOutput, OrchError>> {
+        tasks: Vec<(AgentId, OperatorInput)>,
+    ) -> Vec<Result<OperatorOutput, OrchError>> {
         let mut handles = Vec::with_capacity(tasks.len());
 
         for (agent_id, input) in tasks {
             match self.agents.get(agent_id.as_str()) {
-                Some(turn) => {
-                    let turn = Arc::clone(turn);
+                Some(operator) => {
+                    let operator = Arc::clone(operator);
                     handles.push(tokio::spawn(async move {
-                        turn.execute(input).await.map_err(OrchError::TurnError)
+                        operator.execute(input).await.map_err(OrchError::OperatorError)
                     }));
                 }
                 None => {

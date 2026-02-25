@@ -1,22 +1,22 @@
-//! LocalEnvironment — no isolation, just passthrough to the turn.
+//! LocalEnvironment — no isolation, just passthrough to the operator.
 
 use crate::environment::EnvironmentSpec;
 use crate::error::EnvError;
-use crate::turn::{Turn, TurnInput, TurnOutput};
+use crate::operator::{Operator, OperatorInput, OperatorOutput};
 use async_trait::async_trait;
 use std::sync::Arc;
 
-/// A passthrough environment that executes the turn directly with no isolation.
-/// Used for local development and testing. The turn is provided at construction
+/// A passthrough environment that executes the operator directly with no isolation.
+/// Used for local development and testing. The operator is provided at construction
 /// time and stored internally — callers don't pass it on every run() call.
 pub struct LocalEnvironment {
-    turn: Arc<dyn Turn>,
+    operator: Arc<dyn Operator>,
 }
 
 impl LocalEnvironment {
-    /// Create a new local environment wrapping the given turn.
-    pub fn new(turn: Arc<dyn Turn>) -> Self {
-        Self { turn }
+    /// Create a new local environment wrapping the given operator.
+    pub fn new(operator: Arc<dyn Operator>) -> Self {
+        Self { operator }
     }
 }
 
@@ -24,9 +24,9 @@ impl LocalEnvironment {
 impl crate::environment::Environment for LocalEnvironment {
     async fn run(
         &self,
-        input: TurnInput,
+        input: OperatorInput,
         _spec: &EnvironmentSpec,
-    ) -> Result<TurnOutput, EnvError> {
-        self.turn.execute(input).await.map_err(EnvError::TurnError)
+    ) -> Result<OperatorOutput, EnvError> {
+        self.operator.execute(input).await.map_err(EnvError::OperatorError)
     }
 }

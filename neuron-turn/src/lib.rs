@@ -1,8 +1,8 @@
 #![deny(missing_docs)]
-//! ReAct loop implementing `layer0::Turn`.
+//! ReAct loop implementing `layer0::Operator`.
 //!
 //! This crate provides [`NeuronTurn`], a full-featured implementation of
-//! the [`layer0::Turn`] trait. It runs a ReAct loop: call the model,
+//! the [`layer0::Operator`] trait. It runs a ReAct loop: call the model,
 //! execute tools, repeat until done.
 //!
 //! Key traits defined here:
@@ -13,6 +13,7 @@ pub mod config;
 pub mod context;
 pub mod convert;
 pub mod provider;
+pub mod turn;
 pub mod types;
 
 // Re-exports
@@ -23,4 +24,5 @@ pub use convert::{
     parts_to_content,
 };
 pub use provider::{Provider, ProviderError};
+pub use turn::NeuronTurn;
 pub use types::*;

@@ -2,7 +2,7 @@
 
 /// Static configuration for a NeuronTurn instance.
 ///
-/// Per-request overrides come from `TurnInput.config` (layer0's `TurnConfig`).
+/// Per-request overrides come from `OperatorInput.config` (layer0's `OperatorConfig`).
 /// This struct holds the defaults.
 pub struct NeuronTurnConfig {
     /// Base system prompt for this turn implementation.

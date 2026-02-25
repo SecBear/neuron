@@ -19,13 +19,13 @@ use serde_json::json;
 fn _assert_send_sync<T: Send + Sync>() {}
 
 #[test]
-fn turn_is_object_safe_send_sync() {
-    _assert_send_sync::<Box<dyn Turn>>();
+fn operator_is_object_safe_send_sync() {
+    _assert_send_sync::<Box<dyn Operator>>();
 }
 
 #[test]
-fn arc_turn_is_send_sync() {
-    _assert_send_sync::<std::sync::Arc<dyn Turn>>();
+fn arc_operator_is_send_sync() {
+    _assert_send_sync::<std::sync::Arc<dyn Operator>>();
 }
 
 #[test]
@@ -202,11 +202,11 @@ fn content_custom_block_round_trip() {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// TurnInput / TurnOutput round-trips
+// OperatorInput / OperatorOutput round-trips
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-fn sample_turn_input() -> TurnInput {
-    let mut config = TurnConfig::default();
+fn sample_operator_input() -> OperatorInput {
+    let mut config = OperatorConfig::default();
     config.max_turns = Some(10);
     config.max_cost = Some(Decimal::new(100, 2)); // $1.00
     config.max_duration = Some(DurationMs::from_secs(60));
@@ -214,7 +214,7 @@ fn sample_turn_input() -> TurnInput {
     config.allowed_tools = Some(vec!["read_file".into()]);
     config.system_addendum = Some("Be concise.".into());
 
-    let mut input = TurnInput::new(Content::text("do something"), layer0::turn::TriggerType::User);
+    let mut input = OperatorInput::new(Content::text("do something"), layer0::operator::TriggerType::User);
     input.session = Some(SessionId::new("sess-1"));
     input.config = Some(config);
     input.metadata = json!({"trace_id": "abc123"});
@@ -222,18 +222,18 @@ fn sample_turn_input() -> TurnInput {
 }
 
 #[test]
-fn turn_input_serde_round_trip() {
-    let input = sample_turn_input();
+fn operator_input_serde_round_trip() {
+    let input = sample_operator_input();
     let json = serde_json::to_string(&input).unwrap();
-    let back: TurnInput = serde_json::from_str(&json).unwrap();
+    let back: OperatorInput = serde_json::from_str(&json).unwrap();
     assert_eq!(input.message, back.message);
     assert_eq!(input.trigger, back.trigger);
     assert_eq!(input.session, back.session);
     assert_eq!(input.metadata, back.metadata);
 }
 
-fn sample_turn_output() -> TurnOutput {
-    let mut meta = TurnMetadata::default();
+fn sample_operator_output() -> OperatorOutput {
+    let mut meta = OperatorMetadata::default();
     meta.tokens_in = 100;
     meta.tokens_out = 50;
     meta.cost = Decimal::new(5, 3); // $0.005
@@ -241,23 +241,23 @@ fn sample_turn_output() -> TurnOutput {
     meta.tools_called = vec![ToolCallRecord::new("read_file", DurationMs::from_millis(150), true)];
     meta.duration = DurationMs::from_secs(2);
 
-    let mut output = TurnOutput::new(Content::text("done"), ExitReason::Complete);
+    let mut output = OperatorOutput::new(Content::text("done"), ExitReason::Complete);
     output.metadata = meta;
     output
 }
 
 #[test]
-fn turn_output_serde_round_trip() {
-    let output = sample_turn_output();
+fn operator_output_serde_round_trip() {
+    let output = sample_operator_output();
     let json = serde_json::to_string(&output).unwrap();
-    let back: TurnOutput = serde_json::from_str(&json).unwrap();
+    let back: OperatorOutput = serde_json::from_str(&json).unwrap();
     assert_eq!(output.message, back.message);
     assert_eq!(output.exit_reason, back.exit_reason);
 }
 
 #[test]
-fn turn_metadata_default() {
-    let m = TurnMetadata::default();
+fn operator_metadata_default() {
+    let m = OperatorMetadata::default();
     assert_eq!(m.tokens_in, 0);
     assert_eq!(m.tokens_out, 0);
     assert_eq!(m.cost, Decimal::ZERO);
@@ -272,9 +272,9 @@ fn turn_metadata_default() {
 
 #[test]
 fn trigger_type_custom_round_trip() {
-    let t = layer0::turn::TriggerType::Custom("webhook".into());
+    let t = layer0::operator::TriggerType::Custom("webhook".into());
     let json = serde_json::to_string(&t).unwrap();
-    let back: layer0::turn::TriggerType = serde_json::from_str(&json).unwrap();
+    let back: layer0::operator::TriggerType = serde_json::from_str(&json).unwrap();
     assert_eq!(t, back);
 }
 
@@ -329,7 +329,7 @@ fn effect_signal_round_trip() {
 fn effect_delegate_round_trip() {
     let e = Effect::Delegate {
         agent: AgentId::new("helper"),
-        input: Box::new(sample_turn_input()),
+        input: Box::new(sample_operator_input()),
     };
     let json = serde_json::to_string(&e).unwrap();
     let back: Effect = serde_json::from_str(&json).unwrap();
@@ -608,16 +608,16 @@ fn decimal_zero_serializes_as_string() {
 }
 
 #[test]
-fn decimal_in_turn_metadata_wire_format() {
+fn decimal_in_operator_metadata_wire_format() {
     // Verify Decimal format is preserved when nested in protocol types.
-    let mut meta = TurnMetadata::default();
+    let mut meta = OperatorMetadata::default();
     meta.tokens_in = 100;
     meta.tokens_out = 50;
     meta.cost = Decimal::new(5, 3); // 0.005
     meta.turns_used = 1;
     let json = serde_json::to_value(&meta).unwrap();
     let cost_val = &json["cost"];
-    assert!(cost_val.is_string(), "cost in TurnMetadata must be string, got: {cost_val}");
+    assert!(cost_val.is_string(), "cost in OperatorMetadata must be string, got: {cost_val}");
     assert_eq!(cost_val.as_str().unwrap(), "0.005");
 }
 
@@ -693,8 +693,8 @@ fn duration_ms_zero_serializes_as_zero() {
 fn trigger_type_custom_preserves_unknown_variant() {
     // A new trigger type should survive round-trip through Custom.
     let json = r#"{"custom":"iot_sensor_event"}"#;
-    let t: layer0::turn::TriggerType = serde_json::from_str(json).unwrap();
-    assert_eq!(t, layer0::turn::TriggerType::Custom("iot_sensor_event".into()));
+    let t: layer0::operator::TriggerType = serde_json::from_str(json).unwrap();
+    assert_eq!(t, layer0::operator::TriggerType::Custom("iot_sensor_event".into()));
 }
 
 #[test]
@@ -760,11 +760,11 @@ fn _takes_state_store<T: StateStore>(s: &T) {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 #[test]
-fn turn_error_display() {
-    let e = TurnError::Model("rate limited".into());
+fn operator_error_display() {
+    let e = OperatorError::Model("rate limited".into());
     assert_eq!(e.to_string(), "model error: rate limited");
 
-    let e = TurnError::Tool {
+    let e = OperatorError::Tool {
         tool: "bash".into(),
         message: "command failed".into(),
     };
@@ -803,21 +803,21 @@ fn hook_error_display() {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 #[test]
-fn turn_error_display_remaining_variants() {
+fn operator_error_display_remaining_variants() {
     assert_eq!(
-        TurnError::ContextAssembly("bad ctx".into()).to_string(),
+        OperatorError::ContextAssembly("bad ctx".into()).to_string(),
         "context assembly failed: bad ctx"
     );
     assert_eq!(
-        TurnError::Retryable("timeout".into()).to_string(),
+        OperatorError::Retryable("timeout".into()).to_string(),
         "retryable: timeout"
     );
     assert_eq!(
-        TurnError::NonRetryable("invalid".into()).to_string(),
+        OperatorError::NonRetryable("invalid".into()).to_string(),
         "non-retryable: invalid"
     );
     let boxed: Box<dyn std::error::Error + Send + Sync> = "inner error".into();
-    assert_eq!(TurnError::Other(boxed).to_string(), "inner error");
+    assert_eq!(OperatorError::Other(boxed).to_string(), "inner error");
 }
 
 #[test]
@@ -834,10 +834,10 @@ fn orch_error_display_remaining_variants() {
         OrchError::SignalFailed("no handler".into()).to_string(),
         "signal delivery failed: no handler"
     );
-    let inner = TurnError::Model("provider down".into());
+    let inner = OperatorError::Model("provider down".into());
     assert_eq!(
-        OrchError::TurnError(inner).to_string(),
-        "turn error: model error: provider down"
+        OrchError::OperatorError(inner).to_string(),
+        "operator error: model error: provider down"
     );
     let boxed: Box<dyn std::error::Error + Send + Sync> = "orch inner".into();
     assert_eq!(OrchError::Other(boxed).to_string(), "orch inner");
@@ -871,10 +871,10 @@ fn env_error_display_remaining_variants() {
         EnvError::ResourceExceeded("OOM".into()).to_string(),
         "resource limit exceeded: OOM"
     );
-    let inner = TurnError::Model("provider down".into());
+    let inner = OperatorError::Model("provider down".into());
     assert_eq!(
-        EnvError::TurnError(inner).to_string(),
-        "turn error: model error: provider down"
+        EnvError::OperatorError(inner).to_string(),
+        "operator error: model error: provider down"
     );
     let boxed: Box<dyn std::error::Error + Send + Sync> = "env inner".into();
     assert_eq!(EnvError::Other(boxed).to_string(), "env inner");
@@ -944,12 +944,12 @@ fn effect_delete_memory_round_trip() {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// TurnConfig default
+// OperatorConfig default
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 #[test]
-fn turn_config_default_all_none() {
-    let c = TurnConfig::default();
+fn operator_config_default_all_none() {
+    let c = OperatorConfig::default();
     assert!(c.max_turns.is_none());
     assert!(c.max_cost.is_none());
     assert!(c.max_duration.is_none());

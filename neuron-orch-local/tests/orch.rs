@@ -1,13 +1,13 @@
 use layer0::content::Content;
 use layer0::id::{AgentId, WorkflowId};
+use layer0::operator::{OperatorInput, OperatorOutput, TriggerType};
 use layer0::orchestrator::{Orchestrator, QueryPayload};
-use layer0::test_utils::EchoTurn;
-use layer0::turn::{TriggerType, TurnInput, TurnOutput};
+use layer0::test_utils::EchoOperator;
 use neuron_orch_local::LocalOrch;
 use std::sync::Arc;
 
-fn simple_input(msg: &str) -> TurnInput {
-    TurnInput::new(Content::text(msg), TriggerType::User)
+fn simple_input(msg: &str) -> OperatorInput {
+    OperatorInput::new(Content::text(msg), TriggerType::User)
 }
 
 // --- Single dispatch ---
@@ -15,7 +15,7 @@ fn simple_input(msg: &str) -> TurnInput {
 #[tokio::test]
 async fn dispatch_to_registered_agent() {
     let mut orch = LocalOrch::new();
-    orch.register(AgentId::new("echo"), Arc::new(EchoTurn));
+    orch.register(AgentId::new("echo"), Arc::new(EchoOperator));
 
     let output = orch
         .dispatch(&AgentId::new("echo"), simple_input("hello"))
@@ -37,24 +37,24 @@ async fn dispatch_agent_not_found() {
 
 // --- Error propagation ---
 
-struct FailingTurn;
+struct FailingOperator;
 
 #[async_trait::async_trait]
-impl layer0::turn::Turn for FailingTurn {
+impl layer0::operator::Operator for FailingOperator {
     async fn execute(
         &self,
-        _input: TurnInput,
-    ) -> Result<TurnOutput, layer0::error::TurnError> {
-        Err(layer0::error::TurnError::NonRetryable(
+        _input: OperatorInput,
+    ) -> Result<OperatorOutput, layer0::error::OperatorError> {
+        Err(layer0::error::OperatorError::NonRetryable(
             "always fails".into(),
         ))
     }
 }
 
 #[tokio::test]
-async fn dispatch_propagates_turn_error() {
+async fn dispatch_propagates_operator_error() {
     let mut orch = LocalOrch::new();
-    orch.register(AgentId::new("fail"), Arc::new(FailingTurn));
+    orch.register(AgentId::new("fail"), Arc::new(FailingOperator));
 
     let result = orch
         .dispatch(&AgentId::new("fail"), simple_input("boom"))
@@ -68,8 +68,8 @@ async fn dispatch_propagates_turn_error() {
 #[tokio::test]
 async fn dispatch_many_concurrent() {
     let mut orch = LocalOrch::new();
-    orch.register(AgentId::new("a"), Arc::new(EchoTurn));
-    orch.register(AgentId::new("b"), Arc::new(EchoTurn));
+    orch.register(AgentId::new("a"), Arc::new(EchoOperator));
+    orch.register(AgentId::new("b"), Arc::new(EchoOperator));
 
     let tasks = vec![
         (AgentId::new("a"), simple_input("msg-a")),
@@ -91,7 +91,7 @@ async fn dispatch_many_concurrent() {
 #[tokio::test]
 async fn dispatch_many_partial_failure() {
     let mut orch = LocalOrch::new();
-    orch.register(AgentId::new("ok"), Arc::new(EchoTurn));
+    orch.register(AgentId::new("ok"), Arc::new(EchoOperator));
     // "bad" is not registered
 
     let tasks = vec![
@@ -132,7 +132,7 @@ async fn query_returns_null() {
 #[tokio::test]
 async fn usable_as_dyn_orchestrator() {
     let mut orch = LocalOrch::new();
-    orch.register(AgentId::new("echo"), Arc::new(EchoTurn));
+    orch.register(AgentId::new("echo"), Arc::new(EchoOperator));
 
     let orch: Box<dyn Orchestrator> = Box::new(orch);
     let output = orch
@@ -145,7 +145,7 @@ async fn usable_as_dyn_orchestrator() {
 #[tokio::test]
 async fn usable_as_arc_dyn_orchestrator() {
     let mut orch = LocalOrch::new();
-    orch.register(AgentId::new("echo"), Arc::new(EchoTurn));
+    orch.register(AgentId::new("echo"), Arc::new(EchoOperator));
 
     let orch: Arc<dyn Orchestrator> = Arc::new(orch);
     let output = orch

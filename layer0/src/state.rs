@@ -88,9 +88,9 @@ impl SearchResult {
     }
 }
 
-/// Read-only view of state, given to the turn runtime during
-/// context assembly. The turn can read but cannot write — writes
-/// go through Effects in TurnOutput.
+/// Read-only view of state, given to the operator runtime during
+/// context assembly. The operator can read but cannot write — writes
+/// go through Effects in OperatorOutput.
 ///
 /// This trait exists to enforce the read/write asymmetry at the
 /// type level. A Turn receives `&dyn StateReader`, not `&dyn StateStore`.

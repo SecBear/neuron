@@ -2,10 +2,10 @@
 
 use thiserror::Error;
 
-/// Turn execution errors.
+/// Operator execution errors.
 #[non_exhaustive]
 #[derive(Debug, Error)]
-pub enum TurnError {
+pub enum OperatorError {
     /// An error from the model/LLM provider.
     #[error("model error: {0}")]
     Model(String),
@@ -23,12 +23,12 @@ pub enum TurnError {
     #[error("context assembly failed: {0}")]
     ContextAssembly(String),
 
-    /// The turn failed but retrying might succeed.
+    /// The operator failed but retrying might succeed.
     /// The orchestrator's retry policy decides.
     #[error("retryable: {0}")]
     Retryable(String),
 
-    /// The turn failed and retrying won't help.
+    /// The operator failed and retrying won't help.
     /// Budget exceeded, invalid input, safety refusal.
     #[error("non-retryable: {0}")]
     NonRetryable(String),
@@ -58,9 +58,9 @@ pub enum OrchError {
     #[error("signal delivery failed: {0}")]
     SignalFailed(String),
 
-    /// A turn error propagated through orchestration.
-    #[error("turn error: {0}")]
-    TurnError(#[from] TurnError),
+    /// An operator error propagated through orchestration.
+    #[error("operator error: {0}")]
+    OperatorError(#[from] OperatorError),
 
     /// Catch-all.
     #[error("{0}")]
@@ -113,16 +113,16 @@ pub enum EnvError {
     #[error("resource limit exceeded: {0}")]
     ResourceExceeded(String),
 
-    /// A turn error propagated through the environment.
-    #[error("turn error: {0}")]
-    TurnError(#[from] TurnError),
+    /// An operator error propagated through the environment.
+    #[error("operator error: {0}")]
+    OperatorError(#[from] OperatorError),
 
     /// Catch-all.
     #[error("{0}")]
     Other(#[from] Box<dyn std::error::Error + Send + Sync>),
 }
 
-/// Hook errors. These are logged but do NOT halt the turn
+/// Hook errors. These are logged but do NOT halt the operator
 /// (use HookAction::Halt to halt).
 #[non_exhaustive]
 #[derive(Debug, Error)]

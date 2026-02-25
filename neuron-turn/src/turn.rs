@@ -1,4 +1,4 @@
-//! NeuronTurn — the ReAct loop implementing `layer0::Turn`.
+//! NeuronTurn — the ReAct loop implementing `layer0::Operator`.
 
 use crate::config::NeuronTurnConfig;
 use crate::context::ContextStrategy;
@@ -9,11 +9,11 @@ use async_trait::async_trait;
 use layer0::content::Content;
 use layer0::duration::DurationMs;
 use layer0::effect::{Effect, Scope, SignalPayload};
-use layer0::error::TurnError;
+use layer0::error::OperatorError;
 use layer0::hook::{HookAction, HookContext, HookPoint};
 use layer0::id::{AgentId, WorkflowId};
-use layer0::turn::{
-    ExitReason, ToolCallRecord, Turn, TurnInput, TurnMetadata, TurnOutput,
+use layer0::operator::{
+    ExitReason, ToolCallRecord, Operator, OperatorInput, OperatorMetadata, OperatorOutput,
 };
 use neuron_hooks::HookRegistry;
 use neuron_tool::ToolRegistry;
@@ -41,7 +41,7 @@ struct ResolvedConfig {
     max_tokens: u32,
 }
 
-/// A full-featured Turn implementation with a ReAct loop.
+/// A full-featured Operator implementation with a ReAct loop.
 ///
 /// Generic over `P: Provider` (not object-safe). The object-safe boundary
 /// is `layer0::Turn`, which `NeuronTurn<P>` implements via `#[async_trait]`.
@@ -74,7 +74,7 @@ impl<P: Provider> NeuronTurn<P> {
         }
     }
 
-    fn resolve_config(&self, input: &TurnInput) -> ResolvedConfig {
+    fn resolve_config(&self, input: &OperatorInput) -> ResolvedConfig {
         let tc = input.config.as_ref();
         let system = match tc.and_then(|c| c.system_addendum.as_ref()) {
             Some(addendum) => format!("{}\n{}", self.config.system_prompt, addendum),
@@ -125,8 +125,8 @@ impl<P: Provider> NeuronTurn<P> {
 
     async fn assemble_context(
         &self,
-        input: &TurnInput,
-    ) -> Result<Vec<ProviderMessage>, TurnError> {
+        input: &OperatorInput,
+    ) -> Result<Vec<ProviderMessage>, OperatorError> {
         let mut messages = Vec::new();
 
         // Read history from state if session is present
@@ -172,9 +172,9 @@ impl<P: Provider> NeuronTurn<P> {
                     .get("message")
                     .and_then(|m| m.as_str())
                     .unwrap_or("");
-                let delegate_input = TurnInput::new(
+                let delegate_input = OperatorInput::new(
                     Content::text(message),
-                    layer0::turn::TriggerType::Task,
+                    layer0::operator::TriggerType::Task,
                 );
                 Some(Effect::Delegate {
                     agent: AgentId::new(agent),
@@ -219,8 +219,8 @@ impl<P: Provider> NeuronTurn<P> {
         turns_used: u32,
         tools_called: Vec<ToolCallRecord>,
         duration: DurationMs,
-    ) -> TurnMetadata {
-        let mut meta = TurnMetadata::default();
+    ) -> OperatorMetadata {
+        let mut meta = OperatorMetadata::default();
         meta.tokens_in = tokens_in;
         meta.tokens_out = tokens_out;
         meta.cost = cost;
@@ -233,10 +233,10 @@ impl<P: Provider> NeuronTurn<P> {
     fn make_output(
         message: Content,
         exit_reason: ExitReason,
-        metadata: TurnMetadata,
+        metadata: OperatorMetadata,
         effects: Vec<Effect>,
-    ) -> TurnOutput {
-        let mut output = TurnOutput::new(message, exit_reason);
+    ) -> OperatorOutput {
+        let mut output = OperatorOutput::new(message, exit_reason);
         output.metadata = metadata;
         output.effects = effects;
         output
@@ -261,8 +261,8 @@ impl<P: Provider> NeuronTurn<P> {
 }
 
 #[async_trait]
-impl<P: Provider + 'static> Turn for NeuronTurn<P> {
-    async fn execute(&self, input: TurnInput) -> Result<TurnOutput, TurnError> {
+impl<P: Provider + 'static> Operator for NeuronTurn<P> {
+    async fn execute(&self, input: OperatorInput) -> Result<OperatorOutput, OperatorError> {
         let start = Instant::now();
         let config = self.resolve_config(&input);
         let mut messages = self.assemble_context(&input).await?;
@@ -311,9 +311,9 @@ impl<P: Provider + 'static> Turn for NeuronTurn<P> {
             // 3. Call provider
             let response = self.provider.complete(request).await.map_err(|e| {
                 if e.is_retryable() {
-                    TurnError::Retryable(e.to_string())
+                    OperatorError::Retryable(e.to_string())
                 } else {
-                    TurnError::Model(e.to_string())
+                    OperatorError::Model(e.to_string())
                 }
             })?;
 
@@ -348,12 +348,12 @@ impl<P: Provider + 'static> Turn for NeuronTurn<P> {
             // 6. Check StopReason
             match response.stop_reason {
                 StopReason::MaxTokens => {
-                    return Err(TurnError::Model(
+                    return Err(OperatorError::Model(
                         "output truncated (max_tokens)".into(),
                     ));
                 }
                 StopReason::ContentFilter => {
-                    return Err(TurnError::Model("content filtered".into()));
+                    return Err(OperatorError::Model("content filtered".into()));
                 }
                 StopReason::EndTurn => {
                     return Ok(Self::make_output(
@@ -806,8 +806,8 @@ mod tests {
         )
     }
 
-    fn simple_input(text: &str) -> TurnInput {
-        TurnInput::new(Content::text(text), layer0::turn::TriggerType::User)
+    fn simple_input(text: &str) -> OperatorInput {
+        OperatorInput::new(Content::text(text), layer0::operator::TriggerType::User)
     }
 
     // ── Tests ──────────────────────────────────────────
@@ -930,7 +930,7 @@ mod tests {
         );
 
         let mut input = simple_input("spend");
-        let mut tc = layer0::turn::TurnConfig::default();
+        let mut tc = layer0::operator::OperatorConfig::default();
         tc.max_cost = Some(Decimal::new(15, 5)); // $0.00015
         input.config = Some(tc);
 
@@ -954,8 +954,8 @@ mod tests {
         let result = turn.execute(simple_input("Hi")).await;
         assert!(result.is_err());
         match result.unwrap_err() {
-            TurnError::Model(msg) => assert!(msg.contains("max_tokens")),
-            other => panic!("expected TurnError::Model, got {:?}", other),
+            OperatorError::Model(msg) => assert!(msg.contains("max_tokens")),
+            other => panic!("expected OperatorError::Model, got {:?}", other),
         }
     }
 
@@ -974,8 +974,8 @@ mod tests {
         let result = turn.execute(simple_input("Hi")).await;
         assert!(result.is_err());
         match result.unwrap_err() {
-            TurnError::Model(msg) => assert!(msg.contains("content filtered")),
-            other => panic!("expected TurnError::Model, got {:?}", other),
+            OperatorError::Model(msg) => assert!(msg.contains("content filtered")),
+            other => panic!("expected OperatorError::Model, got {:?}", other),
         }
     }
 
@@ -1003,7 +1003,7 @@ mod tests {
         let turn = make_turn(provider);
 
         let mut input = simple_input("test");
-        let mut tc = layer0::turn::TurnConfig::default();
+        let mut tc = layer0::operator::OperatorConfig::default();
         tc.system_addendum = Some("Be concise.".into());
         tc.model = Some("custom-model".into());
         tc.max_turns = Some(5);
@@ -1062,15 +1062,15 @@ mod tests {
     #[test]
     fn neuron_turn_implements_turn_trait() {
         // Compile-time check: NeuronTurn<MockProvider> implements Turn
-        fn _assert_turn<T: Turn>() {}
-        _assert_turn::<NeuronTurn<MockProvider>>();
+        fn _assert_operator<T: Operator>() {}
+        _assert_operator::<NeuronTurn<MockProvider>>();
     }
 
     #[tokio::test]
     async fn neuron_turn_as_arc_dyn_turn() {
-        // NeuronTurn<P> can be used as Arc<dyn Turn>
+        // NeuronTurn<P> can be used as Arc<dyn Operator>
         let provider = MockProvider::new(vec![simple_text_response("Hello!")]);
-        let turn: Arc<dyn Turn> = Arc::new(NeuronTurn::new(
+        let turn: Arc<dyn Operator> = Arc::new(NeuronTurn::new(
             provider,
             ToolRegistry::new(),
             Box::new(NoCompaction),
@@ -1109,7 +1109,7 @@ mod tests {
         );
 
         let result = turn.execute(simple_input("test")).await;
-        assert!(matches!(result, Err(TurnError::Retryable(_))));
+        assert!(matches!(result, Err(OperatorError::Retryable(_))));
     }
 
     #[tokio::test]

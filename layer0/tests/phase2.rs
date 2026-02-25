@@ -4,22 +4,22 @@
 #![cfg(feature = "test-utils")]
 
 use layer0::*;
-use layer0::test_utils::{EchoTurn, InMemoryStore, LocalEnvironment, LocalOrchestrator, LoggingHook};
+use layer0::test_utils::{EchoOperator, InMemoryStore, LocalEnvironment, LocalOrchestrator, LoggingHook};
 use rust_decimal::Decimal;
 use serde_json::json;
 use std::sync::Arc;
 
-fn simple_input(msg: &str) -> TurnInput {
-    TurnInput::new(Content::text(msg), layer0::turn::TriggerType::User)
+fn simple_input(msg: &str) -> OperatorInput {
+    OperatorInput::new(Content::text(msg), layer0::operator::TriggerType::User)
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// EchoTurn
+// EchoOperator
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 #[tokio::test]
-async fn echo_turn_returns_input_as_output() {
-    let turn = EchoTurn;
+async fn echo_operator_returns_input_as_output() {
+    let turn = EchoOperator;
     let input = simple_input("hello echo");
     let output = turn.execute(input).await.unwrap();
     assert_eq!(output.message, Content::text("hello echo"));
@@ -27,8 +27,8 @@ async fn echo_turn_returns_input_as_output() {
 }
 
 #[tokio::test]
-async fn echo_turn_metadata_is_default() {
-    let turn = EchoTurn;
+async fn echo_operator_metadata_is_default() {
+    let turn = EchoOperator;
     let input = simple_input("test");
     let output = turn.execute(input).await.unwrap();
     assert_eq!(output.metadata.tokens_in, 0);
@@ -37,8 +37,8 @@ async fn echo_turn_metadata_is_default() {
 }
 
 #[tokio::test]
-async fn echo_turn_is_usable_as_dyn_turn() {
-    let turn: Box<dyn Turn> = Box::new(EchoTurn);
+async fn echo_operator_is_usable_as_dyn_operator() {
+    let turn: Box<dyn Operator> = Box::new(EchoOperator);
     let input = simple_input("dynamic dispatch");
     let output = turn.execute(input).await.unwrap();
     assert_eq!(output.message, Content::text("dynamic dispatch"));
@@ -160,7 +160,7 @@ async fn in_memory_store_is_usable_as_dyn_state_store() {
 
 #[tokio::test]
 async fn local_environment_passes_through_to_turn() {
-    let env = LocalEnvironment::new(Arc::new(EchoTurn));
+    let env = LocalEnvironment::new(Arc::new(EchoOperator));
     let input = simple_input("through environment");
     let spec = EnvironmentSpec::default();
     let output = env.run(input, &spec).await.unwrap();
@@ -170,7 +170,7 @@ async fn local_environment_passes_through_to_turn() {
 
 #[tokio::test]
 async fn local_environment_is_usable_as_dyn_environment() {
-    let env: Box<dyn Environment> = Box::new(LocalEnvironment::new(Arc::new(EchoTurn)));
+    let env: Box<dyn Environment> = Box::new(LocalEnvironment::new(Arc::new(EchoOperator)));
     let input = simple_input("dynamic env");
     let spec = EnvironmentSpec::default();
     let output = env.run(input, &spec).await.unwrap();
@@ -236,7 +236,7 @@ async fn logging_hook_is_usable_as_dyn_hook() {
 #[tokio::test]
 async fn local_orchestrator_dispatch_to_echo() {
     let mut orch = LocalOrchestrator::new();
-    orch.register(AgentId::new("echo"), Arc::new(EchoTurn));
+    orch.register(AgentId::new("echo"), Arc::new(EchoOperator));
     let input = simple_input("dispatch test");
     let output = orch.dispatch(&AgentId::new("echo"), input).await.unwrap();
     assert_eq!(output.message, Content::text("dispatch test"));
@@ -254,8 +254,8 @@ async fn local_orchestrator_dispatch_agent_not_found() {
 #[tokio::test]
 async fn local_orchestrator_dispatch_many_concurrent() {
     let mut orch = LocalOrchestrator::new();
-    orch.register(AgentId::new("a"), Arc::new(EchoTurn));
-    orch.register(AgentId::new("b"), Arc::new(EchoTurn));
+    orch.register(AgentId::new("a"), Arc::new(EchoOperator));
+    orch.register(AgentId::new("b"), Arc::new(EchoOperator));
 
     let tasks = vec![
         (AgentId::new("a"), simple_input("msg-a")),
@@ -277,7 +277,7 @@ async fn local_orchestrator_dispatch_many_concurrent() {
 #[tokio::test]
 async fn local_orchestrator_dispatch_many_partial_failure() {
     let mut orch = LocalOrchestrator::new();
-    orch.register(AgentId::new("a"), Arc::new(EchoTurn));
+    orch.register(AgentId::new("a"), Arc::new(EchoOperator));
     // "b" is not registered
 
     let tasks = vec![
@@ -293,7 +293,7 @@ async fn local_orchestrator_dispatch_many_partial_failure() {
 #[tokio::test]
 async fn local_orchestrator_is_usable_as_dyn_orchestrator() {
     let mut orch = LocalOrchestrator::new();
-    orch.register(AgentId::new("echo"), Arc::new(EchoTurn));
+    orch.register(AgentId::new("echo"), Arc::new(EchoOperator));
     let orch: Box<dyn Orchestrator> = Box::new(orch);
     let output = orch.dispatch(&AgentId::new("echo"), simple_input("dyn")).await.unwrap();
     assert_eq!(output.message, Content::text("dyn"));
@@ -330,15 +330,15 @@ async fn orchestrator_query_returns_null() {
 async fn integration_compose_all_implementations() {
     // 1. Set up orchestrator with two agents
     let mut orch = LocalOrchestrator::new();
-    orch.register(AgentId::new("agent-a"), Arc::new(EchoTurn));
-    orch.register(AgentId::new("agent-b"), Arc::new(EchoTurn));
+    orch.register(AgentId::new("agent-a"), Arc::new(EchoOperator));
+    orch.register(AgentId::new("agent-b"), Arc::new(EchoOperator));
 
     // 2. Set up state store
     let store = InMemoryStore::new();
     let s = as_store(&store);
 
     // 3. Set up environment
-    let env = LocalEnvironment::new(Arc::new(EchoTurn));
+    let env = LocalEnvironment::new(Arc::new(EchoOperator));
 
     // 4. Set up hook
     let hook = LoggingHook::new();

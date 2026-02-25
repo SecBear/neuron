@@ -7,7 +7,7 @@
 //!
 //! | Protocol | Trait | What it does |
 //! |----------|-------|-------------|
-//! | ① Turn | [`Turn`] | What one agent does per cycle |
+//! | ① Operator | [`Operator`] | What one agent does per cycle |
 //! | ② Orchestration | [`Orchestrator`] | How agents compose + durability |
 //! | ③ State | [`StateStore`] | How data persists across turns |
 //! | ④ Environment | [`Environment`] | Isolation, credentials, resources |
@@ -22,7 +22,7 @@
 //! ## Design Principle
 //!
 //! Every protocol trait is operation-defined, not mechanism-defined.
-//! [`Turn::execute`] means "cause this agent to process one cycle" —
+//! [`Operator::execute`] means "cause this agent to process one cycle" —
 //! not "make an API call" or "run a subprocess." This is what makes
 //! implementations swappable: a Temporal workflow, a function call,
 //! and a future system that doesn't exist yet all implement the same trait.
@@ -58,9 +58,9 @@ pub mod error;
 pub mod hook;
 pub mod id;
 pub mod lifecycle;
+pub mod operator;
 pub mod orchestrator;
 pub mod state;
-pub mod turn;
 
 #[cfg(feature = "test-utils")]
 pub mod test_utils;
@@ -70,12 +70,13 @@ pub use content::{Content, ContentBlock};
 pub use duration::DurationMs;
 pub use effect::{Effect, Scope, SignalPayload};
 pub use environment::{Environment, EnvironmentSpec};
-pub use error::{EnvError, HookError, OrchError, StateError, TurnError};
+pub use error::{EnvError, HookError, OperatorError, OrchError, StateError};
 pub use hook::{Hook, HookAction, HookContext, HookPoint};
 pub use id::{AgentId, ScopeId, SessionId, WorkflowId};
 pub use lifecycle::{BudgetEvent, CompactionEvent, ObservableEvent};
+pub use operator::{
+    ExitReason, Operator, OperatorConfig, OperatorInput, OperatorMetadata, OperatorOutput,
+    ToolCallRecord,
+};
 pub use orchestrator::{Orchestrator, QueryPayload};
 pub use state::{SearchResult, StateReader, StateStore};
-pub use turn::{
-    ExitReason, ToolCallRecord, Turn, TurnConfig, TurnInput, TurnMetadata, TurnOutput,
-};
