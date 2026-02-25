@@ -1,15 +1,1 @@
-# Build artifacts
-target/
-
-# Worktrees
-.worktrees/
-.claude/worktrees/
-
-# direnv
-.direnv/
-
-# MCP server config (user-specific)
-.mcp.json
-
-# Research output (parallel-cli)
-rust-ai-agent-frameworks.*
+/target
