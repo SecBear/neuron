@@ -12,6 +12,8 @@ members = [
   "neuron-op-react",
   "neuron-context",
   "neuron-provider-anthropic",
+  "neuron-provider-openai",
+  "neuron-provider-ollama",
 ]
 
 [workspace.package]
