@@ -12,6 +12,7 @@ members = [
   "neuron-state-fs",
   "neuron-env-local",
   "neuron-orch-local",
+  "neuron-orch-kit",
   "neuron-hooks",
   "neuron-tool",
   "neuron-turn",
