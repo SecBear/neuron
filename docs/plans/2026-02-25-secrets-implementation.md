@@ -31,7 +31,7 @@ cargo build && cargo test && cargo clippy -- -D warnings && cargo doc --no-deps
 
 ## Phase S1: Layer 0 Data Types
 
-Add SecretSource, SecretAccessEvent, SecretAccessOutcome, and three error types to layer0. Update CredentialRef to include a source field. These are data types only — no traits.
+Add SecretSource, SecretAccessEvent, SecretAccessOutcome to layer0. Update CredentialRef to include a source field. Error types (SecretError, AuthError, CryptoError) live in their respective trait crates, NOT in layer0 — keeps the stability contract minimal.
 
 ### Task S1.1: Create secret.rs module
 
@@ -203,103 +203,27 @@ pub use secret::{SecretAccessEvent, SecretAccessOutcome, SecretSource};
 
 Expected: compiles cleanly.
 
-### Task S1.2: Add error types to error.rs
+### Task S1.2: Add HookAction::ModifyToolOutput to hook.rs
+
+The existing `HookAction` has `ModifyToolInput` but no output mutation variant. RedactionHook needs to modify tool OUTPUT. Pre-1.0 is the time to add this.
 
 **Files:**
-- Modify: `layer0/src/error.rs`
+- Modify: `layer0/src/hook.rs`
 
-**Step 1: Append three new error enums after HookError (after line 137)**
+**Step 1: Add ModifyToolOutput variant to HookAction**
 
+After the `ModifyToolInput` variant, add:
 ```rust
-
-/// Errors from secret resolution.
-#[non_exhaustive]
-#[derive(Debug, Error)]
-pub enum SecretError {
-    /// The secret was not found in the backend.
-    #[error("secret not found: {0}")]
-    NotFound(String),
-
-    /// Access denied by policy.
-    #[error("access denied: {0}")]
-    AccessDenied(String),
-
-    /// Backend communication failure (network, timeout, etc.).
-    #[error("backend error: {0}")]
-    BackendError(String),
-
-    /// The lease has expired and cannot be renewed.
-    #[error("lease expired: {0}")]
-    LeaseExpired(String),
-
-    /// No resolver registered for this source type.
-    #[error("no resolver for source: {0}")]
-    NoResolver(String),
-
-    /// Catch-all.
-    #[error("{0}")]
-    Other(#[from] Box<dyn std::error::Error + Send + Sync>),
-}
-
-/// Errors from authentication providers.
-#[non_exhaustive]
-#[derive(Debug, Error)]
-pub enum AuthError {
-    /// Authentication failed (bad credentials, expired token, etc.).
-    #[error("auth failed: {0}")]
-    AuthFailed(String),
-
-    /// The requested scope or audience is not available.
-    #[error("scope unavailable: {0}")]
-    ScopeUnavailable(String),
-
-    /// Backend communication failure.
-    #[error("backend error: {0}")]
-    BackendError(String),
-
-    /// Catch-all.
-    #[error("{0}")]
-    Other(#[from] Box<dyn std::error::Error + Send + Sync>),
-}
-
-/// Errors from cryptographic operations.
-#[non_exhaustive]
-#[derive(Debug, Error)]
-pub enum CryptoError {
-    /// The referenced key was not found.
-    #[error("key not found: {0}")]
-    KeyNotFound(String),
-
-    /// The operation is not supported for this key type or algorithm.
-    #[error("unsupported operation: {0}")]
-    UnsupportedOperation(String),
-
-    /// The cryptographic operation failed.
-    #[error("crypto operation failed: {0}")]
-    OperationFailed(String),
-
-    /// Catch-all.
-    #[error("{0}")]
-    Other(#[from] Box<dyn std::error::Error + Send + Sync>),
-}
+    /// Replace the tool output with a modified version (e.g., redacted secrets).
+    ModifyToolOutput {
+        /// The replacement output.
+        new_output: serde_json::Value,
+    },
 ```
 
-**Step 2: Update re-exports in `layer0/src/lib.rs`**
+**Step 2: Run `cargo build -p layer0`**
 
-Change the error re-export line (line 73) from:
-```rust
-pub use error::{EnvError, HookError, OperatorError, OrchError, StateError};
-```
-to:
-```rust
-pub use error::{
-    AuthError, CryptoError, EnvError, HookError, OperatorError, OrchError, SecretError, StateError,
-};
-```
-
-**Step 3: Run `cargo build -p layer0`**
-
-Expected: compiles cleanly.
+Expected: compiles cleanly. Existing tests still pass (HookAction is `#[non_exhaustive]`).
 
 ### Task S1.3: Update CredentialRef to include source field
 
@@ -404,7 +328,6 @@ Append to the file:
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 use layer0::secret::{SecretAccessEvent, SecretAccessOutcome, SecretSource};
-use layer0::error::{AuthError, CryptoError, SecretError};
 
 #[test]
 fn secret_source_all_variants_round_trip() {
@@ -511,61 +434,8 @@ fn secret_access_event_with_all_fields() {
     assert_eq!(back.trace_id.as_deref(), Some("trace-xyz"));
 }
 
-#[test]
-fn secret_error_display_all_variants() {
-    assert_eq!(
-        SecretError::NotFound("api-key".into()).to_string(),
-        "secret not found: api-key"
-    );
-    assert_eq!(
-        SecretError::AccessDenied("no policy".into()).to_string(),
-        "access denied: no policy"
-    );
-    assert_eq!(
-        SecretError::BackendError("timeout".into()).to_string(),
-        "backend error: timeout"
-    );
-    assert_eq!(
-        SecretError::LeaseExpired("lease-123".into()).to_string(),
-        "lease expired: lease-123"
-    );
-    assert_eq!(
-        SecretError::NoResolver("vault".into()).to_string(),
-        "no resolver for source: vault"
-    );
-}
-
-#[test]
-fn auth_error_display_all_variants() {
-    assert_eq!(
-        AuthError::AuthFailed("bad token".into()).to_string(),
-        "auth failed: bad token"
-    );
-    assert_eq!(
-        AuthError::ScopeUnavailable("admin".into()).to_string(),
-        "scope unavailable: admin"
-    );
-    assert_eq!(
-        AuthError::BackendError("connection refused".into()).to_string(),
-        "backend error: connection refused"
-    );
-}
-
-#[test]
-fn crypto_error_display_all_variants() {
-    assert_eq!(
-        CryptoError::KeyNotFound("transit/my-key".into()).to_string(),
-        "key not found: transit/my-key"
-    );
-    assert_eq!(
-        CryptoError::UnsupportedOperation("rsa-4096".into()).to_string(),
-        "unsupported operation: rsa-4096"
-    );
-    assert_eq!(
-        CryptoError::OperationFailed("invalid ciphertext".into()).to_string(),
-        "crypto operation failed: invalid ciphertext"
-    );
-}
+// Note: SecretError, AuthError, CryptoError Display tests live in their
+// respective trait crate tests (neuron-secret, neuron-auth, neuron-crypto).
 
 #[test]
 fn credential_ref_with_source_round_trip() {
@@ -853,6 +723,21 @@ impl Default for SecretRegistry {
     }
 }
 
+/// Returns a short, telemetry-safe kind tag for a SecretSource variant.
+pub fn source_kind(source: &SecretSource) -> &'static str {
+    match source {
+        SecretSource::Vault { .. } => "vault",
+        SecretSource::AwsSecretsManager { .. } => "aws",
+        SecretSource::GcpSecretManager { .. } => "gcp",
+        SecretSource::AzureKeyVault { .. } => "azure",
+        SecretSource::OsKeystore { .. } => "os_keystore",
+        SecretSource::Kubernetes { .. } => "kubernetes",
+        SecretSource::Hardware { .. } => "hardware",
+        SecretSource::Custom { .. } => "custom",
+        _ => "unknown",
+    }
+}
+
 #[async_trait]
 impl SecretResolver for SecretRegistry {
     async fn resolve(&self, source: &SecretSource) -> Result<SecretLease, SecretError> {
@@ -861,7 +746,7 @@ impl SecretResolver for SecretRegistry {
                 return resolver.resolve(source).await;
             }
         }
-        Err(SecretError::NoResolver(format!("{:?}", source)))
+        Err(SecretError::NoResolver(source_kind(source).to_string()))
     }
 }
 
@@ -1568,33 +1453,39 @@ Create all 12 backend stub crates. Each has the correct trait impl shape but ret
 
 Create these crates, each following the same pattern:
 
-**neuron-secret-env** — `EnvResolver` reads from process env vars (this one is actually functional, not a stub):
+**neuron-secret-env** — `EnvResolver` reads from process env vars (functional, for dev/test):
+
+Uses `SecretSource::Custom { provider: "env", config: { "var_name": "..." } }` — NOT `OsKeystore`,
+which has different semantics (macOS Keychain, DPAPI, etc.).
 
 ```rust
-// Cargo.toml deps: neuron-secret, layer0, async-trait
+// Cargo.toml deps: neuron-secret, layer0, async-trait, serde_json
 pub struct EnvResolver;
 
 #[async_trait]
 impl SecretResolver for EnvResolver {
     async fn resolve(&self, source: &SecretSource) -> Result<SecretLease, SecretError> {
-        // For OsKeystore source, use the service name as env var prefix
-        // This is a dev/test resolver — it reads env vars, not a real keystore
         match source {
-            SecretSource::OsKeystore { service } => {
-                let var_name = service.to_uppercase().replace('-', "_");
-                match std::env::var(&var_name) {
+            SecretSource::Custom { provider, config } if provider == "env" => {
+                let var_name = config.get("var_name")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| SecretError::NotFound(
+                        "env source requires config.var_name".into()
+                    ))?;
+                match std::env::var(var_name) {
                     Ok(val) => Ok(SecretLease::permanent(SecretValue::new(val.into_bytes()))),
-                    Err(_) => Err(SecretError::NotFound(format!("env var {} not set", var_name))),
+                    Err(_) => Err(SecretError::NotFound(
+                        format!("env var {} not set", var_name)
+                    )),
                 }
             }
-            _ => Err(SecretError::NoResolver(format!(
-                "EnvResolver only handles OsKeystore sources, got {:?}",
-                source
-            ))),
+            _ => Err(SecretError::NoResolver("env".into())),
         }
     }
 }
 ```
+
+Register with: `registry.with_resolver(SourceMatcher::Custom("env".into()), Arc::new(EnvResolver))`
 
 **neuron-secret-vault**, **neuron-secret-aws**, **neuron-secret-gcp**, **neuron-secret-keystore**, **neuron-secret-k8s** — all stubs:
 
@@ -1737,17 +1628,25 @@ serde_json = "1"
 
 Two hooks:
 
-**RedactionHook** — fires at `PostToolUse`. Scans tool output for patterns matching known secret formats. Regex patterns for:
+**RedactionHook** — fires at `PostToolUse`. Scans tool output for patterns matching known
+secret formats. Returns `HookAction::ModifyToolOutput` (the NEW variant added in S1.2)
+with matches replaced by `[REDACTED]`. If no patterns match, returns `HookAction::Continue`.
+
+**Intentionally narrow patterns for v0** (avoid regex false positive arms race):
 - AWS access keys: `AKIA[A-Z0-9]{16}`
 - Vault tokens: `hvs\.[a-zA-Z0-9_-]+`
-- Generic API keys: long hex/base64 strings near keywords like "key", "token", "secret"
-- Custom patterns registered at construction
+- GitHub tokens: `gh[ps]_[a-zA-Z0-9]{36}`
+- User-supplied custom patterns via `RedactionHook::with_pattern(regex)`
 
-Returns `HookAction::ModifyToolInput` with the output redacted (replace matches with `[REDACTED]`). If no patterns match, returns `HookAction::Continue`.
+NOT included in v0: "generic API key" detection. Future: fingerprint-based redaction
+(HMAC of resolved secret values for exact-match without regex).
 
-**ExfilGuardHook** — fires at `PreToolUse`. Checks if tool input looks like it's trying to exfiltrate data (e.g., tool input contains base64-encoded blobs being sent to external URLs). Returns `HookAction::Halt` on match.
+**ExfilGuardHook** — fires at `PreToolUse`. Checks if tool input looks like it's trying
+to exfiltrate data (e.g., base64 blobs being sent to external URLs, shell commands
+piping env vars to curl). Returns `HookAction::Halt` on match.
 
-Both implement `Hook` from layer0. Tests cover: pattern matching, no false positives on normal content, halting on exfil attempts.
+Both implement `Hook` from layer0. Tests cover: pattern matching, no false positives
+on normal text content, halting on exfil attempts, custom pattern registration.
 
 **Commit:**
 
@@ -1760,22 +1659,11 @@ git commit -m "feat: add neuron-hook-security — RedactionHook, ExfilGuardHook"
 
 ## Phase S7: Full Check + Workspace Integration
 
-### Task S7.1: Add all new crates to workspace dev-dependencies
+### Task S7.1: Run full workspace check suite
 
-**Files:**
-- Modify: `Cargo.toml` (workspace root dev-dependencies section)
-
-Add:
-```toml
-neuron-secret = { path = "neuron-secret" }
-neuron-auth = { path = "neuron-auth" }
-neuron-crypto = { path = "neuron-crypto" }
-neuron-secret-env = { path = "neuron-secret-env" }
-neuron-auth-static = { path = "neuron-auth-static" }
-neuron-hook-security = { path = "neuron-hook-security" }
-```
-
-### Task S7.2: Run full workspace check suite
+Each crate tests itself — no need to add all new crates to workspace root dev-dependencies
+(avoids monolith creep). Only add to root dev-deps if cross-crate integration tests are
+needed later.
 
 ```bash
 cargo build && cargo test && cargo clippy -- -D warnings && cargo doc --no-deps

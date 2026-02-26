@@ -41,16 +41,18 @@ in-memory wrapper to prevent accidental exposure.
 
 ```
 layer0/src/secret.rs           Data types ONLY: SecretSource, SecretAccessEvent,
-                               SecretAccessOutcome, SecretError, AuthError, CryptoError.
-                               Add `source: Option<SecretSource>` to CredentialRef.
+                               SecretAccessOutcome.
+                               Add `source: SecretSource` to CredentialRef (required, not Option).
 
 neuron-secret/                 SecretResolver trait, SecretValue (zeroize wrapper),
-                               SecretLease (TTL), SecretRegistry (routes by SecretSource variant).
+                               SecretLease (TTL), SecretRegistry (routes by SecretSource variant),
+                               SecretError (crate-local, not in layer0).
 
 neuron-auth/                   AuthProvider trait, AuthRequest, AuthToken (opaque, time-bounded),
-                               AuthProviderChain (tries providers in order).
+                               AuthProviderChain (tries providers in order),
+                               AuthError (crate-local, not in layer0).
 
-neuron-crypto/                 CryptoProvider trait, KeyRef, CryptoRegistry.
+neuron-crypto/                 CryptoProvider trait, CryptoError (crate-local, not in layer0).
 
 --- Backend stubs (trait + correct shape, no real SDK calls) ---
 
@@ -155,67 +157,9 @@ pub struct SecretAccessEvent {
 
 ### Error types
 
-```rust
-/// Errors from secret resolution.
-#[non_exhaustive]
-#[derive(Debug, Error)]
-pub enum SecretError {
-    /// The secret was not found.
-    #[error("secret not found: {0}")]
-    NotFound(String),
-    /// Access denied by policy.
-    #[error("access denied: {0}")]
-    AccessDenied(String),
-    /// Backend communication failure.
-    #[error("backend error: {0}")]
-    BackendError(String),
-    /// The lease has expired and cannot be renewed.
-    #[error("lease expired: {0}")]
-    LeaseExpired(String),
-    /// No resolver registered for this source type.
-    #[error("no resolver for source: {0}")]
-    NoResolver(String),
-    /// Catch-all.
-    #[error("{0}")]
-    Other(#[from] Box<dyn std::error::Error + Send + Sync>),
-}
-
-/// Errors from authentication.
-#[non_exhaustive]
-#[derive(Debug, Error)]
-pub enum AuthError {
-    /// Authentication failed (bad credentials, expired token, etc.).
-    #[error("auth failed: {0}")]
-    AuthFailed(String),
-    /// The requested scope/audience is not available.
-    #[error("scope unavailable: {0}")]
-    ScopeUnavailable(String),
-    /// Backend communication failure.
-    #[error("backend error: {0}")]
-    BackendError(String),
-    /// Catch-all.
-    #[error("{0}")]
-    Other(#[from] Box<dyn std::error::Error + Send + Sync>),
-}
-
-/// Errors from cryptographic operations.
-#[non_exhaustive]
-#[derive(Debug, Error)]
-pub enum CryptoError {
-    /// The referenced key was not found.
-    #[error("key not found: {0}")]
-    KeyNotFound(String),
-    /// The operation is not supported for this key type.
-    #[error("unsupported operation: {0}")]
-    UnsupportedOperation(String),
-    /// The cryptographic operation failed.
-    #[error("crypto operation failed: {0}")]
-    OperationFailed(String),
-    /// Catch-all.
-    #[error("{0}")]
-    Other(#[from] Box<dyn std::error::Error + Send + Sync>),
-}
-```
+Error types (`SecretError`, `AuthError`, `CryptoError`) live in their respective trait
+crates (`neuron-secret`, `neuron-auth`, `neuron-crypto`), NOT in layer0. This keeps the
+stability contract minimal — layer0 only has data types that cross protocol boundaries.
 
 ### CredentialRef update
 
@@ -514,20 +458,38 @@ pub trait CryptoProvider: Send + Sync {
 
 ## Hooks: neuron-hook-security
 
+### HookAction::ModifyToolOutput (new variant, required)
+
+The existing `HookAction` enum has `ModifyToolInput` but no output mutation variant.
+RedactionHook needs to modify tool OUTPUT (not input). Pre-1.0 is the time to add this.
+
+Add to `layer0/src/hook.rs`:
+```rust
+/// Replace the tool output with a modified version (e.g., redacted).
+ModifyToolOutput { new_output: serde_json::Value },
+```
+
 ### RedactionHook
 
 Fires at `PostToolUse`. Scans tool output for patterns matching known secret formats.
-Replaces matches with `[REDACTED]`. Patterns are loaded from the SecretRegistry
-(each resolver knows what its secrets look like — Vault tokens start with `hvs.`,
-AWS keys match `AKIA[A-Z0-9]{16}`, etc.).
+Returns `HookAction::ModifyToolOutput` with matches replaced by `[REDACTED]`.
+
+**Intentionally narrow patterns for v0** (avoid regex false positives):
+- AWS access keys: `AKIA[A-Z0-9]{16}`
+- Vault tokens: `hvs\.[a-zA-Z0-9_-]+`
+- GitHub tokens: `gh[ps]_[a-zA-Z0-9]{36}`
+- User-supplied custom patterns
+
+**Not included in v0** (future: fingerprint-based redaction using HMAC of resolved secrets
+for exact-match detection without regex arms races).
 
 ### ExfilGuardHook
 
-Fires at `PreToolUse`. Checks if tool inputs contain content that looks like it's
-trying to exfiltrate secrets (e.g., base64-encoded blobs being sent to external URLs,
-shell commands that pipe env vars to curl, etc.). Returns `HookAction::Halt` on match.
+Fires at `PreToolUse`. Checks if tool inputs look like exfiltration attempts
+(e.g., base64 blobs sent to external URLs, shell commands piping env vars to curl).
+Returns `HookAction::Halt` on match.
 
-Both hooks use the existing `Hook` trait from layer0 — no new hook points needed.
+Both hooks use the existing `Hook` trait from layer0.
 
 ## Composition Example
 
@@ -601,7 +563,7 @@ let env = LocalEnv::new(operator); // ignores secrets (dev mode)
 - `async-trait`
 
 ### neuron-crypto
-- `layer0` (for CryptoError)
+- `thiserror` (for CryptoError, defined locally)
 - `async-trait`
 
 ### All stub backend crates
