@@ -1,8 +1,9 @@
 //! MCP client that discovers remote tools and wraps them as [`ToolDyn`].
 //!
-//! [`McpClient`] connects to an MCP server (via stdio child process), discovers
-//! its tools, and wraps each as a [`ToolDyn`] implementation so they can be
-//! registered in a [`ToolRegistry`](neuron_tool::ToolRegistry).
+//! [`McpClient`] connects to an MCP server (via stdio child process or
+//! streamable HTTP), discovers its tools, and wraps each as a [`ToolDyn`]
+//! implementation so they can be registered in a
+//! [`ToolRegistry`](neuron_tool::ToolRegistry).
 
 use std::borrow::Cow;
 use std::future::Future;
@@ -14,6 +15,7 @@ use rmcp::ServiceExt;
 use rmcp::model::{CallToolRequestParams, CallToolResult, Content, RawContent, Tool as McpTool};
 use rmcp::service::{Peer, RoleClient, RunningService};
 use rmcp::transport::child_process::TokioChildProcess;
+use rmcp::transport::streamable_http_client::StreamableHttpClientTransport;
 
 use crate::error::McpError;
 
@@ -40,6 +42,24 @@ impl McpClient {
         let transport =
             TokioChildProcess::new(command).map_err(|e| McpError::Connection(e.to_string()))?;
         let service = ().serve(transport).await.map_err(|e| McpError::Connection(e.to_string()))?;
+        Ok(Self { service })
+    }
+
+    /// Connect to an MCP server via streamable HTTP (supersedes SSE).
+    ///
+    /// The URL should point to the MCP server's HTTP endpoint
+    /// (e.g., `http://localhost:8080/mcp`).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`McpError::Connection`] if the HTTP connection or MCP
+    /// handshake fails.
+    pub async fn connect_sse(url: &str) -> Result<Self, McpError> {
+        let transport = StreamableHttpClientTransport::from_uri(url);
+        let service: RunningService<RoleClient, ()> = ()
+            .serve(transport)
+            .await
+            .map_err(|e| McpError::Connection(e.to_string()))?;
         Ok(Self { service })
     }
 
@@ -86,7 +106,7 @@ impl McpClient {
 /// Wrapper that adapts an MCP tool to the [`ToolDyn`] interface.
 ///
 /// Holds a reference to the MCP peer for making remote tool calls.
-pub struct McpToolWrapper {
+pub(crate) struct McpToolWrapper {
     /// The MCP tool definition.
     tool: McpTool,
     /// Shared reference to the MCP peer for calling tools.
@@ -95,7 +115,7 @@ pub struct McpToolWrapper {
 
 impl McpToolWrapper {
     /// Create a new wrapper around an MCP tool.
-    pub fn new(tool: McpTool, peer: Arc<Peer<RoleClient>>) -> Self {
+    pub(crate) fn new(tool: McpTool, peer: Arc<Peer<RoleClient>>) -> Self {
         Self { tool, peer }
     }
 }
@@ -188,25 +208,47 @@ mod tests {
         }
     }
 
-    /// Verify the wrapper passes through name, description, and schema correctly.
+    /// Verify MCP tool metadata extraction matches what ToolDyn impl uses.
     ///
-    /// This test cannot call tools because there is no real MCP peer, but it
-    /// validates the ToolDyn metadata methods.
+    /// The `ToolDyn` impl on `McpToolWrapper` delegates name/description/schema
+    /// to the exact same expressions tested here. We cannot construct a
+    /// `McpToolWrapper` without a real MCP `Peer`, but these assertions cover
+    /// the identical code paths.
     #[test]
-    fn mcp_tool_wraps_as_tool_dyn() {
-        // We need a Peer to construct McpToolWrapper, but we only test metadata.
-        // Since Peer requires a real connection, we test the tool fields directly.
+    fn mcp_tool_metadata_extraction() {
         let tool = make_test_tool("test_tool", "A test tool");
 
+        // Same expression as ToolDyn::name() -> &self.tool.name
         assert_eq!(&*tool.name, "test_tool");
+        // Same expression as ToolDyn::description() -> self.tool.description.as_deref().unwrap_or("")
         assert_eq!(tool.description.as_deref().unwrap_or(""), "A test tool");
-
+        // Same expression as ToolDyn::input_schema() -> serde_json::to_value(&*self.tool.input_schema)
         let schema =
             serde_json::to_value(&*tool.input_schema).unwrap_or_else(|_| json!({"type": "object"}));
         assert_eq!(
             schema,
             json!({"type": "object", "properties": {"input": {"type": "string"}}})
         );
+    }
+
+    /// Verify metadata extraction handles missing description.
+    #[test]
+    fn mcp_tool_metadata_missing_description() {
+        let schema = json!({"type": "object"});
+        let schema_obj = schema.as_object().unwrap().clone();
+        let tool = McpTool {
+            name: Cow::Owned("no_desc".to_string()),
+            title: None,
+            description: None,
+            input_schema: Arc::new(schema_obj),
+            output_schema: None,
+            annotations: None,
+            execution: None,
+            icons: None,
+            meta: None,
+        };
+        // Same fallback as ToolDyn::description()
+        assert_eq!(tool.description.as_deref().unwrap_or(""), "");
     }
 
     /// Verify that McpToolWrapper is Send + Sync (required by ToolDyn).
