@@ -1,0 +1,17 @@
+[package]
+name = "neuron-secret-env"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Secret resolver that reads from process environment variables"
+
+[dependencies]
+neuron-secret = { path = "../neuron-secret" }
+layer0 = { path = "../layer0" }
+async-trait = "0.1"
+serde_json = "1"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

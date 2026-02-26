@@ -25,6 +25,12 @@ members = [
   "neuron-secret",
   "neuron-crypto",
   "neuron-auth",
+  "neuron-secret-env",
+  "neuron-secret-vault",
+  "neuron-secret-aws",
+  "neuron-secret-gcp",
+  "neuron-secret-keystore",
+  "neuron-secret-k8s",
 ]
 
 [workspace.package]

@@ -949,6 +949,71 @@ dependencies = [
 ]
 
 [[package]]
+name = "neuron-secret-aws"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "layer0",
+ "neuron-auth",
+ "neuron-secret",
+ "tokio",
+]
+
+[[package]]
+name = "neuron-secret-env"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "layer0",
+ "neuron-secret",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "neuron-secret-gcp"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "layer0",
+ "neuron-auth",
+ "neuron-secret",
+ "tokio",
+]
+
+[[package]]
+name = "neuron-secret-k8s"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "layer0",
+ "neuron-auth",
+ "neuron-secret",
+ "tokio",
+]
+
+[[package]]
+name = "neuron-secret-keystore"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "layer0",
+ "neuron-secret",
+ "tokio",
+]
+
+[[package]]
+name = "neuron-secret-vault"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "layer0",
+ "neuron-auth",
+ "neuron-secret",
+ "tokio",
+]
+
+[[package]]
 name = "neuron-state-fs"
 version = "0.1.0"
 dependencies = [
