@@ -90,6 +90,13 @@ pub enum HookAction {
         /// The replacement tool input.
         new_input: serde_json::Value,
     },
+    /// Replace the tool output with a modified version (e.g., redacted secrets).
+    /// Only valid at PostToolUse. v0 scope: PostToolUse only.
+    /// Future: PostInference for redacting final assistant text before return/logging.
+    ModifyToolOutput {
+        /// The replacement output.
+        new_output: serde_json::Value,
+    },
 }
 
 /// A hook that can observe and intervene in the turn's inner loop.

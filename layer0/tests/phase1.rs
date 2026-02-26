@@ -214,7 +214,10 @@ fn sample_operator_input() -> OperatorInput {
     config.allowed_tools = Some(vec!["read_file".into()]);
     config.system_addendum = Some("Be concise.".into());
 
-    let mut input = OperatorInput::new(Content::text("do something"), layer0::operator::TriggerType::User);
+    let mut input = OperatorInput::new(
+        Content::text("do something"),
+        layer0::operator::TriggerType::User,
+    );
     input.session = Some(SessionId::new("sess-1"));
     input.config = Some(config);
     input.metadata = json!({"trace_id": "abc123"});
@@ -238,7 +241,11 @@ fn sample_operator_output() -> OperatorOutput {
     meta.tokens_out = 50;
     meta.cost = Decimal::new(5, 3); // $0.005
     meta.turns_used = 1;
-    meta.tools_called = vec![ToolCallRecord::new("read_file", DurationMs::from_millis(150), true)];
+    meta.tools_called = vec![ToolCallRecord::new(
+        "read_file",
+        DurationMs::from_millis(150),
+        true,
+    )];
     meta.duration = DurationMs::from_secs(2);
 
     let mut output = OperatorOutput::new(Content::text("done"), ExitReason::Complete);
@@ -418,7 +425,10 @@ fn isolation_boundary_all_variants_round_trip() {
         },
         layer0::environment::IsolationBoundary::NetworkPolicy {
             rules: vec![{
-                let mut rule = layer0::environment::NetworkRule::new("10.0.0.0/8", layer0::environment::NetworkAction::Allow);
+                let mut rule = layer0::environment::NetworkRule::new(
+                    "10.0.0.0/8",
+                    layer0::environment::NetworkAction::Allow,
+                );
                 rule.port = Some(443);
                 rule
             }],
@@ -454,6 +464,9 @@ fn environment_spec_round_trip() {
     }];
     spec.credentials = vec![layer0::environment::CredentialRef::new(
         "api-key",
+        layer0::secret::SecretSource::OsKeystore {
+            service: "test".into(),
+        },
         layer0::environment::CredentialInjection::EnvVar {
             var_name: "API_KEY".into(),
         },
@@ -595,7 +608,10 @@ fn decimal_serializes_as_string_not_number() {
     // This is critical for wire-format stability across implementations.
     let cost = Decimal::new(123, 2); // 1.23
     let json = serde_json::to_value(&cost).unwrap();
-    assert!(json.is_string(), "Decimal must serialize as a JSON string, got: {json}");
+    assert!(
+        json.is_string(),
+        "Decimal must serialize as a JSON string, got: {json}"
+    );
     assert_eq!(json.as_str().unwrap(), "1.23");
 }
 
@@ -603,7 +619,10 @@ fn decimal_serializes_as_string_not_number() {
 fn decimal_zero_serializes_as_string() {
     let cost = Decimal::ZERO;
     let json = serde_json::to_value(&cost).unwrap();
-    assert!(json.is_string(), "Decimal::ZERO must serialize as string, got: {json}");
+    assert!(
+        json.is_string(),
+        "Decimal::ZERO must serialize as string, got: {json}"
+    );
     assert_eq!(json.as_str().unwrap(), "0");
 }
 
@@ -617,7 +636,10 @@ fn decimal_in_operator_metadata_wire_format() {
     meta.turns_used = 1;
     let json = serde_json::to_value(&meta).unwrap();
     let cost_val = &json["cost"];
-    assert!(cost_val.is_string(), "cost in OperatorMetadata must be string, got: {cost_val}");
+    assert!(
+        cost_val.is_string(),
+        "cost in OperatorMetadata must be string, got: {cost_val}"
+    );
     assert_eq!(cost_val.as_str().unwrap(), "0.005");
 }
 
@@ -630,7 +652,10 @@ fn content_text_serializes_as_bare_string() {
     // Content::Text serializes as a bare JSON string (untagged).
     let c = Content::text("hello");
     let json = serde_json::to_value(&c).unwrap();
-    assert!(json.is_string(), "Content::Text must serialize as bare string, got: {json}");
+    assert!(
+        json.is_string(),
+        "Content::Text must serialize as bare string, got: {json}"
+    );
     assert_eq!(json.as_str().unwrap(), "hello");
 }
 
@@ -641,7 +666,10 @@ fn content_blocks_serializes_as_array() {
         text: "hello".into(),
     }]);
     let json = serde_json::to_value(&c).unwrap();
-    assert!(json.is_array(), "Content::Blocks must serialize as array, got: {json}");
+    assert!(
+        json.is_array(),
+        "Content::Blocks must serialize as array, got: {json}"
+    );
 }
 
 #[test]
@@ -674,7 +702,10 @@ fn content_text_and_blocks_are_structurally_distinct() {
 fn duration_ms_serializes_as_integer() {
     let d = DurationMs::from_millis(1500);
     let json = serde_json::to_value(&d).unwrap();
-    assert!(json.is_u64(), "DurationMs must serialize as integer, got: {json}");
+    assert!(
+        json.is_u64(),
+        "DurationMs must serialize as integer, got: {json}"
+    );
     assert_eq!(json.as_u64().unwrap(), 1500);
 }
 
@@ -694,7 +725,10 @@ fn trigger_type_custom_preserves_unknown_variant() {
     // A new trigger type should survive round-trip through Custom.
     let json = r#"{"custom":"iot_sensor_event"}"#;
     let t: layer0::operator::TriggerType = serde_json::from_str(json).unwrap();
-    assert_eq!(t, layer0::operator::TriggerType::Custom("iot_sensor_event".into()));
+    assert_eq!(
+        t,
+        layer0::operator::TriggerType::Custom("iot_sensor_event".into())
+    );
 }
 
 #[test]
@@ -723,7 +757,8 @@ fn effect_custom_preserves_unknown_effect() {
 
 #[test]
 fn content_block_custom_preserves_unknown_modality() {
-    let json = r#"{"type":"custom","content_type":"audio","data":{"codec":"opus","sample_rate":48000}}"#;
+    let json =
+        r#"{"type":"custom","content_type":"audio","data":{"codec":"opus","sample_rate":48000}}"#;
     let b: ContentBlock = serde_json::from_str(json).unwrap();
     let reserialized = serde_json::to_string(&b).unwrap();
     let reparsed: serde_json::Value = serde_json::from_str(&reserialized).unwrap();
@@ -975,8 +1010,7 @@ fn credential_injection_variants_round_trip() {
     ];
     for v in variants {
         let json = serde_json::to_string(&v).unwrap();
-        let back: layer0::environment::CredentialInjection =
-            serde_json::from_str(&json).unwrap();
+        let back: layer0::environment::CredentialInjection = serde_json::from_str(&json).unwrap();
         let json2 = serde_json::to_string(&back).unwrap();
         assert_eq!(json, json2);
     }
@@ -1063,6 +1097,9 @@ fn hook_action_variants_round_trip() {
         HookAction::ModifyToolInput {
             new_input: json!({"key": "modified"}),
         },
+        HookAction::ModifyToolOutput {
+            new_output: json!({"redacted": true}),
+        },
     ];
     for action in actions {
         let json = serde_json::to_string(&action).unwrap();
@@ -1130,4 +1167,208 @@ fn exit_reason_all_variants_round_trip() {
         let back: ExitReason = serde_json::from_str(&json).unwrap();
         assert_eq!(*reason, back);
     }
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Secret types — serde roundtrips and Display tests
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+use layer0::secret::{SecretAccessEvent, SecretAccessOutcome, SecretSource};
+
+#[test]
+fn secret_source_all_variants_round_trip() {
+    let sources = vec![
+        SecretSource::Vault {
+            mount: "secret".into(),
+            path: "data/api-key".into(),
+        },
+        SecretSource::AwsSecretsManager {
+            secret_id: "arn:aws:secretsmanager:us-east-1:123:secret:api-key".into(),
+            region: Some("us-east-1".into()),
+        },
+        SecretSource::GcpSecretManager {
+            project: "my-project".into(),
+            secret_id: "api-key".into(),
+        },
+        SecretSource::AzureKeyVault {
+            vault_url: "https://myvault.vault.azure.net".into(),
+            secret_name: "api-key".into(),
+        },
+        SecretSource::OsKeystore {
+            service: "neuron-test".into(),
+        },
+        SecretSource::Kubernetes {
+            namespace: "default".into(),
+            name: "api-secrets".into(),
+            key: "anthropic-key".into(),
+        },
+        SecretSource::Hardware { slot: "9a".into() },
+        SecretSource::Custom {
+            provider: "1password".into(),
+            config: json!({"vault": "Engineering"}),
+        },
+    ];
+    for source in sources {
+        let json = serde_json::to_string(&source).unwrap();
+        let back: SecretSource = serde_json::from_str(&json).unwrap();
+        let json2 = serde_json::to_string(&back).unwrap();
+        assert_eq!(json, json2);
+    }
+}
+
+#[test]
+fn secret_access_outcome_all_variants_round_trip() {
+    let outcomes = vec![
+        SecretAccessOutcome::Resolved,
+        SecretAccessOutcome::Denied,
+        SecretAccessOutcome::Failed,
+        SecretAccessOutcome::Renewed,
+        SecretAccessOutcome::Released,
+    ];
+    for outcome in &outcomes {
+        let json = serde_json::to_string(outcome).unwrap();
+        let back: SecretAccessOutcome = serde_json::from_str(&json).unwrap();
+        assert_eq!(*outcome, back);
+    }
+}
+
+#[test]
+fn secret_access_event_round_trip() {
+    let event = SecretAccessEvent::new(
+        "anthropic-api-key",
+        SecretSource::Vault {
+            mount: "secret".into(),
+            path: "data/api-key".into(),
+        },
+        SecretAccessOutcome::Resolved,
+        1740000000000,
+    );
+    let json = serde_json::to_string(&event).unwrap();
+    let back: SecretAccessEvent = serde_json::from_str(&json).unwrap();
+    assert_eq!(back.credential_name, "anthropic-api-key");
+    assert_eq!(back.outcome, SecretAccessOutcome::Resolved);
+    assert_eq!(back.timestamp_ms, 1740000000000);
+}
+
+#[test]
+fn secret_access_event_with_all_fields() {
+    let mut event = SecretAccessEvent::new(
+        "db-password",
+        SecretSource::AwsSecretsManager {
+            secret_id: "prod/db/password".into(),
+            region: Some("us-west-2".into()),
+        },
+        SecretAccessOutcome::Denied,
+        1740000000000,
+    );
+    event.lease_id = Some("lease-abc-123".into());
+    event.lease_ttl_secs = Some(3600);
+    event.reason = Some("policy: requires mfa".into());
+    event.workflow_id = Some("wf-001".into());
+    event.agent_id = Some("agent-research".into());
+    event.trace_id = Some("trace-xyz".into());
+
+    let json = serde_json::to_string(&event).unwrap();
+    let back: SecretAccessEvent = serde_json::from_str(&json).unwrap();
+    assert_eq!(back.lease_id.as_deref(), Some("lease-abc-123"));
+    assert_eq!(back.lease_ttl_secs, Some(3600));
+    assert_eq!(back.reason.as_deref(), Some("policy: requires mfa"));
+    assert_eq!(back.workflow_id.as_deref(), Some("wf-001"));
+    assert_eq!(back.agent_id.as_deref(), Some("agent-research"));
+    assert_eq!(back.trace_id.as_deref(), Some("trace-xyz"));
+}
+
+#[test]
+fn secret_source_kind_tags() {
+    assert_eq!(
+        SecretSource::Vault {
+            mount: "s".into(),
+            path: "p".into()
+        }
+        .kind(),
+        "vault"
+    );
+    assert_eq!(
+        SecretSource::AwsSecretsManager {
+            secret_id: "x".into(),
+            region: None
+        }
+        .kind(),
+        "aws"
+    );
+    assert_eq!(
+        SecretSource::GcpSecretManager {
+            project: "p".into(),
+            secret_id: "s".into()
+        }
+        .kind(),
+        "gcp"
+    );
+    assert_eq!(
+        SecretSource::AzureKeyVault {
+            vault_url: "u".into(),
+            secret_name: "n".into()
+        }
+        .kind(),
+        "azure"
+    );
+    assert_eq!(
+        SecretSource::OsKeystore {
+            service: "s".into()
+        }
+        .kind(),
+        "os_keystore"
+    );
+    assert_eq!(
+        SecretSource::Kubernetes {
+            namespace: "n".into(),
+            name: "n".into(),
+            key: "k".into()
+        }
+        .kind(),
+        "kubernetes"
+    );
+    assert_eq!(
+        SecretSource::Hardware { slot: "9a".into() }.kind(),
+        "hardware"
+    );
+    assert_eq!(
+        SecretSource::Custom {
+            provider: "p".into(),
+            config: json!({})
+        }
+        .kind(),
+        "custom"
+    );
+}
+
+#[test]
+fn credential_ref_with_source_round_trip() {
+    use layer0::environment::{CredentialInjection, CredentialRef};
+
+    let cred = CredentialRef::new(
+        "anthropic-api-key",
+        SecretSource::Vault {
+            mount: "secret".into(),
+            path: "data/anthropic".into(),
+        },
+        CredentialInjection::EnvVar {
+            var_name: "ANTHROPIC_API_KEY".into(),
+        },
+    );
+    let json = serde_json::to_string(&cred).unwrap();
+    let back: CredentialRef = serde_json::from_str(&json).unwrap();
+    assert_eq!(back.name, "anthropic-api-key");
+}
+
+#[test]
+fn hook_action_modify_tool_output_round_trip() {
+    use layer0::hook::HookAction;
+    let action = HookAction::ModifyToolOutput {
+        new_output: json!({"redacted": true}),
+    };
+    let json = serde_json::to_string(&action).unwrap();
+    let back: HookAction = serde_json::from_str(&json).unwrap();
+    let json2 = serde_json::to_string(&back).unwrap();
+    assert_eq!(json, json2);
 }

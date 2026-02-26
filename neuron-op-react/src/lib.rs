@@ -492,7 +492,7 @@ impl<P: Provider + 'static> Operator for ReactOperator<P> {
                 };
                 let tool_duration = DurationMs::from(tool_start.elapsed());
 
-                let (result_content, is_error, success) = match result {
+                let (mut result_content, is_error, success) = match result {
                     Ok(value) => (
                         serde_json::to_string(&value).unwrap_or_default(),
                         false,
@@ -510,20 +510,29 @@ impl<P: Provider + 'static> Operator for ReactOperator<P> {
                 hook_ctx.turns_completed = turns_used;
                 hook_ctx.elapsed = DurationMs::from(start.elapsed());
 
-                if let HookAction::Halt { reason } = self.hooks.dispatch(&hook_ctx).await {
-                    return Ok(Self::make_output(
-                        parts_to_content(&last_content),
-                        ExitReason::ObserverHalt { reason },
-                        self.build_metadata(
-                            total_tokens_in,
-                            total_tokens_out,
-                            total_cost,
-                            turns_used,
-                            tool_records,
-                            DurationMs::from(start.elapsed()),
-                        ),
-                        effects,
-                    ));
+                match self.hooks.dispatch(&hook_ctx).await {
+                    HookAction::Halt { reason } => {
+                        return Ok(Self::make_output(
+                            parts_to_content(&last_content),
+                            ExitReason::ObserverHalt { reason },
+                            self.build_metadata(
+                                total_tokens_in,
+                                total_tokens_out,
+                                total_cost,
+                                turns_used,
+                                tool_records,
+                                DurationMs::from(start.elapsed()),
+                            ),
+                            effects,
+                        ));
+                    }
+                    HookAction::ModifyToolOutput { new_output } => {
+                        // Replace tool result content before it flows into model context.
+                        // HookRegistry short-circuits on first non-Continue, so only one
+                        // hook's ModifyToolOutput can be returned per dispatch.
+                        result_content = new_output.to_string();
+                    }
+                    _ => {} // Continue, SkipTool, ModifyToolInput are no-ops at PostToolUse
                 }
 
                 // e. Backfill result

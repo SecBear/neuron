@@ -60,6 +60,7 @@ pub mod id;
 pub mod lifecycle;
 pub mod operator;
 pub mod orchestrator;
+pub mod secret;
 pub mod state;
 
 #[cfg(feature = "test-utils")]
@@ -79,4 +80,5 @@ pub use operator::{
     ToolCallRecord,
 };
 pub use orchestrator::{Orchestrator, QueryPayload};
+pub use secret::{SecretAccessEvent, SecretAccessOutcome, SecretSource};
 pub use state::{SearchResult, StateReader, StateStore};

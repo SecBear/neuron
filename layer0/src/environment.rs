@@ -1,6 +1,8 @@
 //! The Environment protocol — isolation, credentials, and resource constraints.
 
-use crate::{error::EnvError, operator::OperatorInput, operator::OperatorOutput};
+use crate::{
+    error::EnvError, operator::OperatorInput, operator::OperatorOutput, secret::SecretSource,
+};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
@@ -107,6 +109,8 @@ pub enum IsolationBoundary {
 pub struct CredentialRef {
     /// Name of the credential (e.g., "anthropic-api-key").
     pub name: String,
+    /// Where the secret is stored (backend).
+    pub source: SecretSource,
     /// How to inject it.
     pub injection: CredentialInjection,
 }
@@ -179,9 +183,14 @@ pub enum NetworkAction {
 
 impl CredentialRef {
     /// Create a new credential reference.
-    pub fn new(name: impl Into<String>, injection: CredentialInjection) -> Self {
+    pub fn new(
+        name: impl Into<String>,
+        source: SecretSource,
+        injection: CredentialInjection,
+    ) -> Self {
         Self {
             name: name.into(),
+            source,
             injection,
         }
     }
