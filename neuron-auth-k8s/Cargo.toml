@@ -1,0 +1,15 @@
+[package]
+name = "neuron-auth-k8s"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Stub Kubernetes ServiceAccount projected token auth provider"
+
+[dependencies]
+neuron-auth = { path = "../neuron-auth" }
+async-trait = "0.1"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

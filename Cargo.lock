@@ -797,6 +797,43 @@ dependencies = [
 ]
 
 [[package]]
+name = "neuron-auth-file"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "neuron-auth",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
+name = "neuron-auth-k8s"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "neuron-auth",
+ "tokio",
+]
+
+[[package]]
+name = "neuron-auth-oidc"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "neuron-auth",
+ "tokio",
+]
+
+[[package]]
+name = "neuron-auth-static"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "neuron-auth",
+ "tokio",
+]
+
+[[package]]
 name = "neuron-context"
 version = "0.1.0"
 dependencies = [

@@ -31,6 +31,10 @@ members = [
   "neuron-secret-gcp",
   "neuron-secret-keystore",
   "neuron-secret-k8s",
+  "neuron-auth-static",
+  "neuron-auth-file",
+  "neuron-auth-oidc",
+  "neuron-auth-k8s",
 ]
 
 [workspace.package]
