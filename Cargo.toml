@@ -10,6 +10,7 @@ members = [
   "neuron-tool",
   "neuron-turn",
   "neuron-op-react",
+  "neuron-op-single-shot",
   "neuron-context",
   "neuron-provider-anthropic",
   "neuron-provider-openai",
