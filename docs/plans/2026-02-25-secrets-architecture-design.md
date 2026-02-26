@@ -102,6 +102,11 @@ pub enum SecretSource {
     /// Custom source for future backends.
     Custom { provider: String, config: serde_json::Value },
 }
+
+impl SecretSource {
+    /// Telemetry-safe kind tag. Safe to log, never contains secret material.
+    pub fn kind(&self) -> &'static str { /* "vault", "aws", "gcp", ... */ }
+}
 ```
 
 Note: `EnvironmentVariable` and `File` are NOT `SecretSource` variants. Reading from an env
@@ -243,7 +248,8 @@ impl SecretLease {
 ### SecretResolver trait
 
 ```rust
-use layer0::secret::{SecretSource, SecretError};
+use layer0::secret::SecretSource;
+// SecretError is defined locally in this crate, not in layer0.
 
 /// Resolve a secret from a specific backend.
 ///
@@ -272,7 +278,13 @@ pub trait SecretResolver: Send + Sync {
 /// 3. Emits a SecretAccessEvent (success or failure)
 pub struct SecretRegistry {
     resolvers: Vec<(SourceMatcher, Arc<dyn SecretResolver>)>,
-    // Event emission hook (optional, for SecretAccessEvent)
+    event_sink: Option<Arc<dyn SecretEventSink>>,
+}
+
+/// Optional event sink for audit logging of secret access.
+/// If no sink is provided, events are silently dropped.
+pub trait SecretEventSink: Send + Sync {
+    fn emit(&self, event: SecretAccessEvent);
 }
 
 /// How to match a SecretSource to a resolver.

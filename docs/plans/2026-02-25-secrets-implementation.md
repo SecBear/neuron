@@ -4,7 +4,7 @@
 
 **Goal:** Implement three composable security traits (SecretResolver, AuthProvider, CryptoProvider) with type-level enforcement, per-backend micro-crates, and hook-based safety.
 
-**Architecture:** Layer 0 gets data types only (SecretSource, SecretAccessEvent, errors). Three trait crates (neuron-secret, neuron-auth, neuron-crypto) define the interfaces. Twelve backend stub crates provide the correct trait impl shape. neuron-hook-security provides RedactionHook and ExfilGuardHook. All follow existing patterns (HookRegistry, ToolRegistry).
+**Architecture:** Layer 0 gets data types only (SecretSource, SecretAccessEvent, SecretAccessOutcome). Error types live in their respective trait crates, not layer0. Three trait crates (neuron-secret, neuron-auth, neuron-crypto) define the interfaces and their own errors. Twelve backend stub crates provide the correct trait impl shape. neuron-hook-security provides RedactionHook and ExfilGuardHook. All follow existing patterns (HookRegistry, ToolRegistry).
 
 **Tech Stack:** Rust, serde, async-trait, thiserror, zeroize
 
@@ -163,6 +163,26 @@ pub struct SecretAccessEvent {
     pub trace_id: Option<String>,
 }
 
+impl SecretSource {
+    /// Returns a short, telemetry-safe kind tag for this source variant.
+    ///
+    /// Safe to log, include in error messages, and use in metrics —
+    /// never contains secret material.
+    pub fn kind(&self) -> &'static str {
+        match self {
+            SecretSource::Vault { .. } => "vault",
+            SecretSource::AwsSecretsManager { .. } => "aws",
+            SecretSource::GcpSecretManager { .. } => "gcp",
+            SecretSource::AzureKeyVault { .. } => "azure",
+            SecretSource::OsKeystore { .. } => "os_keystore",
+            SecretSource::Kubernetes { .. } => "kubernetes",
+            SecretSource::Hardware { .. } => "hardware",
+            SecretSource::Custom { .. } => "custom",
+            _ => "unknown",
+        }
+    }
+}
+
 impl SecretAccessEvent {
     /// Create a new secret access event with required fields.
     pub fn new(
@@ -203,27 +223,34 @@ pub use secret::{SecretAccessEvent, SecretAccessOutcome, SecretSource};
 
 Expected: compiles cleanly.
 
-### Task S1.2: Add HookAction::ModifyToolOutput to hook.rs
+### Task S1.2: Add HookAction::ModifyToolOutput to hook.rs + wire in hook executor
 
-The existing `HookAction` has `ModifyToolInput` but no output mutation variant. RedactionHook needs to modify tool OUTPUT. Pre-1.0 is the time to add this.
+The existing `HookAction` has `ModifyToolInput` but no output mutation variant. RedactionHook needs to modify tool OUTPUT. Adding the variant alone is not sufficient — the hook executor in neuron-op-react has a `_ => {}` catch-all that would silently drop it.
 
 **Files:**
 - Modify: `layer0/src/hook.rs`
+- Modify: `neuron-op-react/src/lib.rs` (hook executor)
 
 **Step 1: Add ModifyToolOutput variant to HookAction**
 
-After the `ModifyToolInput` variant, add:
+After the `ModifyToolInput` variant in `layer0/src/hook.rs`, add:
 ```rust
     /// Replace the tool output with a modified version (e.g., redacted secrets).
+    /// Only valid at PostToolUse. v0 scope: PostToolUse only.
+    /// Future: PostInference for redacting final assistant text before return/logging.
     ModifyToolOutput {
         /// The replacement output.
         new_output: serde_json::Value,
     },
 ```
 
-**Step 2: Run `cargo build -p layer0`**
+**Step 2: Wire ModifyToolOutput in the hook executor**
 
-Expected: compiles cleanly. Existing tests still pass (HookAction is `#[non_exhaustive]`).
+In `neuron-op-react/src/lib.rs`, the PostToolUse hook dispatch currently only checks for `HookAction::Halt`. Find the PostToolUse dispatch site and add handling for `ModifyToolOutput` — replace the tool result content with the new output. The exact wiring depends on the current PostToolUse dispatch code shape, but the semantics are: if a PostToolUse hook returns `ModifyToolOutput`, replace the tool result content before it flows into the model context.
+
+**Step 3: Run `cargo build && cargo test`**
+
+Expected: compiles cleanly. Existing tests still pass (HookAction is `#[non_exhaustive]`, but the explicit match arm is better than the catch-all).
 
 ### Task S1.3: Update CredentialRef to include source field
 
@@ -468,8 +495,8 @@ Expected: all existing tests + ~10 new tests pass.
 ### Task S1.5: Commit Phase S1
 
 ```bash
-git add layer0/src/secret.rs layer0/src/error.rs layer0/src/environment.rs layer0/src/lib.rs layer0/tests/phase1.rs layer0/tests/phase2.rs
-git commit -m "feat(layer0): add secret data types — SecretSource, SecretAccessEvent, error types, CredentialRef.source"
+git add layer0/src/secret.rs layer0/src/hook.rs layer0/src/environment.rs layer0/src/lib.rs layer0/tests/phase1.rs layer0/tests/phase2.rs neuron-op-react/src/lib.rs
+git commit -m "feat(layer0): add secret data types, HookAction::ModifyToolOutput, CredentialRef.source"
 ```
 
 ---
@@ -500,6 +527,7 @@ description = "Secret resolution traits and types for neuron"
 [dependencies]
 layer0 = { path = "../layer0" }
 async-trait = "0.1"
+thiserror = "2"
 zeroize = "1"
 
 [dev-dependencies]
@@ -526,11 +554,41 @@ serde_json = "1"
 //!   composition pattern as `ToolRegistry` and `HookRegistry`.
 
 use async_trait::async_trait;
-use layer0::error::SecretError;
 use layer0::secret::SecretSource;
 use std::sync::Arc;
 use std::time::SystemTime;
+use thiserror::Error;
 use zeroize::Zeroizing;
+
+/// Errors from secret resolution (crate-local, not in layer0).
+#[non_exhaustive]
+#[derive(Debug, Error)]
+pub enum SecretError {
+    /// The secret was not found in the backend.
+    #[error("secret not found: {0}")]
+    NotFound(String),
+
+    /// Access denied by policy.
+    #[error("access denied: {0}")]
+    AccessDenied(String),
+
+    /// Backend communication failure (network, timeout, etc.).
+    #[error("backend error: {0}")]
+    BackendError(String),
+
+    /// The lease has expired and cannot be renewed.
+    #[error("lease expired: {0}")]
+    LeaseExpired(String),
+
+    /// No resolver registered for this source type.
+    /// The string is the source kind tag (from `SecretSource::kind()`).
+    #[error("no resolver for source: {0}")]
+    NoResolver(String),
+
+    /// Catch-all.
+    #[error("{0}")]
+    Other(#[from] Box<dyn std::error::Error + Send + Sync>),
+}
 
 /// An opaque secret value. Cannot be logged, serialized, or cloned.
 /// Memory is zeroed on drop via [`Zeroizing`].
@@ -689,8 +747,11 @@ impl SourceMatcher {
 ///
 /// When `resolve()` is called, the registry matches the source to a registered
 /// resolver and delegates. If no resolver matches, returns `SecretError::NoResolver`.
+///
+/// Optionally emits [`SecretAccessEvent`]s through a [`SecretEventSink`] for audit logging.
 pub struct SecretRegistry {
     resolvers: Vec<(SourceMatcher, Arc<dyn SecretResolver>)>,
+    event_sink: Option<Arc<dyn SecretEventSink>>,
 }
 
 impl SecretRegistry {
@@ -698,6 +759,7 @@ impl SecretRegistry {
     pub fn new() -> Self {
         Self {
             resolvers: Vec::new(),
+            event_sink: None,
         }
     }
 
@@ -708,6 +770,12 @@ impl SecretRegistry {
         resolver: Arc<dyn SecretResolver>,
     ) -> Self {
         self.resolvers.push((matcher, resolver));
+        self
+    }
+
+    /// Set the event sink for audit logging.
+    pub fn with_event_sink(mut self, sink: Arc<dyn SecretEventSink>) -> Self {
+        self.event_sink = Some(sink);
         self
     }
 
@@ -723,19 +791,16 @@ impl Default for SecretRegistry {
     }
 }
 
-/// Returns a short, telemetry-safe kind tag for a SecretSource variant.
-pub fn source_kind(source: &SecretSource) -> &'static str {
-    match source {
-        SecretSource::Vault { .. } => "vault",
-        SecretSource::AwsSecretsManager { .. } => "aws",
-        SecretSource::GcpSecretManager { .. } => "gcp",
-        SecretSource::AzureKeyVault { .. } => "azure",
-        SecretSource::OsKeystore { .. } => "os_keystore",
-        SecretSource::Kubernetes { .. } => "kubernetes",
-        SecretSource::Hardware { .. } => "hardware",
-        SecretSource::Custom { .. } => "custom",
-        _ => "unknown",
-    }
+/// Optional event sink for audit logging of secret access.
+///
+/// The SecretRegistry emits [`SecretAccessEvent`]s through this sink.
+/// Implementations can forward to an event bus, write to audit logs,
+/// or feed anomaly detection systems.
+///
+/// If no sink is provided to SecretRegistry, events are silently dropped.
+pub trait SecretEventSink: Send + Sync {
+    /// Emit a secret access event.
+    fn emit(&self, event: layer0::secret::SecretAccessEvent);
 }
 
 #[async_trait]
@@ -743,10 +808,30 @@ impl SecretResolver for SecretRegistry {
     async fn resolve(&self, source: &SecretSource) -> Result<SecretLease, SecretError> {
         for (matcher, resolver) in &self.resolvers {
             if matcher.matches(source) {
-                return resolver.resolve(source).await;
+                let result = resolver.resolve(source).await;
+                // Emit audit event if sink is configured
+                if let Some(sink) = &self.event_sink {
+                    use layer0::secret::{SecretAccessEvent, SecretAccessOutcome};
+                    let outcome = if result.is_ok() {
+                        SecretAccessOutcome::Resolved
+                    } else {
+                        SecretAccessOutcome::Failed
+                    };
+                    let event = SecretAccessEvent::new(
+                        source.kind(),
+                        source.clone(),
+                        outcome,
+                        std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_millis() as u64,
+                    );
+                    sink.emit(event);
+                }
+                return result;
             }
         }
-        Err(SecretError::NoResolver(source_kind(source).to_string()))
+        Err(SecretError::NoResolver(source.kind().to_string()))
     }
 }
 
@@ -937,6 +1022,7 @@ description = "Authentication provider traits for neuron"
 layer0 = { path = "../layer0" }
 neuron-secret = { path = "../neuron-secret" }
 async-trait = "0.1"
+thiserror = "2"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
@@ -962,10 +1048,31 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 //! (`auth::*` vs `kv2::*`), and Google Cloud SDK.
 
 use async_trait::async_trait;
-use layer0::error::AuthError;
 use neuron_secret::SecretValue;
 use std::sync::Arc;
 use std::time::SystemTime;
+use thiserror::Error;
+
+/// Errors from authentication providers (crate-local, not in layer0).
+#[non_exhaustive]
+#[derive(Debug, Error)]
+pub enum AuthError {
+    /// Authentication failed (bad credentials, expired token, etc.).
+    #[error("auth failed: {0}")]
+    AuthFailed(String),
+
+    /// The requested scope or audience is not available.
+    #[error("scope unavailable: {0}")]
+    ScopeUnavailable(String),
+
+    /// Backend communication failure.
+    #[error("backend error: {0}")]
+    BackendError(String),
+
+    /// Catch-all.
+    #[error("{0}")]
+    Other(#[from] Box<dyn std::error::Error + Send + Sync>),
+}
 
 /// Context for an authentication request.
 ///
@@ -1287,6 +1394,7 @@ description = "Cryptographic provider traits for neuron"
 [dependencies]
 layer0 = { path = "../layer0" }
 async-trait = "0.1"
+thiserror = "2"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
@@ -1307,8 +1415,29 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 //! modules and transit encryption engines.
 
 use async_trait::async_trait;
-use layer0::error::CryptoError;
 use std::sync::Arc;
+use thiserror::Error;
+
+/// Errors from cryptographic operations (crate-local, not in layer0).
+#[non_exhaustive]
+#[derive(Debug, Error)]
+pub enum CryptoError {
+    /// The referenced key was not found.
+    #[error("key not found: {0}")]
+    KeyNotFound(String),
+
+    /// The operation is not supported for this key type or algorithm.
+    #[error("unsupported operation: {0}")]
+    UnsupportedOperation(String),
+
+    /// The cryptographic operation failed.
+    #[error("crypto operation failed: {0}")]
+    OperationFailed(String),
+
+    /// Catch-all.
+    #[error("{0}")]
+    Other(#[from] Box<dyn std::error::Error + Send + Sync>),
+}
 
 /// Cryptographic operations where private keys never leave the provider boundary.
 ///
@@ -1457,6 +1586,12 @@ Create these crates, each following the same pattern:
 
 Uses `SecretSource::Custom { provider: "env", config: { "var_name": "..." } }` — NOT `OsKeystore`,
 which has different semantics (macOS Keychain, DPAPI, etc.).
+
+**Config schema** (document in doc comment):
+```json
+{ "type": "custom", "provider": "env", "config": { "var_name": "ANTHROPIC_API_KEY" } }
+```
+Required field: `var_name` (string) — the environment variable name to read.
 
 ```rust
 // Cargo.toml deps: neuron-secret, layer0, async-trait, serde_json
@@ -1631,6 +1766,10 @@ Two hooks:
 **RedactionHook** — fires at `PostToolUse`. Scans tool output for patterns matching known
 secret formats. Returns `HookAction::ModifyToolOutput` (the NEW variant added in S1.2)
 with matches replaced by `[REDACTED]`. If no patterns match, returns `HookAction::Continue`.
+
+**v0 scope:** `PostToolUse` only — redacts tool output before the model sees it.
+**Future:** Add `PostInference` hook point to redact final assistant text before it's
+returned to the user or logged. Not blocking for v0 — tool output is the primary leak vector.
 
 **Intentionally narrow patterns for v0** (avoid regex false positive arms race):
 - AWS access keys: `AKIA[A-Z0-9]{16}`
