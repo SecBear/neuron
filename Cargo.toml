@@ -23,6 +23,7 @@ members = [
   "neuron-provider-ollama",
   "neuron-mcp",
   "neuron-secret",
+  "neuron-crypto",
 ]
 
 [workspace.package]

@@ -793,6 +793,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "neuron-crypto"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "layer0",
+ "thiserror",
+ "tokio",
+]
+
+[[package]]
 name = "neuron-env-local"
 version = "0.1.0"
 dependencies = [
