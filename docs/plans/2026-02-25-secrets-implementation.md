@@ -246,11 +246,51 @@ After the `ModifyToolInput` variant in `layer0/src/hook.rs`, add:
 
 **Step 2: Wire ModifyToolOutput in the hook executor**
 
-In `neuron-op-react/src/lib.rs`, the PostToolUse hook dispatch currently only checks for `HookAction::Halt`. Find the PostToolUse dispatch site and add handling for `ModifyToolOutput` — replace the tool result content with the new output. The exact wiring depends on the current PostToolUse dispatch code shape, but the semantics are: if a PostToolUse hook returns `ModifyToolOutput`, replace the tool result content before it flows into the model context.
+In `neuron-op-react/src/lib.rs`, the PostToolUse hook dispatch (lines ~504-527) currently uses
+`if let HookAction::Halt` — only handles Halt, everything else is ignored. Change to a `match`:
 
-**Step 3: Run `cargo build && cargo test`**
+```rust
+// d. Hook: PostToolUse
+let mut hook_ctx = HookContext::new(HookPoint::PostToolUse);
+hook_ctx.tool_name = Some(name.clone());
+hook_ctx.tool_result = Some(result_content.clone());
+// ... other fields ...
 
-Expected: compiles cleanly. Existing tests still pass (HookAction is `#[non_exhaustive]`, but the explicit match arm is better than the catch-all).
+match self.hooks.dispatch(&hook_ctx).await {
+    HookAction::Halt { reason } => {
+        return Ok(Self::make_output(
+            parts_to_content(&last_content),
+            ExitReason::ObserverHalt { reason },
+            self.build_metadata(/* ... */),
+            effects,
+        ));
+    }
+    HookAction::ModifyToolOutput { new_output } => {
+        // Replace tool result content before it flows into model context.
+        // Last-writer-wins: HookRegistry short-circuits on first non-Continue,
+        // so only one hook's ModifyToolOutput is returned.
+        result_content = new_output.to_string();
+    }
+    _ => {} // Continue, SkipTool, ModifyToolInput are no-ops at PostToolUse
+}
+```
+
+**Semantics (document in a code comment):**
+- `Halt` always wins — HookRegistry short-circuits on any non-Continue action.
+  If hook A returns `ModifyToolOutput` and hook B returns `Halt`, only A's result
+  is seen (B never runs). If hook order is reversed, `Halt` fires and the turn exits.
+- Multiple `ModifyToolOutput` is impossible — short-circuit means first non-Continue wins.
+- `SkipTool` and `ModifyToolInput` are no-ops at PostToolUse (they only make sense at PreToolUse).
+
+**Step 3: Add a test for ModifyToolOutput wiring**
+
+Add a test in `neuron-op-react/tests/` (or inline) proving that a PostToolUse hook
+returning `ModifyToolOutput` actually changes the tool result content that flows to
+the model. Use a stub hook that returns `ModifyToolOutput { new_output: json!("[REDACTED]") }`.
+
+**Step 4: Run `cargo build && cargo test`**
+
+Expected: compiles cleanly. Existing tests + new ModifyToolOutput test pass.
 
 ### Task S1.3: Update CredentialRef to include source field
 
@@ -803,32 +843,53 @@ pub trait SecretEventSink: Send + Sync {
     fn emit(&self, event: layer0::secret::SecretAccessEvent);
 }
 
+impl SecretRegistry {
+    /// Resolve a secret by credential name and source, emitting an audit event.
+    ///
+    /// This is the primary entry point for Environment implementations.
+    /// Use this instead of `resolve()` when you have a `CredentialRef` —
+    /// the credential name flows into the `SecretAccessEvent` for audit logging.
+    ///
+    /// ```rust,ignore
+    /// let lease = registry.resolve_named(&cred.name, &cred.source).await?;
+    /// ```
+    pub async fn resolve_named(
+        &self,
+        credential_name: &str,
+        source: &SecretSource,
+    ) -> Result<SecretLease, SecretError> {
+        let result = self.resolve(source).await;
+        // Emit audit event if sink is configured
+        if let Some(sink) = &self.event_sink {
+            use layer0::secret::{SecretAccessEvent, SecretAccessOutcome};
+            let outcome = if result.is_ok() {
+                SecretAccessOutcome::Resolved
+            } else {
+                SecretAccessOutcome::Failed
+            };
+            let event = SecretAccessEvent::new(
+                credential_name,
+                source.clone(),
+                outcome,
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis() as u64,
+            );
+            sink.emit(event);
+        }
+        result
+    }
+}
+
 #[async_trait]
 impl SecretResolver for SecretRegistry {
+    /// Route to the matching resolver. No audit event — use `resolve_named()`
+    /// when you have a credential name for proper audit logging.
     async fn resolve(&self, source: &SecretSource) -> Result<SecretLease, SecretError> {
         for (matcher, resolver) in &self.resolvers {
             if matcher.matches(source) {
-                let result = resolver.resolve(source).await;
-                // Emit audit event if sink is configured
-                if let Some(sink) = &self.event_sink {
-                    use layer0::secret::{SecretAccessEvent, SecretAccessOutcome};
-                    let outcome = if result.is_ok() {
-                        SecretAccessOutcome::Resolved
-                    } else {
-                        SecretAccessOutcome::Failed
-                    };
-                    let event = SecretAccessEvent::new(
-                        source.kind(),
-                        source.clone(),
-                        outcome,
-                        std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap_or_default()
-                            .as_millis() as u64,
-                    );
-                    sink.emit(event);
-                }
-                return result;
+                return resolver.resolve(source).await;
             }
         }
         Err(SecretError::NoResolver(source.kind().to_string()))
@@ -1809,13 +1870,6 @@ cargo build && cargo test && cargo clippy -- -D warnings && cargo doc --no-deps
 ```
 
 Expected: All existing tests + all new tests pass. Zero warnings. Clean docs.
-
-### Task S7.3: Final commit
-
-```bash
-git add Cargo.toml Cargo.lock
-git commit -m "chore: add secrets crates to workspace dev-dependencies"
-```
 
 ---
 

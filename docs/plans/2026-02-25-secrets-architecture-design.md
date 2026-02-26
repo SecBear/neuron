@@ -272,10 +272,12 @@ pub trait SecretResolver: Send + Sync {
 ```rust
 /// Composes multiple resolvers. Routes by SecretSource variant.
 ///
-/// When `resolve()` is called, the registry:
-/// 1. Matches the SecretSource variant to a registered resolver
-/// 2. Delegates to that resolver
-/// 3. Emits a SecretAccessEvent (success or failure)
+/// Two resolve paths:
+/// - `resolve(&SecretSource)` — pure routing, no audit event (via SecretResolver trait)
+/// - `resolve_named(credential_name, &SecretSource)` — routing + audit event emission
+///
+/// Environment implementations use `resolve_named(&cred.name, &cred.source)` so that
+/// SecretAccessEvent.credential_name contains the human label, not a kind tag.
 pub struct SecretRegistry {
     resolvers: Vec<(SourceMatcher, Arc<dyn SecretResolver>)>,
     event_sink: Option<Arc<dyn SecretEventSink>>,
