@@ -129,7 +129,7 @@ impl ServerHandler for McpServerHandler {
     ) -> Result<CallToolResult, ErrorData> {
         let tool_name = &*request.name;
         let tool = self.registry.get(tool_name).ok_or_else(|| {
-            ErrorData::invalid_params(format!("tool not found: {}", tool_name), None)
+            ErrorData::invalid_params(format!("tool not found: {tool_name}"), None)
         })?;
 
         let input = match request.arguments {
