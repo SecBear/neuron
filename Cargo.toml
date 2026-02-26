@@ -24,6 +24,7 @@ members = [
   "neuron-mcp",
   "neuron-secret",
   "neuron-crypto",
+  "neuron-auth",
 ]
 
 [workspace.package]
