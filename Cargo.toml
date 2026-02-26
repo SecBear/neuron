@@ -22,6 +22,7 @@ members = [
   "neuron-provider-openai",
   "neuron-provider-ollama",
   "neuron-mcp",
+  "neuron-secret",
 ]
 
 [workspace.package]
