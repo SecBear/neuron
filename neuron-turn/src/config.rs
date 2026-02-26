@@ -28,3 +28,31 @@ impl Default for NeuronTurnConfig {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_config_values() {
+        let config = NeuronTurnConfig::default();
+        assert_eq!(config.system_prompt, "You are a helpful assistant.");
+        assert!(config.default_model.is_empty());
+        assert_eq!(config.default_max_tokens, 4096);
+        assert_eq!(config.default_max_turns, 25);
+    }
+
+    #[test]
+    fn custom_config_values() {
+        let config = NeuronTurnConfig {
+            system_prompt: "Custom prompt".into(),
+            default_model: "gpt-4o".into(),
+            default_max_tokens: 2048,
+            default_max_turns: 10,
+        };
+        assert_eq!(config.system_prompt, "Custom prompt");
+        assert_eq!(config.default_model, "gpt-4o");
+        assert_eq!(config.default_max_tokens, 2048);
+        assert_eq!(config.default_max_turns, 10);
+    }
+}

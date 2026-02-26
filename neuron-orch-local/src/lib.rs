@@ -68,16 +68,14 @@ impl Orchestrator for LocalOrch {
                 Some(op) => {
                     let op = Arc::clone(op);
                     handles.push(tokio::spawn(async move {
-                        op.execute(input)
-                            .await
-                            .map_err(OrchError::OperatorError)
+                        op.execute(input).await.map_err(OrchError::OperatorError)
                     }));
                 }
                 None => {
                     let name = agent_id.to_string();
-                    handles.push(tokio::spawn(async move {
-                        Err(OrchError::AgentNotFound(name))
-                    }));
+                    handles.push(tokio::spawn(
+                        async move { Err(OrchError::AgentNotFound(name)) },
+                    ));
                 }
             }
         }
@@ -93,11 +91,7 @@ impl Orchestrator for LocalOrch {
         results
     }
 
-    async fn signal(
-        &self,
-        _target: &WorkflowId,
-        _signal: SignalPayload,
-    ) -> Result<(), OrchError> {
+    async fn signal(&self, _target: &WorkflowId, _signal: SignalPayload) -> Result<(), OrchError> {
         // LocalOrch doesn't track running workflows — accept and discard.
         Ok(())
     }
@@ -109,5 +103,143 @@ impl Orchestrator for LocalOrch {
     ) -> Result<serde_json::Value, OrchError> {
         // LocalOrch doesn't track running workflows — return null.
         Ok(serde_json::Value::Null)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use async_trait::async_trait;
+    use layer0::content::Content;
+    use layer0::error::OperatorError;
+    use layer0::operator::{ExitReason, OperatorOutput, TriggerType};
+
+    struct EchoOperator;
+
+    #[async_trait]
+    impl Operator for EchoOperator {
+        async fn execute(&self, input: OperatorInput) -> Result<OperatorOutput, OperatorError> {
+            Ok(OperatorOutput::new(input.message, ExitReason::Complete))
+        }
+    }
+
+    struct FailOperator;
+
+    #[async_trait]
+    impl Operator for FailOperator {
+        async fn execute(&self, _input: OperatorInput) -> Result<OperatorOutput, OperatorError> {
+            Err(OperatorError::Model("deliberate failure".into()))
+        }
+    }
+
+    fn simple_input(text: &str) -> OperatorInput {
+        OperatorInput::new(Content::text(text), TriggerType::User)
+    }
+
+    #[tokio::test]
+    async fn dispatch_to_registered_agent() {
+        let mut orch = LocalOrch::new();
+        orch.register(AgentId::new("echo"), Arc::new(EchoOperator));
+
+        let result = orch
+            .dispatch(&AgentId::new("echo"), simple_input("hello"))
+            .await;
+        let output = result.unwrap();
+        assert_eq!(output.exit_reason, ExitReason::Complete);
+        assert_eq!(output.message.as_text().unwrap(), "hello");
+    }
+
+    #[tokio::test]
+    async fn dispatch_to_unregistered_agent_returns_error() {
+        let orch = LocalOrch::new();
+
+        let result = orch
+            .dispatch(&AgentId::new("missing"), simple_input("hello"))
+            .await;
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            OrchError::AgentNotFound(name) => assert_eq!(name, "missing"),
+            other => panic!("expected AgentNotFound, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn dispatch_propagates_operator_error() {
+        let mut orch = LocalOrch::new();
+        orch.register(AgentId::new("fail"), Arc::new(FailOperator));
+
+        let result = orch
+            .dispatch(&AgentId::new("fail"), simple_input("hello"))
+            .await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn dispatch_many_parallel() {
+        let mut orch = LocalOrch::new();
+        orch.register(AgentId::new("echo"), Arc::new(EchoOperator));
+
+        let tasks = vec![
+            (AgentId::new("echo"), simple_input("msg1")),
+            (AgentId::new("echo"), simple_input("msg2")),
+        ];
+
+        let results = orch.dispatch_many(tasks).await;
+        assert_eq!(results.len(), 2);
+        assert!(results[0].is_ok());
+        assert!(results[1].is_ok());
+    }
+
+    #[tokio::test]
+    async fn dispatch_many_with_missing_agent() {
+        let mut orch = LocalOrch::new();
+        orch.register(AgentId::new("echo"), Arc::new(EchoOperator));
+
+        let tasks = vec![
+            (AgentId::new("echo"), simple_input("msg1")),
+            (AgentId::new("missing"), simple_input("msg2")),
+        ];
+
+        let results = orch.dispatch_many(tasks).await;
+        assert_eq!(results.len(), 2);
+        assert!(results[0].is_ok());
+        assert!(results[1].is_err());
+    }
+
+    #[tokio::test]
+    async fn signal_is_noop() {
+        let orch = LocalOrch::new();
+        let result = orch
+            .signal(
+                &WorkflowId::new("wf1"),
+                layer0::effect::SignalPayload::new("test", serde_json::Value::Null),
+            )
+            .await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn query_returns_null() {
+        let orch = LocalOrch::new();
+        let result = orch
+            .query(
+                &WorkflowId::new("wf1"),
+                QueryPayload::new("test", serde_json::Value::Null),
+            )
+            .await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), serde_json::Value::Null);
+    }
+
+    #[test]
+    fn default_orch_is_empty() {
+        let orch = LocalOrch::default();
+        let _ = orch;
+    }
+
+    #[test]
+    fn local_orch_implements_orchestrator() {
+        fn _assert_orch<T: Orchestrator>() {}
+        _assert_orch::<LocalOrch>();
     }
 }

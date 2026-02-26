@@ -322,4 +322,198 @@ mod tests {
         let json = serde_json::to_value(&tool).unwrap();
         assert_eq!(json["name"], "get_weather");
     }
+
+    #[test]
+    fn parse_cache_tokens() {
+        let provider = AnthropicProvider::new("test-key");
+        let api_response = AnthropicResponse {
+            content: vec![AnthropicContentBlock::Text {
+                text: "Cached.".into(),
+            }],
+            model: "claude-haiku-4-5-20251001".into(),
+            stop_reason: "end_turn".into(),
+            usage: AnthropicUsage {
+                input_tokens: 100,
+                output_tokens: 10,
+                cache_read_input_tokens: Some(50),
+                cache_creation_input_tokens: Some(25),
+            },
+        };
+
+        let response = provider.parse_response(api_response);
+        assert_eq!(response.usage.cache_read_tokens, Some(50));
+        assert_eq!(response.usage.cache_creation_tokens, Some(25));
+    }
+
+    #[test]
+    fn default_model_is_haiku() {
+        let provider = AnthropicProvider::new("test-key");
+        let request = ProviderRequest {
+            model: None,
+            messages: vec![ProviderMessage {
+                role: Role::User,
+                content: vec![ContentPart::Text { text: "Hi".into() }],
+            }],
+            tools: vec![],
+            max_tokens: None,
+            temperature: None,
+            system: None,
+            extra: json!(null),
+        };
+
+        let api_request = provider.build_request(&request);
+        assert_eq!(api_request.model, "claude-haiku-4-5-20251001");
+    }
+
+    #[test]
+    fn default_max_tokens_is_4096() {
+        let provider = AnthropicProvider::new("test-key");
+        let request = ProviderRequest {
+            model: None,
+            messages: vec![],
+            tools: vec![],
+            max_tokens: None,
+            temperature: None,
+            system: None,
+            extra: json!(null),
+        };
+
+        let api_request = provider.build_request(&request);
+        assert_eq!(api_request.max_tokens, 4096);
+    }
+
+    #[test]
+    fn tool_result_in_request() {
+        let provider = AnthropicProvider::new("test-key");
+        let request = ProviderRequest {
+            model: None,
+            messages: vec![
+                ProviderMessage {
+                    role: Role::Assistant,
+                    content: vec![ContentPart::ToolUse {
+                        id: "tu_1".into(),
+                        name: "bash".into(),
+                        input: json!({"cmd": "ls"}),
+                    }],
+                },
+                ProviderMessage {
+                    role: Role::User,
+                    content: vec![ContentPart::ToolResult {
+                        tool_use_id: "tu_1".into(),
+                        content: "file.txt".into(),
+                        is_error: false,
+                    }],
+                },
+            ],
+            tools: vec![],
+            max_tokens: None,
+            temperature: None,
+            system: None,
+            extra: json!(null),
+        };
+
+        let api_request = provider.build_request(&request);
+        assert_eq!(api_request.messages.len(), 2);
+        assert_eq!(api_request.messages[0].role, "assistant");
+        assert_eq!(api_request.messages[1].role, "user");
+    }
+
+    #[test]
+    fn image_content_in_request() {
+        let provider = AnthropicProvider::new("test-key");
+        let request = ProviderRequest {
+            model: None,
+            messages: vec![ProviderMessage {
+                role: Role::User,
+                content: vec![ContentPart::Image {
+                    source: ImageSource::Base64 {
+                        data: "aGVsbG8=".into(),
+                    },
+                    media_type: "image/png".into(),
+                }],
+            }],
+            tools: vec![],
+            max_tokens: None,
+            temperature: None,
+            system: None,
+            extra: json!(null),
+        };
+
+        let api_request = provider.build_request(&request);
+        // Should build without panic. Content should be blocks with image.
+        assert_eq!(api_request.messages.len(), 1);
+    }
+
+    #[test]
+    fn parse_tool_use_stop_reason() {
+        let provider = AnthropicProvider::new("test-key");
+        let api_response = AnthropicResponse {
+            content: vec![AnthropicContentBlock::ToolUse {
+                id: "tu_1".into(),
+                name: "bash".into(),
+                input: json!({"cmd": "ls"}),
+            }],
+            model: "claude-haiku-4-5-20251001".into(),
+            stop_reason: "tool_use".into(),
+            usage: AnthropicUsage {
+                input_tokens: 20,
+                output_tokens: 15,
+                cache_read_input_tokens: None,
+                cache_creation_input_tokens: None,
+            },
+        };
+
+        let response = provider.parse_response(api_response);
+        assert_eq!(response.stop_reason, StopReason::ToolUse);
+    }
+
+    #[test]
+    fn parse_max_tokens_stop_reason() {
+        let provider = AnthropicProvider::new("test-key");
+        let api_response = AnthropicResponse {
+            content: vec![AnthropicContentBlock::Text {
+                text: "trunca...".into(),
+            }],
+            model: "claude-haiku-4-5-20251001".into(),
+            stop_reason: "max_tokens".into(),
+            usage: AnthropicUsage {
+                input_tokens: 10,
+                output_tokens: 100,
+                cache_read_input_tokens: None,
+                cache_creation_input_tokens: None,
+            },
+        };
+
+        let response = provider.parse_response(api_response);
+        assert_eq!(response.stop_reason, StopReason::MaxTokens);
+    }
+
+    #[test]
+    fn with_url_overrides_api_url() {
+        let provider =
+            AnthropicProvider::new("test-key").with_url("https://proxy.example.com/v1/messages");
+        assert_eq!(provider.api_url, "https://proxy.example.com/v1/messages");
+    }
+
+    #[test]
+    fn cost_calculation_is_positive() {
+        let provider = AnthropicProvider::new("test-key");
+        let api_response = AnthropicResponse {
+            content: vec![AnthropicContentBlock::Text {
+                text: "Hello".into(),
+            }],
+            model: "claude-haiku-4-5-20251001".into(),
+            stop_reason: "end_turn".into(),
+            usage: AnthropicUsage {
+                input_tokens: 1000,
+                output_tokens: 500,
+                cache_read_input_tokens: None,
+                cache_creation_input_tokens: None,
+            },
+        };
+
+        let response = provider.parse_response(api_response);
+        let cost = response.cost.unwrap();
+        assert!(cost > Decimal::ZERO);
+    }
 }

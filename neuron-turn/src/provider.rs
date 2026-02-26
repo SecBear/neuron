@@ -88,4 +88,19 @@ mod tests {
         assert!(!ProviderError::AuthFailed("bad key".into()).is_retryable());
         assert!(!ProviderError::InvalidResponse("x".into()).is_retryable());
     }
+
+    #[test]
+    fn provider_error_from_boxed() {
+        let err: Box<dyn std::error::Error + Send + Sync> = "some error".into();
+        let provider_err = ProviderError::from(err);
+        assert!(matches!(provider_err, ProviderError::Other(_)));
+        assert!(!provider_err.is_retryable());
+    }
+
+    #[test]
+    fn provider_error_other_display() {
+        let err: Box<dyn std::error::Error + Send + Sync> = "custom error".into();
+        let provider_err = ProviderError::from(err);
+        assert_eq!(provider_err.to_string(), "custom error");
+    }
 }

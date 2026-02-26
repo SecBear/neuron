@@ -125,8 +125,7 @@ impl OpenAIProvider {
                                     call_type: "function".into(),
                                     function: OpenAIFunctionCall {
                                         name: name.clone(),
-                                        arguments: serde_json::to_string(input)
-                                            .unwrap_or_default(),
+                                        arguments: serde_json::to_string(input).unwrap_or_default(),
                                     },
                                 });
                             }
@@ -172,9 +171,20 @@ impl OpenAIProvider {
             .collect();
 
         // Extract provider-specific fields from extra.
-        let service_tier = request.extra.get("service_tier").and_then(|v| v.as_str()).map(String::from);
-        let reasoning_effort = request.extra.get("reasoning_effort").and_then(|v| v.as_str()).map(String::from);
-        let parallel_tool_calls = request.extra.get("parallel_tool_calls").and_then(|v| v.as_bool());
+        let service_tier = request
+            .extra
+            .get("service_tier")
+            .and_then(|v| v.as_str())
+            .map(String::from);
+        let reasoning_effort = request
+            .extra
+            .get("reasoning_effort")
+            .and_then(|v| v.as_str())
+            .map(String::from);
+        let parallel_tool_calls = request
+            .extra
+            .get("parallel_tool_calls")
+            .and_then(|v| v.as_bool());
 
         OpenAIRequest {
             model,
@@ -213,9 +223,7 @@ impl OpenAIProvider {
                             }
                             OpenAIContentPart::ImageUrl { image_url } => {
                                 content.push(ContentPart::Image {
-                                    source: ImageSource::Url {
-                                        url: image_url.url,
-                                    },
+                                    source: ImageSource::Url { url: image_url.url },
                                     media_type: "image/png".into(),
                                 });
                             }
@@ -342,7 +350,12 @@ fn parts_to_openai_content(parts: &[ContentPart]) -> OpenAIContent {
             return OpenAIContent::Text(text.clone());
         }
     }
-    OpenAIContent::Parts(parts.iter().filter_map(content_part_to_openai_part).collect())
+    OpenAIContent::Parts(
+        parts
+            .iter()
+            .filter_map(content_part_to_openai_part)
+            .collect(),
+    )
 }
 
 fn content_part_to_openai_part(part: &ContentPart) -> Option<OpenAIContentPart> {
@@ -610,10 +623,7 @@ mod tests {
         assert!(api_request.messages[0].tool_calls.is_some());
         // Tool result becomes role="tool" message.
         assert_eq!(api_request.messages[1].role, "tool");
-        assert_eq!(
-            api_request.messages[1].tool_call_id,
-            Some("call_1".into())
-        );
+        assert_eq!(api_request.messages[1].tool_call_id, Some("call_1".into()));
     }
 
     #[test]
@@ -623,9 +633,7 @@ mod tests {
             model: None,
             messages: vec![ProviderMessage {
                 role: Role::User,
-                content: vec![ContentPart::Text {
-                    text: "Hi".into(),
-                }],
+                content: vec![ContentPart::Text { text: "Hi".into() }],
             }],
             tools: vec![],
             max_tokens: None,
@@ -636,5 +644,220 @@ mod tests {
 
         let api_request = provider.build_request(&request);
         assert_eq!(api_request.model, "gpt-4o-mini");
+    }
+
+    #[test]
+    fn parse_empty_choices_returns_error() {
+        let provider = OpenAIProvider::new("test-key");
+        let api_response = OpenAIResponse {
+            id: "chatcmpl-empty".into(),
+            choices: vec![],
+            model: "gpt-4o-mini".into(),
+            usage: OpenAIUsage {
+                prompt_tokens: 5,
+                completion_tokens: 0,
+                total_tokens: 5,
+                prompt_tokens_details: None,
+                completion_tokens_details: None,
+            },
+            service_tier: None,
+        };
+
+        let result = provider.parse_response(api_response);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn parse_cache_token_details() {
+        let provider = OpenAIProvider::new("test-key");
+        let api_response = OpenAIResponse {
+            id: "chatcmpl-cache".into(),
+            choices: vec![OpenAIChoice {
+                message: OpenAIMessage {
+                    role: "assistant".into(),
+                    content: Some(OpenAIContent::Text("Cached!".into())),
+                    tool_calls: None,
+                    tool_call_id: None,
+                },
+                finish_reason: "stop".into(),
+                index: 0,
+            }],
+            model: "gpt-4o-mini".into(),
+            usage: OpenAIUsage {
+                prompt_tokens: 100,
+                completion_tokens: 10,
+                total_tokens: 110,
+                prompt_tokens_details: Some(OpenAIPromptTokensDetails {
+                    cached_tokens: Some(50),
+                }),
+                completion_tokens_details: None,
+            },
+            service_tier: None,
+        };
+
+        let response = provider.parse_response(api_response).unwrap();
+        assert_eq!(response.usage.cache_read_tokens, Some(50));
+    }
+
+    #[test]
+    fn parse_multiple_tool_calls() {
+        let provider = OpenAIProvider::new("test-key");
+        let api_response = OpenAIResponse {
+            id: "chatcmpl-multi".into(),
+            choices: vec![OpenAIChoice {
+                message: OpenAIMessage {
+                    role: "assistant".into(),
+                    content: None,
+                    tool_calls: Some(vec![
+                        OpenAIToolCall {
+                            id: "call_1".into(),
+                            call_type: "function".into(),
+                            function: OpenAIFunctionCall {
+                                name: "bash".into(),
+                                arguments: r#"{"command": "ls"}"#.into(),
+                            },
+                        },
+                        OpenAIToolCall {
+                            id: "call_2".into(),
+                            call_type: "function".into(),
+                            function: OpenAIFunctionCall {
+                                name: "read".into(),
+                                arguments: r#"{"file": "test.txt"}"#.into(),
+                            },
+                        },
+                    ]),
+                    tool_call_id: None,
+                },
+                finish_reason: "tool_calls".into(),
+                index: 0,
+            }],
+            model: "gpt-4o-mini".into(),
+            usage: OpenAIUsage {
+                prompt_tokens: 20,
+                completion_tokens: 30,
+                total_tokens: 50,
+                prompt_tokens_details: None,
+                completion_tokens_details: None,
+            },
+            service_tier: None,
+        };
+
+        let response = provider.parse_response(api_response).unwrap();
+        assert_eq!(response.content.len(), 2);
+        match &response.content[0] {
+            ContentPart::ToolUse { id, name, .. } => {
+                assert_eq!(id, "call_1");
+                assert_eq!(name, "bash");
+            }
+            _ => panic!("expected ToolUse"),
+        }
+        match &response.content[1] {
+            ContentPart::ToolUse { id, name, .. } => {
+                assert_eq!(id, "call_2");
+                assert_eq!(name, "read");
+            }
+            _ => panic!("expected ToolUse"),
+        }
+    }
+
+    #[test]
+    fn parse_length_finish_reason() {
+        let provider = OpenAIProvider::new("test-key");
+        let api_response = OpenAIResponse {
+            id: "chatcmpl-len".into(),
+            choices: vec![OpenAIChoice {
+                message: OpenAIMessage {
+                    role: "assistant".into(),
+                    content: Some(OpenAIContent::Text("trunca...".into())),
+                    tool_calls: None,
+                    tool_call_id: None,
+                },
+                finish_reason: "length".into(),
+                index: 0,
+            }],
+            model: "gpt-4o-mini".into(),
+            usage: OpenAIUsage {
+                prompt_tokens: 10,
+                completion_tokens: 100,
+                total_tokens: 110,
+                prompt_tokens_details: None,
+                completion_tokens_details: None,
+            },
+            service_tier: None,
+        };
+
+        let response = provider.parse_response(api_response).unwrap();
+        assert_eq!(response.stop_reason, StopReason::MaxTokens);
+    }
+
+    #[test]
+    fn parse_content_filter_finish_reason() {
+        let provider = OpenAIProvider::new("test-key");
+        let api_response = OpenAIResponse {
+            id: "chatcmpl-filter".into(),
+            choices: vec![OpenAIChoice {
+                message: OpenAIMessage {
+                    role: "assistant".into(),
+                    content: Some(OpenAIContent::Text(String::new())),
+                    tool_calls: None,
+                    tool_call_id: None,
+                },
+                finish_reason: "content_filter".into(),
+                index: 0,
+            }],
+            model: "gpt-4o-mini".into(),
+            usage: OpenAIUsage {
+                prompt_tokens: 10,
+                completion_tokens: 0,
+                total_tokens: 10,
+                prompt_tokens_details: None,
+                completion_tokens_details: None,
+            },
+            service_tier: None,
+        };
+
+        let response = provider.parse_response(api_response).unwrap();
+        assert_eq!(response.stop_reason, StopReason::ContentFilter);
+    }
+
+    #[test]
+    fn build_request_with_tools() {
+        let provider = OpenAIProvider::new("test-key");
+        let request = ProviderRequest {
+            model: None,
+            messages: vec![ProviderMessage {
+                role: Role::User,
+                content: vec![ContentPart::Text {
+                    text: "Help me".into(),
+                }],
+            }],
+            tools: vec![ToolSchema {
+                name: "bash".into(),
+                description: "Run a command".into(),
+                input_schema: json!({"type": "object", "properties": {"cmd": {"type": "string"}}}),
+            }],
+            max_tokens: None,
+            temperature: None,
+            system: None,
+            extra: json!(null),
+        };
+
+        let api_request = provider.build_request(&request);
+        assert_eq!(api_request.tools.len(), 1);
+        assert_eq!(api_request.tools[0].tool_type, "function");
+        assert_eq!(api_request.tools[0].function.name, "bash");
+    }
+
+    #[test]
+    fn with_url_overrides_api_url() {
+        let provider =
+            OpenAIProvider::new("test-key").with_url("https://proxy.example.com/v1/chat");
+        assert_eq!(provider.api_url, "https://proxy.example.com/v1/chat");
+    }
+
+    #[test]
+    fn with_org_sets_org_id() {
+        let provider = OpenAIProvider::new("test-key").with_org("org-123");
+        assert_eq!(provider.org_id, Some("org-123".into()));
     }
 }

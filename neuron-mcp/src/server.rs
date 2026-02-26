@@ -151,6 +151,54 @@ impl ServerHandler for McpServerHandler {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use neuron_tool::{ToolDyn, ToolError};
+    use serde_json::json;
+    use std::future::Future;
+    use std::pin::Pin;
+
+    struct TestTool {
+        tool_name: &'static str,
+    }
+
+    impl ToolDyn for TestTool {
+        fn name(&self) -> &str {
+            self.tool_name
+        }
+        fn description(&self) -> &str {
+            "A test tool"
+        }
+        fn input_schema(&self) -> serde_json::Value {
+            json!({"type": "object", "properties": {"input": {"type": "string"}}})
+        }
+        fn call(
+            &self,
+            input: serde_json::Value,
+        ) -> Pin<Box<dyn Future<Output = Result<serde_json::Value, ToolError>> + Send + '_>>
+        {
+            Box::pin(async move { Ok(json!({"echoed": input})) })
+        }
+    }
+
+    struct FailingTool;
+
+    impl ToolDyn for FailingTool {
+        fn name(&self) -> &str {
+            "fail_tool"
+        }
+        fn description(&self) -> &str {
+            "Always fails"
+        }
+        fn input_schema(&self) -> serde_json::Value {
+            json!({"type": "object"})
+        }
+        fn call(
+            &self,
+            _input: serde_json::Value,
+        ) -> Pin<Box<dyn Future<Output = Result<serde_json::Value, ToolError>> + Send + '_>>
+        {
+            Box::pin(async move { Err(ToolError::ExecutionFailed("deliberate failure".into())) })
+        }
+    }
 
     #[test]
     fn mcp_server_constructs() {
@@ -158,5 +206,80 @@ mod tests {
         let server = McpServer::new(registry, "test-server", "0.1.0");
         assert_eq!(server.name, "test-server");
         assert_eq!(server.version, "0.1.0");
+    }
+
+    #[test]
+    fn server_handler_get_info() {
+        let handler = McpServerHandler {
+            registry: Arc::new(ToolRegistry::new()),
+            name: "my-server".into(),
+            version: "1.0.0".into(),
+        };
+        let info = handler.get_info();
+        assert_eq!(info.server_info.name, "my-server");
+        assert_eq!(info.server_info.version, "1.0.0");
+    }
+
+    #[tokio::test]
+    async fn server_handler_list_tools_empty() {
+        let handler = McpServerHandler {
+            registry: Arc::new(ToolRegistry::new()),
+            name: "test".into(),
+            version: "0.1.0".into(),
+        };
+
+        let ctx = handler.get_info();
+        let _ = ctx; // just to verify get_info works
+
+        // We cannot easily construct RequestContext for the handler methods,
+        // but we can verify the registry logic directly.
+        let reg = ToolRegistry::new();
+        let tools: Vec<&Arc<dyn ToolDyn>> = reg.iter().collect();
+        assert!(tools.is_empty());
+    }
+
+    #[tokio::test]
+    async fn server_handler_list_tools_with_registered_tool() {
+        let mut registry = ToolRegistry::new();
+        registry.register(Arc::new(TestTool { tool_name: "echo" }));
+        registry.register(Arc::new(TestTool { tool_name: "read" }));
+
+        // Verify the registry contents that list_tools would expose
+        assert_eq!(registry.len(), 2);
+        assert!(registry.get("echo").is_some());
+        assert!(registry.get("read").is_some());
+
+        // Verify tool schemas that would be converted
+        let echo = registry.get("echo").unwrap();
+        assert_eq!(echo.description(), "A test tool");
+        let schema = echo.input_schema();
+        assert!(schema.as_object().is_some());
+    }
+
+    #[tokio::test]
+    async fn server_call_tool_logic_success() {
+        let mut registry = ToolRegistry::new();
+        registry.register(Arc::new(TestTool { tool_name: "echo" }));
+
+        let tool = registry.get("echo").unwrap();
+        let result = tool.call(json!({"msg": "hello"})).await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), json!({"echoed": {"msg": "hello"}}));
+    }
+
+    #[tokio::test]
+    async fn server_call_tool_logic_failure() {
+        let mut registry = ToolRegistry::new();
+        registry.register(Arc::new(FailingTool));
+
+        let tool = registry.get("fail_tool").unwrap();
+        let result = tool.call(json!({})).await;
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn server_call_tool_not_found() {
+        let registry = ToolRegistry::new();
+        assert!(registry.get("nonexistent").is_none());
     }
 }

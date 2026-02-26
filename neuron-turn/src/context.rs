@@ -87,4 +87,92 @@ mod tests {
         let estimate = strategy.token_estimate(&messages);
         assert_eq!(estimate, 100); // 400 chars / 4
     }
+
+    #[test]
+    fn no_compaction_preserves_all_messages() {
+        let strategy = NoCompaction;
+        let messages = vec![
+            ProviderMessage {
+                role: Role::User,
+                content: vec![ContentPart::Text {
+                    text: "msg1".into(),
+                }],
+            },
+            ProviderMessage {
+                role: Role::Assistant,
+                content: vec![ContentPart::Text {
+                    text: "msg2".into(),
+                }],
+            },
+            ProviderMessage {
+                role: Role::User,
+                content: vec![ContentPart::Text {
+                    text: "msg3".into(),
+                }],
+            },
+        ];
+
+        let compacted = strategy.compact(messages.clone());
+        assert_eq!(compacted.len(), 3);
+        assert_eq!(compacted[0].content, messages[0].content);
+        assert_eq!(compacted[1].content, messages[1].content);
+        assert_eq!(compacted[2].content, messages[2].content);
+    }
+
+    #[test]
+    fn no_compaction_estimates_tool_use_tokens() {
+        let strategy = NoCompaction;
+        let messages = vec![ProviderMessage {
+            role: Role::Assistant,
+            content: vec![ContentPart::ToolUse {
+                id: "tu_1".into(),
+                name: "bash".into(),
+                input: serde_json::json!({"command": "ls"}),
+            }],
+        }];
+
+        let estimate = strategy.token_estimate(&messages);
+        // The JSON representation of the input will be tokenized
+        assert!(estimate > 0);
+    }
+
+    #[test]
+    fn no_compaction_estimates_tool_result_tokens() {
+        let strategy = NoCompaction;
+        let messages = vec![ProviderMessage {
+            role: Role::User,
+            content: vec![ContentPart::ToolResult {
+                tool_use_id: "tu_1".into(),
+                content: "a".repeat(200),
+                is_error: false,
+            }],
+        }];
+
+        let estimate = strategy.token_estimate(&messages);
+        assert_eq!(estimate, 50); // 200 chars / 4
+    }
+
+    #[test]
+    fn no_compaction_estimates_image_tokens() {
+        let strategy = NoCompaction;
+        let messages = vec![ProviderMessage {
+            role: Role::User,
+            content: vec![ContentPart::Image {
+                source: crate::types::ImageSource::Url {
+                    url: "https://example.com/img.png".into(),
+                },
+                media_type: "image/png".into(),
+            }],
+        }];
+
+        let estimate = strategy.token_estimate(&messages);
+        assert_eq!(estimate, 1000); // rough image estimate
+    }
+
+    #[test]
+    fn context_strategy_is_object_safe() {
+        fn _assert_object_safe(_: &dyn ContextStrategy) {}
+        let nc = NoCompaction;
+        _assert_object_safe(&nc);
+    }
 }

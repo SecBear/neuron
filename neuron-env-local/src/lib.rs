@@ -43,3 +43,60 @@ impl Environment for LocalEnv {
             .map_err(EnvError::OperatorError)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use layer0::content::Content;
+    use layer0::error::OperatorError;
+    use layer0::operator::{ExitReason, OperatorOutput, TriggerType};
+
+    struct EchoOperator;
+
+    #[async_trait]
+    impl Operator for EchoOperator {
+        async fn execute(&self, input: OperatorInput) -> Result<OperatorOutput, OperatorError> {
+            Ok(OperatorOutput::new(input.message, ExitReason::Complete))
+        }
+    }
+
+    struct FailOperator;
+
+    #[async_trait]
+    impl Operator for FailOperator {
+        async fn execute(&self, _input: OperatorInput) -> Result<OperatorOutput, OperatorError> {
+            Err(OperatorError::Model("deliberate failure".into()))
+        }
+    }
+
+    #[tokio::test]
+    async fn local_env_delegates_to_operator() {
+        let op: Arc<dyn Operator> = Arc::new(EchoOperator);
+        let env = LocalEnv::new(op);
+
+        let input = OperatorInput::new(Content::text("hello"), TriggerType::User);
+        let spec = EnvironmentSpec::default();
+
+        let output = env.run(input, &spec).await.unwrap();
+        assert_eq!(output.exit_reason, ExitReason::Complete);
+        assert_eq!(output.message.as_text().unwrap(), "hello");
+    }
+
+    #[tokio::test]
+    async fn local_env_propagates_operator_error() {
+        let op: Arc<dyn Operator> = Arc::new(FailOperator);
+        let env = LocalEnv::new(op);
+
+        let input = OperatorInput::new(Content::text("hello"), TriggerType::User);
+        let spec = EnvironmentSpec::default();
+
+        let result = env.run(input, &spec).await;
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn local_env_implements_environment() {
+        fn _assert_env<T: Environment>() {}
+        _assert_env::<LocalEnv>();
+    }
+}

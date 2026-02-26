@@ -4,10 +4,6 @@
 //! Implements `layer0::Operator` by running the Reason-Act-Observe cycle:
 //! assemble context → call model → execute tools → repeat until done.
 
-use neuron_turn::context::ContextStrategy;
-use neuron_turn::convert::{content_to_user_message, parts_to_content};
-use neuron_turn::provider::Provider;
-use neuron_turn::types::*;
 use async_trait::async_trait;
 use layer0::content::Content;
 use layer0::duration::DurationMs;
@@ -16,10 +12,14 @@ use layer0::error::OperatorError;
 use layer0::hook::{HookAction, HookContext, HookPoint};
 use layer0::id::{AgentId, WorkflowId};
 use layer0::operator::{
-    ExitReason, ToolCallRecord, Operator, OperatorInput, OperatorMetadata, OperatorOutput,
+    ExitReason, Operator, OperatorInput, OperatorMetadata, OperatorOutput, ToolCallRecord,
 };
 use neuron_hooks::HookRegistry;
 use neuron_tool::ToolRegistry;
+use neuron_turn::context::ContextStrategy;
+use neuron_turn::convert::{content_to_user_message, parts_to_content};
+use neuron_turn::provider::Provider;
+use neuron_turn::types::*;
 use rust_decimal::Decimal;
 use std::sync::Arc;
 use std::time::Instant;
@@ -107,15 +107,13 @@ impl<P: Provider> ReactOperator<P> {
             None => self.config.system_prompt.clone(),
         };
         ResolvedConfig {
-            model: tc
-                .and_then(|c| c.model.clone())
-                .or_else(|| {
-                    if self.config.default_model.is_empty() {
-                        None
-                    } else {
-                        Some(self.config.default_model.clone())
-                    }
-                }),
+            model: tc.and_then(|c| c.model.clone()).or_else(|| {
+                if self.config.default_model.is_empty() {
+                    None
+                } else {
+                    Some(self.config.default_model.clone())
+                }
+            }),
             system,
             max_turns: tc
                 .and_then(|c| c.max_turns)
@@ -166,8 +164,8 @@ impl<P: Provider> ReactOperator<P> {
                         messages = history_messages;
                     }
                 }
-                Ok(None) => {}  // No history yet
-                Err(_) => {}    // State read errors are non-fatal
+                Ok(None) => {} // No history yet
+                Err(_) => {}   // State read errors are non-fatal
             }
         }
 
@@ -194,14 +192,9 @@ impl<P: Provider> ReactOperator<P> {
             }
             "delegate" => {
                 let agent = input.get("agent")?.as_str()?;
-                let message = input
-                    .get("message")
-                    .and_then(|m| m.as_str())
-                    .unwrap_or("");
-                let delegate_input = OperatorInput::new(
-                    Content::text(message),
-                    layer0::operator::TriggerType::Task,
-                );
+                let message = input.get("message").and_then(|m| m.as_str()).unwrap_or("");
+                let delegate_input =
+                    OperatorInput::new(Content::text(message), layer0::operator::TriggerType::Task);
                 Some(Effect::Delegate {
                     agent: AgentId::new(agent),
                     input: Box::new(delegate_input),
@@ -318,7 +311,14 @@ impl<P: Provider + 'static> Operator for ReactOperator<P> {
                 return Ok(Self::make_output(
                     parts_to_content(&last_content),
                     ExitReason::ObserverHalt { reason },
-                    self.build_metadata(total_tokens_in, total_tokens_out, total_cost, turns_used, tool_records, DurationMs::from(start.elapsed())),
+                    self.build_metadata(
+                        total_tokens_in,
+                        total_tokens_out,
+                        total_cost,
+                        turns_used,
+                        tool_records,
+                        DurationMs::from(start.elapsed()),
+                    ),
                     effects,
                 ));
             }
@@ -357,7 +357,14 @@ impl<P: Provider + 'static> Operator for ReactOperator<P> {
                 return Ok(Self::make_output(
                     parts_to_content(&response.content),
                     ExitReason::ObserverHalt { reason },
-                    self.build_metadata(total_tokens_in + response.usage.input_tokens, total_tokens_out + response.usage.output_tokens, total_cost + response.cost.unwrap_or(Decimal::ZERO), turns_used, tool_records, DurationMs::from(start.elapsed()),),
+                    self.build_metadata(
+                        total_tokens_in + response.usage.input_tokens,
+                        total_tokens_out + response.usage.output_tokens,
+                        total_cost + response.cost.unwrap_or(Decimal::ZERO),
+                        turns_used,
+                        tool_records,
+                        DurationMs::from(start.elapsed()),
+                    ),
                     effects,
                 ));
             }
@@ -374,9 +381,7 @@ impl<P: Provider + 'static> Operator for ReactOperator<P> {
             // 6. Check StopReason
             match response.stop_reason {
                 StopReason::MaxTokens => {
-                    return Err(OperatorError::Model(
-                        "output truncated (max_tokens)".into(),
-                    ));
+                    return Err(OperatorError::Model("output truncated (max_tokens)".into()));
                 }
                 StopReason::ContentFilter => {
                     return Err(OperatorError::Model("content filtered".into()));
@@ -385,7 +390,14 @@ impl<P: Provider + 'static> Operator for ReactOperator<P> {
                     return Ok(Self::make_output(
                         parts_to_content(&response.content),
                         ExitReason::Complete,
-                        self.build_metadata(total_tokens_in, total_tokens_out, total_cost, turns_used, tool_records, DurationMs::from(start.elapsed()),),
+                        self.build_metadata(
+                            total_tokens_in,
+                            total_tokens_out,
+                            total_cost,
+                            turns_used,
+                            tool_records,
+                            DurationMs::from(start.elapsed()),
+                        ),
                         effects,
                     ));
                 }
@@ -444,7 +456,14 @@ impl<P: Provider + 'static> Operator for ReactOperator<P> {
                         return Ok(Self::make_output(
                             parts_to_content(&last_content),
                             ExitReason::ObserverHalt { reason },
-                            self.build_metadata(total_tokens_in, total_tokens_out, total_cost, turns_used, tool_records, DurationMs::from(start.elapsed()),),
+                            self.build_metadata(
+                                total_tokens_in,
+                                total_tokens_out,
+                                total_cost,
+                                turns_used,
+                                tool_records,
+                                DurationMs::from(start.elapsed()),
+                            ),
                             effects,
                         ));
                     }
@@ -495,7 +514,14 @@ impl<P: Provider + 'static> Operator for ReactOperator<P> {
                     return Ok(Self::make_output(
                         parts_to_content(&last_content),
                         ExitReason::ObserverHalt { reason },
-                        self.build_metadata(total_tokens_in, total_tokens_out, total_cost, turns_used, tool_records, DurationMs::from(start.elapsed()),),
+                        self.build_metadata(
+                            total_tokens_in,
+                            total_tokens_out,
+                            total_cost,
+                            turns_used,
+                            tool_records,
+                            DurationMs::from(start.elapsed()),
+                        ),
                         effects,
                     ));
                 }
@@ -522,7 +548,14 @@ impl<P: Provider + 'static> Operator for ReactOperator<P> {
                 return Ok(Self::make_output(
                     parts_to_content(&last_content),
                     ExitReason::MaxTurns,
-                    self.build_metadata(total_tokens_in, total_tokens_out, total_cost, turns_used, tool_records, DurationMs::from(start.elapsed()),),
+                    self.build_metadata(
+                        total_tokens_in,
+                        total_tokens_out,
+                        total_cost,
+                        turns_used,
+                        tool_records,
+                        DurationMs::from(start.elapsed()),
+                    ),
                     effects,
                 ));
             }
@@ -532,7 +565,14 @@ impl<P: Provider + 'static> Operator for ReactOperator<P> {
                     return Ok(Self::make_output(
                         parts_to_content(&last_content),
                         ExitReason::BudgetExhausted,
-                        self.build_metadata(total_tokens_in, total_tokens_out, total_cost, turns_used, tool_records, DurationMs::from(start.elapsed()),),
+                        self.build_metadata(
+                            total_tokens_in,
+                            total_tokens_out,
+                            total_cost,
+                            turns_used,
+                            tool_records,
+                            DurationMs::from(start.elapsed()),
+                        ),
                         effects,
                     ));
                 }
@@ -543,7 +583,14 @@ impl<P: Provider + 'static> Operator for ReactOperator<P> {
                     return Ok(Self::make_output(
                         parts_to_content(&last_content),
                         ExitReason::Timeout,
-                        self.build_metadata(total_tokens_in, total_tokens_out, total_cost, turns_used, tool_records, DurationMs::from(start.elapsed()),),
+                        self.build_metadata(
+                            total_tokens_in,
+                            total_tokens_out,
+                            total_cost,
+                            turns_used,
+                            tool_records,
+                            DurationMs::from(start.elapsed()),
+                        ),
                         effects,
                     ));
                 }
@@ -562,7 +609,14 @@ impl<P: Provider + 'static> Operator for ReactOperator<P> {
                 return Ok(Self::make_output(
                     parts_to_content(&last_content),
                     ExitReason::ObserverHalt { reason },
-                    self.build_metadata(total_tokens_in, total_tokens_out, total_cost, turns_used, tool_records, DurationMs::from(start.elapsed()),),
+                    self.build_metadata(
+                        total_tokens_in,
+                        total_tokens_out,
+                        total_cost,
+                        turns_used,
+                        tool_records,
+                        DurationMs::from(start.elapsed()),
+                    ),
                     effects,
                 ));
             }
@@ -663,14 +717,14 @@ fn parse_scope(s: &str) -> Scope {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use neuron_turn::context::NoCompaction;
-    use neuron_turn::provider::ProviderError;
     use neuron_hooks::HookRegistry;
     use neuron_tool::ToolRegistry;
+    use neuron_turn::context::NoCompaction;
+    use neuron_turn::provider::ProviderError;
     use serde_json::json;
     use std::collections::VecDeque;
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Mutex;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     // -- Mock Provider --
 
@@ -758,9 +812,8 @@ mod tests {
             input: serde_json::Value,
         ) -> std::pin::Pin<
             Box<
-                dyn std::future::Future<
-                        Output = Result<serde_json::Value, neuron_tool::ToolError>,
-                    > + Send
+                dyn std::future::Future<Output = Result<serde_json::Value, neuron_tool::ToolError>>
+                    + Send
                     + '_,
             >,
         > {
@@ -1050,7 +1103,11 @@ mod tests {
                     input: json!({"scope": "global", "key": "test", "value": "hello"}),
                 }],
                 stop_reason: StopReason::ToolUse,
-                usage: TokenUsage { input_tokens: 10, output_tokens: 5, ..Default::default() },
+                usage: TokenUsage {
+                    input_tokens: 10,
+                    output_tokens: 5,
+                    ..Default::default()
+                },
                 model: "mock".into(),
                 cost: None,
                 truncated: None,
@@ -1085,6 +1142,135 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn effect_tool_delete_memory() {
+        let provider = MockProvider::new(vec![
+            ProviderResponse {
+                content: vec![ContentPart::ToolUse {
+                    id: "tu_1".into(),
+                    name: "delete_memory".into(),
+                    input: json!({"scope": "global", "key": "old_key"}),
+                }],
+                stop_reason: StopReason::ToolUse,
+                usage: TokenUsage::default(),
+                model: "mock".into(),
+                cost: None,
+                truncated: None,
+            },
+            simple_text_response("Deleted."),
+        ]);
+        let op = make_op(provider);
+
+        let output = op.execute(simple_input("Delete memory")).await.unwrap();
+        assert_eq!(output.effects.len(), 1);
+        match &output.effects[0] {
+            Effect::DeleteMemory { key, .. } => assert_eq!(key, "old_key"),
+            _ => panic!("expected DeleteMemory"),
+        }
+    }
+
+    #[tokio::test]
+    async fn effect_tool_delegate() {
+        let provider = MockProvider::new(vec![
+            ProviderResponse {
+                content: vec![ContentPart::ToolUse {
+                    id: "tu_1".into(),
+                    name: "delegate".into(),
+                    input: json!({"agent": "helper", "message": "do this task"}),
+                }],
+                stop_reason: StopReason::ToolUse,
+                usage: TokenUsage::default(),
+                model: "mock".into(),
+                cost: None,
+                truncated: None,
+            },
+            simple_text_response("Delegated."),
+        ]);
+        let op = make_op(provider);
+
+        let output = op.execute(simple_input("Delegate task")).await.unwrap();
+        assert_eq!(output.effects.len(), 1);
+        match &output.effects[0] {
+            Effect::Delegate { agent, input } => {
+                assert_eq!(agent.as_str(), "helper");
+                assert_eq!(input.message.as_text().unwrap(), "do this task");
+            }
+            _ => panic!("expected Delegate"),
+        }
+    }
+
+    #[tokio::test]
+    async fn effect_tool_handoff() {
+        let provider = MockProvider::new(vec![
+            ProviderResponse {
+                content: vec![ContentPart::ToolUse {
+                    id: "tu_1".into(),
+                    name: "handoff".into(),
+                    input: json!({"agent": "specialist", "state": {"context": "data"}}),
+                }],
+                stop_reason: StopReason::ToolUse,
+                usage: TokenUsage::default(),
+                model: "mock".into(),
+                cost: None,
+                truncated: None,
+            },
+            simple_text_response("Handed off."),
+        ]);
+        let op = make_op(provider);
+
+        let output = op.execute(simple_input("Handoff")).await.unwrap();
+        assert_eq!(output.effects.len(), 1);
+        match &output.effects[0] {
+            Effect::Handoff { agent, state } => {
+                assert_eq!(agent.as_str(), "specialist");
+                assert_eq!(state["context"], "data");
+            }
+            _ => panic!("expected Handoff"),
+        }
+    }
+
+    #[tokio::test]
+    async fn effect_tool_signal() {
+        let provider = MockProvider::new(vec![
+            ProviderResponse {
+                content: vec![ContentPart::ToolUse {
+                    id: "tu_1".into(),
+                    name: "signal".into(),
+                    input: json!({"target": "workflow_1", "signal_type": "completed", "data": {"result": "ok"}}),
+                }],
+                stop_reason: StopReason::ToolUse,
+                usage: TokenUsage::default(),
+                model: "mock".into(),
+                cost: None,
+                truncated: None,
+            },
+            simple_text_response("Signal sent."),
+        ]);
+        let op = make_op(provider);
+
+        let output = op.execute(simple_input("Signal")).await.unwrap();
+        assert_eq!(output.effects.len(), 1);
+        match &output.effects[0] {
+            Effect::Signal { target, payload } => {
+                assert_eq!(target.as_str(), "workflow_1");
+                assert_eq!(payload.signal_type, "completed");
+            }
+            _ => panic!("expected Signal"),
+        }
+    }
+
+    #[test]
+    fn effect_tool_schemas_all_present() {
+        let schemas = effect_tool_schemas();
+        let names: Vec<&str> = schemas.iter().map(|s| s.name.as_str()).collect();
+        assert!(names.contains(&"write_memory"));
+        assert!(names.contains(&"delete_memory"));
+        assert!(names.contains(&"delegate"));
+        assert!(names.contains(&"handoff"));
+        assert!(names.contains(&"signal"));
+        assert_eq!(schemas.len(), 5);
+    }
+
     #[test]
     fn react_operator_implements_operator_trait() {
         // Compile-time check: ReactOperator<MockProvider> implements Operator
@@ -1105,10 +1291,7 @@ mod tests {
             ReactConfig::default(),
         ));
 
-        let output = op
-            .execute(simple_input("Hi"))
-            .await
-            .unwrap();
+        let output = op.execute(simple_input("Hi")).await.unwrap();
         assert_eq!(output.exit_reason, ExitReason::Complete);
     }
 

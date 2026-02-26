@@ -79,10 +79,7 @@ impl OllamaProvider {
                     let mut other_text = Vec::new();
                     for part in &m.content {
                         match part {
-                            ContentPart::ToolResult {
-                                content,
-                                ..
-                            } => {
+                            ContentPart::ToolResult { content, .. } => {
                                 tool_results.push(content.clone());
                             }
                             ContentPart::Text { text } => {
@@ -513,9 +510,7 @@ mod tests {
             model: None,
             messages: vec![ProviderMessage {
                 role: Role::User,
-                content: vec![ContentPart::Text {
-                    text: "Hi".into(),
-                }],
+                content: vec![ContentPart::Text { text: "Hi".into() }],
             }],
             tools: vec![],
             max_tokens: None,
@@ -535,9 +530,7 @@ mod tests {
             model: None,
             messages: vec![ProviderMessage {
                 role: Role::User,
-                content: vec![ContentPart::Text {
-                    text: "Hi".into(),
-                }],
+                content: vec![ContentPart::Text { text: "Hi".into() }],
             }],
             tools: vec![],
             max_tokens: None,
@@ -612,5 +605,112 @@ mod tests {
         let response = provider.parse_response(api_response);
         assert_eq!(response.usage.input_tokens, 0);
         assert_eq!(response.usage.output_tokens, 0);
+    }
+
+    #[test]
+    fn parse_length_stop_reason() {
+        let provider = OllamaProvider::new();
+        let api_response = OllamaResponse {
+            model: "llama3.2:1b".into(),
+            message: OllamaMessage {
+                role: "assistant".into(),
+                content: "trunca...".into(),
+                tool_calls: None,
+            },
+            done: true,
+            done_reason: Some("length".into()),
+            total_duration: None,
+            load_duration: None,
+            prompt_eval_count: None,
+            prompt_eval_duration: None,
+            eval_count: None,
+            eval_duration: None,
+        };
+
+        let response = provider.parse_response(api_response);
+        assert_eq!(response.stop_reason, StopReason::MaxTokens);
+    }
+
+    #[test]
+    fn with_url_overrides_api_url() {
+        let provider = OllamaProvider::new().with_url("http://remote:11434/api/chat");
+        assert_eq!(provider.api_url, "http://remote:11434/api/chat");
+    }
+
+    #[test]
+    fn build_request_with_tools() {
+        let provider = OllamaProvider::new();
+        let request = ProviderRequest {
+            model: None,
+            messages: vec![ProviderMessage {
+                role: Role::User,
+                content: vec![ContentPart::Text {
+                    text: "Help".into(),
+                }],
+            }],
+            tools: vec![ToolSchema {
+                name: "bash".into(),
+                description: "Run a command".into(),
+                input_schema: json!({"type": "object"}),
+            }],
+            max_tokens: None,
+            temperature: Some(0.5),
+            system: None,
+            extra: json!(null),
+        };
+
+        let api_request = provider.build_request(&request);
+        assert_eq!(api_request.tools.len(), 1);
+        assert_eq!(api_request.tools[0].function.name, "bash");
+        assert_eq!(api_request.options.as_ref().unwrap().temperature, Some(0.5));
+    }
+
+    #[test]
+    fn ollama_default_impl() {
+        let provider = OllamaProvider::default();
+        assert_eq!(provider.api_url, "http://localhost:11434/api/chat");
+    }
+
+    #[test]
+    fn build_request_no_options_when_no_temp_or_tokens() {
+        let provider = OllamaProvider::new();
+        let request = ProviderRequest {
+            model: None,
+            messages: vec![ProviderMessage {
+                role: Role::User,
+                content: vec![ContentPart::Text { text: "Hi".into() }],
+            }],
+            tools: vec![],
+            max_tokens: None,
+            temperature: None,
+            system: None,
+            extra: json!(null),
+        };
+
+        let api_request = provider.build_request(&request);
+        assert!(api_request.options.is_none());
+    }
+
+    #[test]
+    fn build_request_system_message_from_system_role() {
+        let provider = OllamaProvider::new();
+        let request = ProviderRequest {
+            model: None,
+            messages: vec![ProviderMessage {
+                role: Role::System,
+                content: vec![ContentPart::Text {
+                    text: "You are helpful.".into(),
+                }],
+            }],
+            tools: vec![],
+            max_tokens: None,
+            temperature: None,
+            system: None,
+            extra: json!(null),
+        };
+
+        let api_request = provider.build_request(&request);
+        assert_eq!(api_request.messages[0].role, "system");
+        assert_eq!(api_request.messages[0].content, "You are helpful.");
     }
 }

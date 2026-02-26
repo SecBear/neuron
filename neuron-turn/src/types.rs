@@ -253,4 +253,138 @@ mod tests {
         assert_eq!(usage.output_tokens, 0);
         assert!(usage.cache_read_tokens.is_none());
     }
+
+    #[test]
+    fn token_usage_serde_roundtrip() {
+        let usage = TokenUsage {
+            input_tokens: 100,
+            output_tokens: 50,
+            cache_read_tokens: Some(10),
+            cache_creation_tokens: Some(5),
+        };
+        let json = serde_json::to_value(&usage).unwrap();
+        let back: TokenUsage = serde_json::from_value(json).unwrap();
+        assert_eq!(usage, back);
+    }
+
+    #[test]
+    fn image_source_base64_roundtrip() {
+        let source = ImageSource::Base64 {
+            data: "aGVsbG8=".into(),
+        };
+        let json = serde_json::to_value(&source).unwrap();
+        assert_eq!(json["type"], "base64");
+        let back: ImageSource = serde_json::from_value(json).unwrap();
+        assert_eq!(source, back);
+    }
+
+    #[test]
+    fn image_source_url_roundtrip() {
+        let source = ImageSource::Url {
+            url: "https://example.com/img.png".into(),
+        };
+        let json = serde_json::to_value(&source).unwrap();
+        assert_eq!(json["type"], "url");
+        let back: ImageSource = serde_json::from_value(json).unwrap();
+        assert_eq!(source, back);
+    }
+
+    #[test]
+    fn provider_request_serde_roundtrip() {
+        let request = ProviderRequest {
+            model: Some("test-model".into()),
+            messages: vec![ProviderMessage {
+                role: Role::User,
+                content: vec![ContentPart::Text {
+                    text: "hello".into(),
+                }],
+            }],
+            tools: vec![ToolSchema {
+                name: "bash".into(),
+                description: "Run a command".into(),
+                input_schema: json!({"type": "object"}),
+            }],
+            max_tokens: Some(1024),
+            temperature: Some(0.7),
+            system: Some("Be helpful".into()),
+            extra: json!({"key": "value"}),
+        };
+        let json = serde_json::to_value(&request).unwrap();
+        let back: ProviderRequest = serde_json::from_value(json).unwrap();
+        assert_eq!(back.model, Some("test-model".into()));
+        assert_eq!(back.messages.len(), 1);
+        assert_eq!(back.tools.len(), 1);
+        assert_eq!(back.max_tokens, Some(1024));
+        assert_eq!(back.system, Some("Be helpful".into()));
+    }
+
+    #[test]
+    fn provider_response_serde_roundtrip() {
+        let response = ProviderResponse {
+            content: vec![ContentPart::Text {
+                text: "hello".into(),
+            }],
+            stop_reason: StopReason::EndTurn,
+            usage: TokenUsage {
+                input_tokens: 10,
+                output_tokens: 5,
+                cache_read_tokens: None,
+                cache_creation_tokens: None,
+            },
+            model: "test-model".into(),
+            cost: Some(rust_decimal::Decimal::new(1, 4)),
+            truncated: None,
+        };
+        let json = serde_json::to_value(&response).unwrap();
+        let back: ProviderResponse = serde_json::from_value(json).unwrap();
+        assert_eq!(back.model, "test-model");
+        assert_eq!(back.stop_reason, StopReason::EndTurn);
+        assert_eq!(back.content.len(), 1);
+    }
+
+    #[test]
+    fn content_part_image_base64_roundtrip() {
+        let part = ContentPart::Image {
+            source: ImageSource::Base64 {
+                data: "aGVsbG8=".into(),
+            },
+            media_type: "image/jpeg".into(),
+        };
+        let json = serde_json::to_value(&part).unwrap();
+        assert_eq!(json["type"], "image");
+        let back: ContentPart = serde_json::from_value(json).unwrap();
+        assert_eq!(part, back);
+    }
+
+    #[test]
+    fn provider_message_multi_content_roundtrip() {
+        let msg = ProviderMessage {
+            role: Role::Assistant,
+            content: vec![
+                ContentPart::Text {
+                    text: "Let me help.".into(),
+                },
+                ContentPart::ToolUse {
+                    id: "tu_1".into(),
+                    name: "bash".into(),
+                    input: json!({"cmd": "ls"}),
+                },
+            ],
+        };
+        let json = serde_json::to_value(&msg).unwrap();
+        let back: ProviderMessage = serde_json::from_value(json).unwrap();
+        assert_eq!(msg, back);
+    }
+
+    #[test]
+    fn tool_result_with_error_roundtrip() {
+        let part = ContentPart::ToolResult {
+            tool_use_id: "tu_1".into(),
+            content: "command failed".into(),
+            is_error: true,
+        };
+        let json = serde_json::to_value(&part).unwrap();
+        let back: ContentPart = serde_json::from_value(json).unwrap();
+        assert_eq!(part, back);
+    }
 }
