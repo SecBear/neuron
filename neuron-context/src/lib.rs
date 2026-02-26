@@ -77,7 +77,10 @@ impl ContextStrategy for SlidingWindow {
 
         // Work backwards, accumulating messages until we hit roughly half the
         // original size (heuristic: keep recent context, drop old)
-        let total_tokens: usize = messages.iter().map(|m| self.estimate_message_tokens(m)).sum();
+        let total_tokens: usize = messages
+            .iter()
+            .map(|m| self.estimate_message_tokens(m))
+            .sum();
         let target = total_tokens / 2;
 
         let mut kept = Vec::new();

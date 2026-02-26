@@ -27,6 +27,9 @@ impl crate::environment::Environment for LocalEnvironment {
         input: OperatorInput,
         _spec: &EnvironmentSpec,
     ) -> Result<OperatorOutput, EnvError> {
-        self.operator.execute(input).await.map_err(EnvError::OperatorError)
+        self.operator
+            .execute(input)
+            .await
+            .map_err(EnvError::OperatorError)
     }
 }

@@ -4,7 +4,7 @@ use layer0::content::Content;
 use layer0::operator::{ExitReason, Operator, OperatorInput, TriggerType};
 use neuron_context::SlidingWindow;
 use neuron_hooks::HookRegistry;
-use neuron_op_react::{ReactOperator, ReactConfig};
+use neuron_op_react::{ReactConfig, ReactOperator};
 use neuron_provider_anthropic::AnthropicProvider;
 use neuron_tool::ToolRegistry;
 use std::sync::Arc;

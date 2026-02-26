@@ -135,4 +135,3 @@ pub struct AnthropicUsage {
     #[serde(default)]
     pub cache_creation_input_tokens: Option<u64>,
 }
-

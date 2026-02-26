@@ -10,9 +10,7 @@ use async_trait::async_trait;
 use layer0::content::Content;
 use layer0::duration::DurationMs;
 use layer0::error::OperatorError;
-use layer0::operator::{
-    ExitReason, Operator, OperatorInput, OperatorMetadata, OperatorOutput,
-};
+use layer0::operator::{ExitReason, Operator, OperatorInput, OperatorMetadata, OperatorOutput};
 use neuron_turn::convert::{content_to_user_message, parts_to_content};
 use neuron_turn::provider::Provider;
 use neuron_turn::types::*;
@@ -257,7 +255,10 @@ mod tests {
 
         let requests = op.provider.captured_requests();
         assert_eq!(requests.len(), 1);
-        assert!(requests[0].tools.is_empty(), "single-shot must send no tools");
+        assert!(
+            requests[0].tools.is_empty(),
+            "single-shot must send no tools"
+        );
     }
 
     #[tokio::test]

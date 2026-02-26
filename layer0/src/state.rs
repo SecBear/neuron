@@ -25,11 +25,8 @@ use serde::{Deserialize, Serialize};
 pub trait StateStore: Send + Sync {
     /// Read a value by key within a scope.
     /// Returns None if the key doesn't exist.
-    async fn read(
-        &self,
-        scope: &Scope,
-        key: &str,
-    ) -> Result<Option<serde_json::Value>, StateError>;
+    async fn read(&self, scope: &Scope, key: &str)
+    -> Result<Option<serde_json::Value>, StateError>;
 
     /// Write a value. Creates or overwrites.
     async fn write(
@@ -40,18 +37,10 @@ pub trait StateStore: Send + Sync {
     ) -> Result<(), StateError>;
 
     /// Delete a value. No-op if key doesn't exist.
-    async fn delete(
-        &self,
-        scope: &Scope,
-        key: &str,
-    ) -> Result<(), StateError>;
+    async fn delete(&self, scope: &Scope, key: &str) -> Result<(), StateError>;
 
     /// List keys under a prefix within a scope.
-    async fn list(
-        &self,
-        scope: &Scope,
-        prefix: &str,
-    ) -> Result<Vec<String>, StateError>;
+    async fn list(&self, scope: &Scope, prefix: &str) -> Result<Vec<String>, StateError>;
 
     /// Semantic search within a scope. Returns matching keys
     /// with relevance scores. Implementations that don't support
@@ -97,18 +86,11 @@ impl SearchResult {
 #[async_trait]
 pub trait StateReader: Send + Sync {
     /// Read a value by key within a scope.
-    async fn read(
-        &self,
-        scope: &Scope,
-        key: &str,
-    ) -> Result<Option<serde_json::Value>, StateError>;
+    async fn read(&self, scope: &Scope, key: &str)
+    -> Result<Option<serde_json::Value>, StateError>;
 
     /// List keys under a prefix within a scope.
-    async fn list(
-        &self,
-        scope: &Scope,
-        prefix: &str,
-    ) -> Result<Vec<String>, StateError>;
+    async fn list(&self, scope: &Scope, prefix: &str) -> Result<Vec<String>, StateError>;
 
     /// Semantic search within a scope.
     async fn search(
@@ -130,11 +112,7 @@ impl<T: StateStore> StateReader for T {
         StateStore::read(self, scope, key).await
     }
 
-    async fn list(
-        &self,
-        scope: &Scope,
-        prefix: &str,
-    ) -> Result<Vec<String>, StateError> {
+    async fn list(&self, scope: &Scope, prefix: &str) -> Result<Vec<String>, StateError> {
         StateStore::list(self, scope, prefix).await
     }
 

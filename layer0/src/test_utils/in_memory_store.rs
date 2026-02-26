@@ -39,7 +39,10 @@ impl StateStore for InMemoryStore {
         scope: &Scope,
         key: &str,
     ) -> Result<Option<serde_json::Value>, StateError> {
-        let data = self.data.read().map_err(|e| StateError::Other(e.to_string().into()))?;
+        let data = self
+            .data
+            .read()
+            .map_err(|e| StateError::Other(e.to_string().into()))?;
         Ok(data.get(&(scope_key(scope), key.to_owned())).cloned())
     }
 
@@ -49,27 +52,28 @@ impl StateStore for InMemoryStore {
         key: &str,
         value: serde_json::Value,
     ) -> Result<(), StateError> {
-        let mut data = self.data.write().map_err(|e| StateError::WriteFailed(e.to_string()))?;
+        let mut data = self
+            .data
+            .write()
+            .map_err(|e| StateError::WriteFailed(e.to_string()))?;
         data.insert((scope_key(scope), key.to_owned()), value);
         Ok(())
     }
 
-    async fn delete(
-        &self,
-        scope: &Scope,
-        key: &str,
-    ) -> Result<(), StateError> {
-        let mut data = self.data.write().map_err(|e| StateError::WriteFailed(e.to_string()))?;
+    async fn delete(&self, scope: &Scope, key: &str) -> Result<(), StateError> {
+        let mut data = self
+            .data
+            .write()
+            .map_err(|e| StateError::WriteFailed(e.to_string()))?;
         data.remove(&(scope_key(scope), key.to_owned()));
         Ok(())
     }
 
-    async fn list(
-        &self,
-        scope: &Scope,
-        prefix: &str,
-    ) -> Result<Vec<String>, StateError> {
-        let data = self.data.read().map_err(|e| StateError::Other(e.to_string().into()))?;
+    async fn list(&self, scope: &Scope, prefix: &str) -> Result<Vec<String>, StateError> {
+        let data = self
+            .data
+            .read()
+            .map_err(|e| StateError::Other(e.to_string().into()))?;
         let sk = scope_key(scope);
         Ok(data
             .keys()

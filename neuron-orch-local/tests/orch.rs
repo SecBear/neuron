@@ -78,14 +78,8 @@ async fn dispatch_many_concurrent() {
 
     let results = orch.dispatch_many(tasks).await;
     assert_eq!(results.len(), 2);
-    assert_eq!(
-        results[0].as_ref().unwrap().message,
-        Content::text("msg-a")
-    );
-    assert_eq!(
-        results[1].as_ref().unwrap().message,
-        Content::text("msg-b")
-    );
+    assert_eq!(results[0].as_ref().unwrap().message, Content::text("msg-a"));
+    assert_eq!(results[1].as_ref().unwrap().message, Content::text("msg-b"));
 }
 
 #[tokio::test]
@@ -110,10 +104,8 @@ async fn dispatch_many_partial_failure() {
 async fn signal_accepted() {
     let orch = LocalOrch::new();
     let wf = WorkflowId::new("wf-1");
-    let signal = layer0::effect::SignalPayload::new(
-        "cancel",
-        serde_json::json!({"reason": "user request"}),
-    );
+    let signal =
+        layer0::effect::SignalPayload::new("cancel", serde_json::json!({"reason": "user request"}));
     let result = orch.signal(&wf, signal).await;
     assert!(result.is_ok());
 }

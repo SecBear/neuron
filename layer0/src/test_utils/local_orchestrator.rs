@@ -46,7 +46,10 @@ impl Orchestrator for LocalOrchestrator {
             .agents
             .get(agent.as_str())
             .ok_or_else(|| OrchError::AgentNotFound(agent.to_string()))?;
-        operator.execute(input).await.map_err(OrchError::OperatorError)
+        operator
+            .execute(input)
+            .await
+            .map_err(OrchError::OperatorError)
     }
 
     async fn dispatch_many(
@@ -60,14 +63,17 @@ impl Orchestrator for LocalOrchestrator {
                 Some(operator) => {
                     let operator = Arc::clone(operator);
                     handles.push(tokio::spawn(async move {
-                        operator.execute(input).await.map_err(OrchError::OperatorError)
+                        operator
+                            .execute(input)
+                            .await
+                            .map_err(OrchError::OperatorError)
                     }));
                 }
                 None => {
                     let name = agent_id.to_string();
-                    handles.push(tokio::spawn(async move {
-                        Err(OrchError::AgentNotFound(name))
-                    }));
+                    handles.push(tokio::spawn(
+                        async move { Err(OrchError::AgentNotFound(name)) },
+                    ));
                 }
             }
         }
@@ -83,11 +89,7 @@ impl Orchestrator for LocalOrchestrator {
         results
     }
 
-    async fn signal(
-        &self,
-        _target: &WorkflowId,
-        _signal: SignalPayload,
-    ) -> Result<(), OrchError> {
+    async fn signal(&self, _target: &WorkflowId, _signal: SignalPayload) -> Result<(), OrchError> {
         // LocalOrchestrator doesn't track running workflows
         Ok(())
     }

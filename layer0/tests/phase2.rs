@@ -3,8 +3,10 @@
 
 #![cfg(feature = "test-utils")]
 
+use layer0::test_utils::{
+    EchoOperator, InMemoryStore, LocalEnvironment, LocalOrchestrator, LoggingHook,
+};
 use layer0::*;
-use layer0::test_utils::{EchoOperator, InMemoryStore, LocalEnvironment, LocalOrchestrator, LoggingHook};
 use rust_decimal::Decimal;
 use serde_json::json;
 use std::sync::Arc;
@@ -66,7 +68,10 @@ async fn in_memory_store_write_then_read() {
 #[tokio::test]
 async fn in_memory_store_read_missing_returns_none() {
     let store = InMemoryStore::new();
-    let val = as_store(&store).read(&Scope::Global, "nonexistent").await.unwrap();
+    let val = as_store(&store)
+        .read(&Scope::Global, "nonexistent")
+        .await
+        .unwrap();
     assert_eq!(val, None);
 }
 
@@ -85,7 +90,10 @@ async fn in_memory_store_delete() {
 async fn in_memory_store_delete_missing_is_noop() {
     let store = InMemoryStore::new();
     // Should not error
-    as_store(&store).delete(&Scope::Global, "nonexistent").await.unwrap();
+    as_store(&store)
+        .delete(&Scope::Global, "nonexistent")
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
@@ -143,7 +151,10 @@ async fn in_memory_store_overwrite() {
 async fn in_memory_store_search_returns_empty() {
     // InMemoryStore doesn't support semantic search — returns empty vec
     let store = InMemoryStore::new();
-    let results = as_store(&store).search(&Scope::Global, "anything", 10).await.unwrap();
+    let results = as_store(&store)
+        .search(&Scope::Global, "anything", 10)
+        .await
+        .unwrap();
     assert!(results.is_empty());
 }
 
@@ -151,7 +162,10 @@ async fn in_memory_store_search_returns_empty() {
 async fn in_memory_store_is_usable_as_dyn_state_store() {
     let store: Box<dyn StateStore> = Box::new(InMemoryStore::new());
     store.write(&Scope::Global, "k", json!("v")).await.unwrap();
-    assert_eq!(store.read(&Scope::Global, "k").await.unwrap(), Some(json!("v")));
+    assert_eq!(
+        store.read(&Scope::Global, "k").await.unwrap(),
+        Some(json!("v"))
+    );
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -264,14 +278,8 @@ async fn local_orchestrator_dispatch_many_concurrent() {
 
     let results = orch.dispatch_many(tasks).await;
     assert_eq!(results.len(), 2);
-    assert_eq!(
-        results[0].as_ref().unwrap().message,
-        Content::text("msg-a")
-    );
-    assert_eq!(
-        results[1].as_ref().unwrap().message,
-        Content::text("msg-b")
-    );
+    assert_eq!(results[0].as_ref().unwrap().message, Content::text("msg-a"));
+    assert_eq!(results[1].as_ref().unwrap().message, Content::text("msg-b"));
 }
 
 #[tokio::test]
@@ -295,7 +303,10 @@ async fn local_orchestrator_is_usable_as_dyn_orchestrator() {
     let mut orch = LocalOrchestrator::new();
     orch.register(AgentId::new("echo"), Arc::new(EchoOperator));
     let orch: Box<dyn Orchestrator> = Box::new(orch);
-    let output = orch.dispatch(&AgentId::new("echo"), simple_input("dyn")).await.unwrap();
+    let output = orch
+        .dispatch(&AgentId::new("echo"), simple_input("dyn"))
+        .await
+        .unwrap();
     assert_eq!(output.message, Content::text("dyn"));
 }
 

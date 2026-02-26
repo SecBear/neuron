@@ -99,22 +99,16 @@ pub fn content_to_user_message(content: &Content) -> ProviderMessage {
 
 fn image_source_to_internal(source: &layer0::content::ImageSource) -> ImageSource {
     match source {
-        layer0::content::ImageSource::Base64 { data } => ImageSource::Base64 {
-            data: data.clone(),
-        },
+        layer0::content::ImageSource::Base64 { data } => ImageSource::Base64 { data: data.clone() },
         layer0::content::ImageSource::Url { url } => ImageSource::Url { url: url.clone() },
         // Handle non_exhaustive
-        _ => ImageSource::Url {
-            url: String::new(),
-        },
+        _ => ImageSource::Url { url: String::new() },
     }
 }
 
 fn image_source_to_layer0(source: &ImageSource) -> layer0::content::ImageSource {
     match source {
-        ImageSource::Base64 { data } => layer0::content::ImageSource::Base64 {
-            data: data.clone(),
-        },
+        ImageSource::Base64 { data } => layer0::content::ImageSource::Base64 { data: data.clone() },
         ImageSource::Url { url } => layer0::content::ImageSource::Url { url: url.clone() },
     }
 }
