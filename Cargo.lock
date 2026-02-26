@@ -959,6 +959,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "neuron-workspace"
+version = "0.0.0"
+dependencies = [
+ "async-trait",
+ "layer0",
+ "neuron-context",
+ "neuron-hooks",
+ "neuron-op-react",
+ "neuron-op-single-shot",
+ "neuron-orch-local",
+ "neuron-provider-anthropic",
+ "neuron-provider-ollama",
+ "neuron-provider-openai",
+ "neuron-state-fs",
+ "neuron-state-memory",
+ "neuron-tool",
+ "neuron-turn",
+ "rust_decimal",
+ "serde_json",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "nix"
 version = "0.31.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
