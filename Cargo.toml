@@ -35,6 +35,8 @@ members = [
   "neuron-auth-file",
   "neuron-auth-oidc",
   "neuron-auth-k8s",
+  "neuron-crypto-vault",
+  "neuron-crypto-hardware",
 ]
 
 [workspace.package]

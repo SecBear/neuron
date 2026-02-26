@@ -1,0 +1,15 @@
+[package]
+name = "neuron-crypto-hardware"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Stub crypto provider for PKCS#11 / YubiKey PIV hardware tokens"
+
+[dependencies]
+neuron-crypto = { path = "../neuron-crypto" }
+async-trait = "0.1"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
