@@ -18,7 +18,15 @@ Rules:
      - Offline tests cover import/write and traversal rejection
    - Verify: `nix develop -c cargo test -p brain`
 
-2. Brain: job groups (fan-out + merge) for large landscapes
+2. Brain: SpecPack traceability (feature map + slices + evidence refs)
+   - Spec: `specs/19-brain-specpack-traceability-and-feature-map.md`
+   - Done when:
+     - `specpack_finalize` requires `specpack/analysis/feature_map.json`
+     - `specpack_finalize` validates capability ids (feature map ↔ ledger) and artifact refs exist
+     - Offline tests cover: missing feature map, unknown capability id, missing artifact ref
+   - Verify: `nix develop -c cargo test -p brain`
+
+3. Brain: job groups (fan-out + merge) for large landscapes
    - Spec: `specs/15-brain-research-backend.md`
    - Done when:
      - Brain can start a group job and produce per-target bundles

@@ -33,3 +33,4 @@ These specs are written to ensure the project is *composable by construction*: o
 | `specs/16-brain-specpack-output-and-queue.md` | Product/POC | Brain SpecPack: file-based spec library + manifest + parallelizable factory queue |
 | `specs/17-brain-artifact-ingest-and-write.md` | Product/POC | Brain artifacts: import/source snapshots + write API for progressive spec generation |
 | `specs/18-brain-specpack-quality-and-backpressure.md` | Product/POC | Brain SpecPack quality: parity ledger + conformance/backpressure artifacts |
+| `specs/19-brain-specpack-traceability-and-feature-map.md` | Product/POC | Brain SpecPack traceability: feature map + slices + evidence linking specs ↔ code ↔ traces |
