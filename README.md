@@ -1,0 +1,80 @@
+# Neuron (redesign/v2) — composable agentic runtime
+
+Neuron is an experiment in building an agentic system that is **composable by construction**:
+layered protocol contracts, swappable providers/tools/state, and deterministic backpressure via
+tests and specs.
+
+Specs are the source of truth: `SPECS.md` and `specs/`.
+
+## Quickstart (Nix)
+
+This repo assumes Rust tooling is provided by the Nix flake.
+
+- Run tests: `nix develop -c cargo test`
+- Run lints: `nix develop -c cargo clippy -- -D warnings`
+- Format: `nix develop -c nix fmt`
+- Full local verification: `./scripts/verify.sh`
+
+## Brain (ResearchOps backend)
+
+Brain is a structured research backend intended to be used under an external harness (Claude Code
+/ Codex) via MCP.
+
+- Overview: `docs/brain/README.md`
+- Specs: `specs/14-brain-agentic-research-assistant.md`, `specs/15-brain-research-backend.md`
+
+Run Brain as an MCP server (stdio):
+
+- `nix develop -c cargo run -p brain -- mcp serve --artifact-dir .brain/artifacts --mcp .mcp.json`
+
+## Ralph loop (agentic queue)
+
+The repo has a deterministic “what next” queue at `fix_plan.md`, driven by `PROMPT.md`.
+
+- Claude Code: `./scripts/ralph.sh`
+- Codex: `CODEX=1 ./scripts/ralph.sh`
+
+## Crate map (workspace members)
+
+Core protocol / runtime:
+
+- `layer0/`: protocol traits + wire contract
+- `neuron-turn/`: turn types + provider abstraction
+- `neuron-tool/`: tool traits + `ToolRegistry`
+- `neuron-hooks/`: hook registry + lifecycle hooks
+- `neuron-context/`: prompt/context assembly helpers
+
+Operators:
+
+- `neuron-op-react/`: ReAct-style operator loop
+- `neuron-op-single-shot/`: single-shot operator
+
+Orchestration / environment:
+
+- `neuron-orch-kit/`: orchestration building blocks
+- `neuron-orch-local/`: local orchestrator implementation
+- `neuron-env-local/`: local environment (process/tool execution glue)
+
+State:
+
+- `neuron-state-memory/`: in-memory state store
+- `neuron-state-fs/`: filesystem-backed state store
+
+Providers:
+
+- `neuron-provider-openai/`
+- `neuron-provider-anthropic/`
+- `neuron-provider-ollama/`
+
+Integration:
+
+- `neuron-mcp/`: MCP client/server glue
+- `brain/`: Brain v1 (controller + workers) and Brain v2 (research backend)
+
+Security building blocks:
+
+- `neuron-secret/` and `neuron-secret-*`: secret store interfaces + backends
+- `neuron-auth/` and `neuron-auth-*`: auth interfaces + backends
+- `neuron-crypto/` and `neuron-crypto-*`: crypto interfaces + backends
+- `neuron-hook-security/`: security-oriented hooks
+

@@ -47,11 +47,29 @@ cat PROMPT.md | claude-code
 Codex:
 
 ```bash
-cat PROMPT.md | codex
+CODEX=1 ./scripts/ralph-once.sh
 ```
 
 Pure loop (supervised):
 
 ```bash
 while :; do cat PROMPT.md | claude-code; done
+```
+
+Codex loop (supervised):
+
+```bash
+CODEX=1 ./scripts/ralph.sh
+```
+
+Auto-create worktree + run:
+
+```bash
+./scripts/ralph-worktree.sh brain-v1 redesign/v2
+```
+
+Codex model override:
+
+```bash
+CODEX=1 CODEX_MODEL=gpt-5.3-codex ./scripts/ralph-once.sh
 ```

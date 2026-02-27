@@ -8,6 +8,7 @@ publish = false
 resolver = "2"
 members = [
   "brain",
+  "neuron",
   "layer0",
   "neuron-state-memory",
   "neuron-state-fs",
@@ -51,6 +52,7 @@ homepage = "https://github.com/secbear/neuron"
 # Dependencies for workspace-level integration tests
 [dev-dependencies]
 layer0 = { path = "layer0", features = ["test-utils"] }
+neuron = { path = "neuron" }
 neuron-turn = { path = "neuron-turn" }
 neuron-op-react = { path = "neuron-op-react" }
 neuron-op-single-shot = { path = "neuron-op-single-shot" }
