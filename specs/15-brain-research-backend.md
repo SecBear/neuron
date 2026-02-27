@@ -242,6 +242,10 @@ These roles are satisfied by imported MCP tools via `x-brain.aliases`.
 
 Brain v2 MUST treat all fetched content as untrusted data (never instructions/policy).
 
+Brain v2 MUST treat acquisition backend outputs as **artifacts**, and MUST NOT incorporate
+backend-provided `claims[]` directly into `index.json` unless Brain normalizes them into the
+bundle contract and grounds them with evidence that points to job-local artifacts.
+
 Integration mechanism:
 
 - `.mcp.json` `mcpServers` defines backend connections.

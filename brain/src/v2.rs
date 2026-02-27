@@ -14,6 +14,9 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
+const BUNDLE_VERSION: &str = "0.1";
+const INDEX_FILENAME: &str = "index.json";
+
 /// Status for an async research job.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -46,6 +49,84 @@ struct BundlePointer {
     artifact_root: String,
     index_path: String,
     findings_path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct BundleIndex {
+    bundle_version: String,
+    brain_version: String,
+    job: BundleJob,
+    artifacts: Vec<BundleArtifact>,
+    claims: Vec<BundleClaim>,
+    coverage: BundleCoverage,
+    next_steps: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct BundleJob {
+    id: String,
+    created_at: String,
+    status: JobStatus,
+    inputs: BundleInputs,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct BundleInputs {
+    intent: String,
+    #[serde(default)]
+    constraints: Value,
+    #[serde(default)]
+    targets: Vec<Value>,
+    #[serde(default)]
+    tool_policy: Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct BundleArtifact {
+    path: String,
+    sha256: String,
+    media_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    retrieved_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source_url: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+enum ClaimKind {
+    Fact,
+    Assumption,
+    DesignChoice,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct BundleClaim {
+    id: String,
+    kind: ClaimKind,
+    statement: String,
+    #[serde(default)]
+    evidence: Vec<BundleEvidence>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct BundleEvidence {
+    artifact_path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    excerpt: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    locator: Option<Value>,
+    retrieved_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source_url: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct BundleCoverage {
+    #[serde(default)]
+    targets: Vec<Value>,
+    #[serde(default)]
+    gaps: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -310,23 +391,35 @@ impl JobManager {
         Ok(serde_json::json!({"job_id": job_id, "status": JobStatus::Canceled}))
     }
 
+    async fn list_jobs(&self, status: Option<JobStatus>) -> Result<Value, ToolError> {
+        let jobs = self.jobs.lock().await;
+        let mut items = Vec::<Value>::new();
+        for (job_id, entry) in jobs.iter() {
+            if let Some(filter) = &status {
+                if &entry.status != filter {
+                    continue;
+                }
+            }
+            items.push(serde_json::json!({
+                "job_id": job_id,
+                "status": entry.status,
+                "created_at": entry.created_at.to_rfc3339()
+            }));
+        }
+        Ok(serde_json::json!({ "jobs": items }))
+    }
+
     async fn artifact_list(&self, job_id: &str, prefix: &str) -> Result<Value, ToolError> {
         let prefix = prefix.to_string();
-        let index = self.read_index(job_id).await?;
-        let artifacts = index
-            .get("artifacts")
-            .and_then(|v| v.as_array())
-            .cloned()
-            .unwrap_or_default();
-
-        let filtered: Vec<Value> = artifacts
+        let index = self.read_index_typed(job_id).await?;
+        let filtered: Vec<Value> = index
+            .artifacts
             .into_iter()
             .filter_map(|a| {
-                let path = a.get("path")?.as_str()?;
-                if path.starts_with(&prefix) {
+                if a.path.starts_with(&prefix) {
                     Some(serde_json::json!({
-                        "path": path,
-                        "sha256": a.get("sha256").cloned().unwrap_or(Value::Null)
+                        "path": a.path,
+                        "sha256": a.sha256
                     }))
                 } else {
                     None
@@ -363,11 +456,15 @@ impl JobManager {
         }
     }
 
-    async fn read_index(&self, job_id: &str) -> Result<Value, ToolError> {
-        let path = self.job_dir(job_id).join("index.json");
+    async fn read_index_typed(&self, job_id: &str) -> Result<BundleIndex, ToolError> {
+        let path = self.job_dir(job_id).join(INDEX_FILENAME);
         let content = std::fs::read_to_string(&path)
             .map_err(|e| ToolError::ExecutionFailed(e.to_string()))?;
-        serde_json::from_str(&content).map_err(|e| ToolError::ExecutionFailed(e.to_string()))
+        let parsed: BundleIndex = serde_json::from_str(&content)
+            .map_err(|e| ToolError::ExecutionFailed(e.to_string()))?;
+        validate_bundle_index(&self.job_dir(job_id), &parsed)
+            .map_err(ToolError::ExecutionFailed)?;
+        Ok(parsed)
     }
 }
 
@@ -377,6 +474,7 @@ pub fn backend_registry(manager: Arc<JobManager>) -> ToolRegistry {
     registry.register(Arc::new(ResearchJobStartTool::new(Arc::clone(&manager))));
     registry.register(Arc::new(ResearchJobStatusTool::new(Arc::clone(&manager))));
     registry.register(Arc::new(ResearchJobGetTool::new(Arc::clone(&manager))));
+    registry.register(Arc::new(ResearchJobListTool::new(Arc::clone(&manager))));
     registry.register(Arc::new(ResearchJobCancelTool::new(Arc::clone(&manager))));
     registry.register(Arc::new(ArtifactListTool::new(Arc::clone(&manager))));
     registry.register(Arc::new(ArtifactReadTool::new(Arc::clone(&manager))));
@@ -393,72 +491,186 @@ async fn run_job(
     let job_dir = artifact_root.join(job_id);
     std::fs::create_dir_all(job_dir.join("sources")).map_err(|e| e.to_string())?;
 
-    // Minimal acquisition: if a tool named "web_search" exists, call it with {"query": intent}.
-    let mut artifacts = Vec::<Value>::new();
     let retrieved_at = Utc::now().to_rfc3339();
+    let mut artifacts = Vec::<BundleArtifact>::new();
+
     let primary_source_path: String;
-    if let Some(tool) = acquisition.get("web_search") {
+
+    let bundle_inputs = BundleInputs {
+        intent: inputs.intent.clone(),
+        constraints: inputs.constraints.clone(),
+        targets: inputs.targets.clone(),
+        tool_policy: inputs.tool_policy.clone(),
+    };
+
+    // Acquisition strategy:
+    // 1) Prefer deep-research async tools when available (start/status/get).
+    // 2) Fallback to web_search if available.
+    // 3) Otherwise write the intent as the only source snapshot.
+    if acquisition.get("deep_research_start").is_some()
+        && acquisition.get("deep_research_status").is_some()
+        && acquisition.get("deep_research_get").is_some()
+    {
+        let start_tool = acquisition
+            .get("deep_research_start")
+            .ok_or_else(|| "missing deep_research_start".to_string())?;
+        let status_tool = acquisition
+            .get("deep_research_status")
+            .ok_or_else(|| "missing deep_research_status".to_string())?;
+        let get_tool = acquisition
+            .get("deep_research_get")
+            .ok_or_else(|| "missing deep_research_get".to_string())?;
+
+        let start_out = start_tool
+            .call(serde_json::json!({
+                "intent": bundle_inputs.intent.clone(),
+                "query": bundle_inputs.intent.clone(),
+                "constraints": bundle_inputs.constraints.clone(),
+                "targets": bundle_inputs.targets.clone(),
+                "tool_policy": bundle_inputs.tool_policy.clone()
+            }))
+            .await
+            .map_err(|e| e.to_string())?;
+
+        let deep_id = start_out
+            .get("job_id")
+            .or_else(|| start_out.get("id"))
+            .or_else(|| start_out.get("task_id"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("deep_research")
+            .to_string();
+
+        artifacts.push(write_json_artifact(
+            &job_dir,
+            Path::new("sources/deep_research_start.json"),
+            &start_out,
+            "application/json",
+            Some(retrieved_at.clone()),
+            None,
+        )?);
+
+        let mut final_status = Value::Null;
+        for _ in 0..50 {
+            let status_out = status_tool
+                .call(serde_json::json!({ "job_id": deep_id.clone(), "id": deep_id.clone() }))
+                .await
+                .map_err(|e| e.to_string())?;
+            final_status = status_out.clone();
+            if is_deep_research_done(&status_out) {
+                break;
+            }
+        }
+
+        artifacts.push(write_json_artifact(
+            &job_dir,
+            Path::new("sources/deep_research_status.json"),
+            &final_status,
+            "application/json",
+            Some(retrieved_at.clone()),
+            None,
+        )?);
+
+        if !is_deep_research_done(&final_status) {
+            return Err("deep research did not complete in time".to_string());
+        }
+
+        let get_out = get_tool
+            .call(serde_json::json!({ "job_id": deep_id.clone(), "id": deep_id.clone() }))
+            .await
+            .map_err(|e| e.to_string())?;
+
+        let rel_path = PathBuf::from("sources/deep_research_get.json");
+        artifacts.push(write_json_artifact(
+            &job_dir,
+            &rel_path,
+            &get_out,
+            "application/json",
+            Some(retrieved_at.clone()),
+            None,
+        )?);
+        primary_source_path = rel_path.to_string_lossy().to_string();
+    } else if let Some(tool) = acquisition.get("web_search") {
         let out = tool
             .call(serde_json::json!({ "query": inputs.intent }))
             .await
             .map_err(|e| e.to_string())?;
-        let pretty = serde_json::to_string_pretty(&out).unwrap_or_else(|_| out.to_string());
+
         let rel_path = PathBuf::from("sources/web_search.json");
-        let full_path = job_dir.join(&rel_path);
-        std::fs::write(&full_path, pretty.as_bytes()).map_err(|e| e.to_string())?;
-        let sha = sha256_hex(pretty.as_bytes());
-        primary_source_path = rel_path.to_string_lossy().to_string();
-        artifacts.push(serde_json::json!({
-            "path": rel_path.to_string_lossy(),
-            "sha256": sha,
-            "media_type": "application/json",
-            "retrieved_at": retrieved_at,
-            "source_url": Value::Null
-        }));
+        artifacts.push(write_json_artifact(
+            &job_dir,
+            &rel_path,
+            &out,
+            "application/json",
+            Some(retrieved_at.clone()),
+            None,
+        )?);
+
+        if let Some(fetch) = acquisition.get("web_fetch") {
+            let maybe_url = out
+                .get("results")
+                .and_then(|v| v.as_array())
+                .and_then(|arr| arr.first())
+                .and_then(|first| first.get("url"))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            if let Some(url) = maybe_url {
+                let fetched = fetch
+                    .call(serde_json::json!({ "url": url.clone() }))
+                    .await
+                    .map_err(|e| e.to_string())?;
+                let fetch_path = PathBuf::from("sources/web_fetch_0.json");
+                artifacts.push(write_json_artifact(
+                    &job_dir,
+                    &fetch_path,
+                    &fetched,
+                    "application/json",
+                    Some(retrieved_at.clone()),
+                    Some(url),
+                )?);
+                primary_source_path = fetch_path.to_string_lossy().to_string();
+            } else {
+                primary_source_path = rel_path.to_string_lossy().to_string();
+            }
+        } else {
+            primary_source_path = rel_path.to_string_lossy().to_string();
+        }
     } else {
         let rel_path = PathBuf::from("sources/intent.txt");
-        let full_path = job_dir.join(&rel_path);
-        std::fs::write(&full_path, inputs.intent.as_bytes()).map_err(|e| e.to_string())?;
-        let sha = sha256_hex(inputs.intent.as_bytes());
+        artifacts.push(write_bytes_artifact(
+            &job_dir,
+            &rel_path,
+            inputs.intent.as_bytes(),
+            "text/plain",
+            Some(retrieved_at.clone()),
+            None,
+        )?);
         primary_source_path = rel_path.to_string_lossy().to_string();
-        artifacts.push(serde_json::json!({
-            "path": rel_path.to_string_lossy(),
-            "sha256": sha,
-            "media_type": "text/plain",
-            "retrieved_at": retrieved_at,
-            "source_url": Value::Null
-        }));
     }
 
     let index = serde_json::json!({
+        "bundle_version": BUNDLE_VERSION,
+        "brain_version": env!("CARGO_PKG_VERSION"),
         "job": {
             "id": job_id,
             "created_at": created_at.to_rfc3339(),
             "status": "succeeded",
-            "inputs": {
-                "intent": inputs.intent,
-                "constraints": inputs.constraints,
-                "targets": inputs.targets,
-                "tool_policy": inputs.tool_policy
-            }
+            "inputs": bundle_inputs
         },
         "artifacts": artifacts,
-        "claims": [
-            {
-                "id": "claim_1",
-                "kind": "fact",
-                "statement": "Acquisition produced an initial source snapshot.",
-                "evidence": [
-                    {
-                        "artifact_path": primary_source_path,
-                        "excerpt": "See sources for details.",
-                        "locator": Value::Null,
-                        "retrieved_at": retrieved_at,
-                        "source_url": Value::Null
-                    }
-                ]
-            }
-        ],
+        "claims": [serde_json::json!({
+            "id": "claim_1",
+            "kind": "fact",
+            "statement": "Acquisition produced an initial source snapshot.",
+            "evidence": [
+                {
+                    "artifact_path": primary_source_path,
+                    "excerpt": "See sources for details.",
+                    "locator": Value::Null,
+                    "retrieved_at": retrieved_at,
+                    "source_url": Value::Null
+                }
+            ]
+        })],
         "coverage": {
             "targets": [],
             "gaps": []
@@ -466,14 +678,17 @@ async fn run_job(
         "next_steps": []
     });
 
-    // Groundedness gate: ensure all fact claims have evidence.
-    enforce_groundedness(&index)?;
-
     std::fs::write(
-        job_dir.join("index.json"),
-        serde_json::to_string_pretty(&index).unwrap(),
+        job_dir.join(INDEX_FILENAME),
+        serde_json::to_string_pretty(&index).map_err(|e| e.to_string())?,
     )
     .map_err(|e| e.to_string())?;
+
+    // Validation gate: index.json must parse into typed structs and pass invariants.
+    let index_text =
+        std::fs::read_to_string(job_dir.join(INDEX_FILENAME)).map_err(|e| e.to_string())?;
+    let parsed: BundleIndex = serde_json::from_str(&index_text).map_err(|e| e.to_string())?;
+    validate_bundle_index(&job_dir, &parsed)?;
 
     let findings = format!(
         "# Findings\n\nJob `{}` completed.\n\n- Intent: `{}`\n- Artifacts: {}\n",
@@ -488,20 +703,58 @@ async fn run_job(
     Ok(())
 }
 
-fn enforce_groundedness(index: &Value) -> Result<(), String> {
-    let claims = index
-        .get("claims")
-        .and_then(|v| v.as_array())
-        .ok_or_else(|| "missing claims".to_string())?;
-    for claim in claims {
-        let kind = claim.get("kind").and_then(|v| v.as_str()).unwrap_or("");
-        if kind == "fact" {
-            let evidence = claim.get("evidence").and_then(|v| v.as_array());
-            if evidence.is_none() || evidence.is_some_and(|e| e.is_empty()) {
-                return Err("fact claim missing evidence".to_string());
+fn validate_bundle_index(job_dir: &Path, index: &BundleIndex) -> Result<(), String> {
+    if index.bundle_version.trim().is_empty() {
+        return Err("bundle_version must be non-empty".to_string());
+    }
+    if index.brain_version.trim().is_empty() {
+        return Err("brain_version must be non-empty".to_string());
+    }
+
+    let _ = parse_rfc3339_utc(&index.job.created_at)?;
+
+    let mut artifact_paths = HashMap::<String, BundleArtifact>::new();
+    for artifact in &index.artifacts {
+        validate_relative_path(&artifact.path)?;
+        if artifact_paths.contains_key(&artifact.path) {
+            return Err(format!("duplicate artifact path: {}", artifact.path));
+        }
+        let full = job_dir.join(&artifact.path);
+        let bytes = std::fs::read(&full).map_err(|e| {
+            format!(
+                "artifact file missing or unreadable: {}: {}",
+                artifact.path, e
+            )
+        })?;
+        let computed = sha256_hex(&bytes);
+        if computed != artifact.sha256 {
+            return Err(format!(
+                "artifact sha256 mismatch: {} expected={} got={}",
+                artifact.path, artifact.sha256, computed
+            ));
+        }
+        if let Some(ts) = &artifact.retrieved_at {
+            let _ = parse_rfc3339_utc(ts)?;
+        }
+        artifact_paths.insert(artifact.path.clone(), artifact.clone());
+    }
+
+    for claim in &index.claims {
+        if claim.kind == ClaimKind::Fact && claim.evidence.is_empty() {
+            return Err("fact claim missing evidence".to_string());
+        }
+        for ev in &claim.evidence {
+            validate_relative_path(&ev.artifact_path)?;
+            if !artifact_paths.contains_key(&ev.artifact_path) {
+                return Err(format!(
+                    "evidence artifact_path not present in artifacts[]: {}",
+                    ev.artifact_path
+                ));
             }
+            let _ = parse_rfc3339_utc(&ev.retrieved_at)?;
         }
     }
+
     Ok(())
 }
 
@@ -529,6 +782,62 @@ fn sha256_hex(bytes: &[u8]) -> String {
 fn parse_rfc3339_utc(text: &str) -> Result<DateTime<Utc>, String> {
     let parsed = DateTime::parse_from_rfc3339(text).map_err(|e| e.to_string())?;
     Ok(parsed.with_timezone(&Utc))
+}
+
+fn write_json_artifact(
+    job_dir: &Path,
+    rel_path: &Path,
+    json: &Value,
+    media_type: &str,
+    retrieved_at: Option<String>,
+    source_url: Option<String>,
+) -> Result<BundleArtifact, String> {
+    let pretty = serde_json::to_string_pretty(json).map_err(|e| e.to_string())?;
+    write_bytes_artifact(
+        job_dir,
+        rel_path,
+        pretty.as_bytes(),
+        media_type,
+        retrieved_at,
+        source_url,
+    )
+}
+
+fn write_bytes_artifact(
+    job_dir: &Path,
+    rel_path: &Path,
+    bytes: &[u8],
+    media_type: &str,
+    retrieved_at: Option<String>,
+    source_url: Option<String>,
+) -> Result<BundleArtifact, String> {
+    let rel_path = rel_path
+        .to_str()
+        .ok_or_else(|| "artifact path must be valid utf-8".to_string())?;
+    let rel = validate_relative_path(rel_path)?;
+    let full_path = job_dir.join(&rel);
+    if let Some(parent) = full_path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    std::fs::write(&full_path, bytes).map_err(|e| e.to_string())?;
+    let sha = sha256_hex(bytes);
+    Ok(BundleArtifact {
+        path: rel.to_string_lossy().to_string(),
+        sha256: sha,
+        media_type: media_type.to_string(),
+        retrieved_at,
+        source_url,
+    })
+}
+
+fn is_deep_research_done(status: &Value) -> bool {
+    if let Some(done) = status.get("done").and_then(|v| v.as_bool()) {
+        return done;
+    }
+    matches!(
+        status.get("status").and_then(|v| v.as_str()),
+        Some("succeeded") | Some("completed") | Some("done")
+    )
 }
 
 struct ResearchJobStartTool {
@@ -660,6 +969,49 @@ impl ToolDyn for ResearchJobGetTool {
                 .and_then(|v| v.as_str())
                 .ok_or_else(|| ToolError::InvalidInput("missing field: job_id".to_string()))?;
             self.mgr.get_bundle(job_id).await
+        })
+    }
+}
+
+struct ResearchJobListTool {
+    mgr: Arc<JobManager>,
+}
+
+impl ResearchJobListTool {
+    fn new(mgr: Arc<JobManager>) -> Self {
+        Self { mgr }
+    }
+}
+
+impl ToolDyn for ResearchJobListTool {
+    fn name(&self) -> &str {
+        "research_job_list"
+    }
+    fn description(&self) -> &str {
+        "List known research jobs (including persisted jobs after restart)."
+    }
+    fn input_schema(&self) -> Value {
+        serde_json::json!({
+            "type":"object",
+            "properties":{
+                "status":{"type":["string","null"]}
+            }
+        })
+    }
+    fn call(
+        &self,
+        input: Value,
+    ) -> Pin<Box<dyn Future<Output = Result<Value, ToolError>> + Send + '_>> {
+        Box::pin(async move {
+            let status = match input.get("status") {
+                None | Some(Value::Null) => None,
+                Some(v) => {
+                    let parsed: JobStatus = serde_json::from_value(v.clone())
+                        .map_err(|e| ToolError::InvalidInput(format!("invalid status: {e}")))?;
+                    Some(parsed)
+                }
+            };
+            self.mgr.list_jobs(status).await
         })
     }
 }
