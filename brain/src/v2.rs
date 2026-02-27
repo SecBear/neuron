@@ -6,7 +6,8 @@ use neuron_tool::{ToolDyn, ToolError, ToolRegistry};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::ffi::OsStr;
 use std::future::Future;
 use std::path::{Component, Path, PathBuf};
 use std::pin::Pin;
@@ -16,6 +17,11 @@ use uuid::Uuid;
 
 const BUNDLE_VERSION: &str = "0.1";
 const INDEX_FILENAME: &str = "index.json";
+const SPECPACK_DIR: &str = "specpack";
+const SPECPACK_INDEX_PATH: &str = "specpack/SPECS.md";
+const SPECPACK_MANIFEST_PATH: &str = "specpack/manifest.json";
+const SPECPACK_DEFAULT_QUEUE_PATH: &str = "specpack/queue.json";
+const SPECPACK_VERSION: &str = "0.1";
 
 /// Status for an async research job.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -129,6 +135,81 @@ struct BundleCoverage {
     gaps: Vec<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct SpecPackManifest {
+    specpack_version: String,
+    brain_version: String,
+    job_id: String,
+    produced_at: String,
+    files: Vec<SpecPackManifestFile>,
+    entrypoints: Vec<String>,
+    roots: SpecPackManifestRoots,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct SpecPackManifestFile {
+    path: String,
+    sha256: String,
+    media_type: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct SpecPackManifestRoots {
+    specs_dir: String,
+    queue_path: String,
+    index_path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct SpecPackQueue {
+    queue_version: String,
+    job_id: String,
+    created_at: String,
+    #[serde(default)]
+    tasks: Vec<SpecPackTask>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct SpecPackTask {
+    id: String,
+    title: String,
+    kind: String,
+    #[serde(default)]
+    spec_refs: Vec<SpecPackSpecRef>,
+    #[serde(default)]
+    depends_on: Vec<String>,
+    backpressure: SpecPackBackpressure,
+    file_ownership: SpecPackFileOwnership,
+    concurrency: SpecPackConcurrency,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct SpecPackSpecRef {
+    path: String,
+    #[serde(default)]
+    anchor: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct SpecPackBackpressure {
+    #[serde(default)]
+    verify: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct SpecPackFileOwnership {
+    #[serde(default)]
+    allow_globs: Vec<String>,
+    #[serde(default)]
+    deny_globs: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct SpecPackConcurrency {
+    #[serde(default)]
+    group: Option<String>,
+}
+
 #[derive(Debug)]
 struct JobEntry {
     created_at: DateTime<Utc>,
@@ -233,6 +314,10 @@ impl JobManager {
 
     fn job_record_path(&self, job_id: &str) -> PathBuf {
         self.job_dir(job_id).join("job.json")
+    }
+
+    fn specpack_dir(&self, job_id: &str) -> PathBuf {
+        self.job_dir(job_id).join(SPECPACK_DIR)
     }
 
     fn write_job_record(&self, job_id: &str, entry: &JobEntry) -> Result<(), ToolError> {
@@ -409,6 +494,159 @@ impl JobManager {
         Ok(serde_json::json!({ "jobs": items }))
     }
 
+    async fn ensure_job_exists(&self, job_id: &str) -> Result<(), ToolError> {
+        let mut jobs = self.jobs.lock().await;
+        if jobs.contains_key(job_id) {
+            return Ok(());
+        }
+        if let Some(loaded) = self.try_load_job_record(job_id) {
+            jobs.insert(job_id.to_string(), loaded);
+            return Ok(());
+        }
+        Err(ToolError::NotFound(format!("job not found: {job_id}")))
+    }
+
+    async fn specpack_init(&self, job_id: &str) -> Result<Value, ToolError> {
+        self.ensure_job_exists(job_id).await?;
+        let specpack_dir = self.specpack_dir(job_id);
+        std::fs::create_dir_all(specpack_dir.join("specs"))
+            .map_err(|e| ToolError::ExecutionFailed(e.to_string()))?;
+        let specs_index = self.job_dir(job_id).join(SPECPACK_INDEX_PATH);
+        if !specs_index.exists() {
+            std::fs::write(&specs_index, "# SPECS\n")
+                .map_err(|e| ToolError::ExecutionFailed(e.to_string()))?;
+        }
+        Ok(serde_json::json!({
+            "job_id": job_id,
+            "specpack_root": format!("{SPECPACK_DIR}/"),
+            "index_path": SPECPACK_INDEX_PATH
+        }))
+    }
+
+    async fn specpack_write_file(
+        &self,
+        job_id: &str,
+        path: &str,
+        encoding: &str,
+        content: &str,
+        media_type: &str,
+    ) -> Result<Value, ToolError> {
+        self.ensure_job_exists(job_id).await?;
+        let rel = validate_specpack_job_path(path).map_err(ToolError::InvalidInput)?;
+        let bytes = decode_content_bytes(encoding, content).map_err(ToolError::InvalidInput)?;
+        let full = self.job_dir(job_id).join(&rel);
+        if let Some(parent) = full.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| ToolError::ExecutionFailed(e.to_string()))?;
+        }
+        std::fs::write(&full, &bytes).map_err(|e| ToolError::ExecutionFailed(e.to_string()))?;
+        Ok(serde_json::json!({
+            "path": rel.to_string_lossy(),
+            "sha256": sha256_hex(&bytes),
+            "media_type": media_type
+        }))
+    }
+
+    async fn specpack_finalize(
+        &self,
+        job_id: &str,
+        entrypoints: Vec<String>,
+        queue_path: Option<String>,
+    ) -> Result<Value, ToolError> {
+        self.ensure_job_exists(job_id).await?;
+        let job_dir = self.job_dir(job_id);
+        let specpack_dir = self.specpack_dir(job_id);
+
+        if !specpack_dir.exists() {
+            return Err(ToolError::ExecutionFailed(
+                "specpack directory missing; run specpack_init first".to_string(),
+            ));
+        }
+        if !job_dir.join(SPECPACK_INDEX_PATH).exists() {
+            return Err(ToolError::ExecutionFailed(format!(
+                "missing required file: {SPECPACK_INDEX_PATH}"
+            )));
+        }
+        if !specpack_dir.join("specs").exists() {
+            return Err(ToolError::ExecutionFailed(
+                "missing required directory: specpack/specs".to_string(),
+            ));
+        }
+
+        let manifest_path = job_dir.join(SPECPACK_MANIFEST_PATH);
+        if manifest_path.exists() {
+            let existing_text = std::fs::read_to_string(&manifest_path)
+                .map_err(|e| ToolError::ExecutionFailed(e.to_string()))?;
+            let existing_manifest: SpecPackManifest = serde_json::from_str(&existing_text)
+                .map_err(|e| ToolError::ExecutionFailed(e.to_string()))?;
+            validate_specpack_manifest(&job_dir, &existing_manifest)
+                .map_err(|e| ToolError::ExecutionFailed(format!("specpack manifest drift: {e}")))?;
+        }
+
+        let queue_abs = queue_path.as_deref().unwrap_or(SPECPACK_DEFAULT_QUEUE_PATH);
+        let queue_rel_job =
+            validate_specpack_job_path(queue_abs).map_err(ToolError::InvalidInput)?;
+        let queue_rel_specpack = normalize_specpack_relative_path(queue_rel_job.as_path())
+            .map_err(ToolError::InvalidInput)?;
+        validate_specpack_queue(&specpack_dir, &queue_rel_specpack, job_id)
+            .map_err(ToolError::ExecutionFailed)?;
+
+        let file_paths = collect_specpack_files(&specpack_dir)
+            .map_err(|e| ToolError::ExecutionFailed(e.to_string()))?;
+        let mut files = Vec::<SpecPackManifestFile>::new();
+        let mut file_set = HashSet::<String>::new();
+        for path in file_paths {
+            let full = specpack_dir.join(&path);
+            let bytes =
+                std::fs::read(&full).map_err(|e| ToolError::ExecutionFailed(e.to_string()))?;
+            let path_text = path.to_string_lossy().replace('\\', "/");
+            file_set.insert(path_text.clone());
+            files.push(SpecPackManifestFile {
+                path: path_text,
+                sha256: sha256_hex(&bytes),
+                media_type: media_type_for_path(&full).to_string(),
+            });
+        }
+        files.sort_by(|a, b| a.path.cmp(&b.path));
+
+        let normalized_entrypoints =
+            normalize_entrypoints(entrypoints).map_err(ToolError::InvalidInput)?;
+        for entrypoint in &normalized_entrypoints {
+            if !file_set.contains(entrypoint) {
+                return Err(ToolError::ExecutionFailed(format!(
+                    "entrypoint not found in specpack files: {entrypoint}"
+                )));
+            }
+        }
+
+        let manifest = SpecPackManifest {
+            specpack_version: SPECPACK_VERSION.to_string(),
+            brain_version: env!("CARGO_PKG_VERSION").to_string(),
+            job_id: job_id.to_string(),
+            produced_at: Utc::now().to_rfc3339(),
+            files,
+            entrypoints: normalized_entrypoints,
+            roots: SpecPackManifestRoots {
+                specs_dir: "specs/".to_string(),
+                queue_path: queue_rel_specpack.to_string_lossy().replace('\\', "/"),
+                index_path: "SPECS.md".to_string(),
+            },
+        };
+        validate_specpack_manifest(&job_dir, &manifest).map_err(ToolError::ExecutionFailed)?;
+
+        std::fs::write(
+            &manifest_path,
+            serde_json::to_string_pretty(&manifest)
+                .map_err(|e| ToolError::ExecutionFailed(e.to_string()))?,
+        )
+        .map_err(|e| ToolError::ExecutionFailed(e.to_string()))?;
+        Ok(serde_json::json!({
+            "job_id": job_id,
+            "manifest_path": SPECPACK_MANIFEST_PATH,
+            "file_count": manifest.files.len(),
+        }))
+    }
+
     async fn artifact_list(&self, job_id: &str, prefix: &str) -> Result<Value, ToolError> {
         let prefix = prefix.to_string();
         let index = self.read_index_typed(job_id).await?;
@@ -476,6 +714,9 @@ pub fn backend_registry(manager: Arc<JobManager>) -> ToolRegistry {
     registry.register(Arc::new(ResearchJobGetTool::new(Arc::clone(&manager))));
     registry.register(Arc::new(ResearchJobListTool::new(Arc::clone(&manager))));
     registry.register(Arc::new(ResearchJobCancelTool::new(Arc::clone(&manager))));
+    registry.register(Arc::new(SpecPackInitTool::new(Arc::clone(&manager))));
+    registry.register(Arc::new(SpecPackWriteFileTool::new(Arc::clone(&manager))));
+    registry.register(Arc::new(SpecPackFinalizeTool::new(Arc::clone(&manager))));
     registry.register(Arc::new(ArtifactListTool::new(Arc::clone(&manager))));
     registry.register(Arc::new(ArtifactReadTool::new(Arc::clone(&manager))));
     registry
@@ -784,6 +1025,211 @@ fn parse_rfc3339_utc(text: &str) -> Result<DateTime<Utc>, String> {
     Ok(parsed.with_timezone(&Utc))
 }
 
+fn validate_specpack_job_path(path: &str) -> Result<PathBuf, String> {
+    let rel = validate_relative_path(path)?;
+    match rel.components().next() {
+        Some(Component::Normal(component)) if component == OsStr::new(SPECPACK_DIR) => Ok(rel),
+        _ => Err(format!("path must be under `{SPECPACK_DIR}/`")),
+    }
+}
+
+fn normalize_specpack_relative_path(path: &Path) -> Result<PathBuf, String> {
+    if path.is_absolute() {
+        return Err("path must be relative".to_string());
+    }
+    let mut components = path.components();
+    let first = components
+        .next()
+        .ok_or_else(|| "path must not be empty".to_string())?;
+    if first != Component::Normal(OsStr::new(SPECPACK_DIR)) {
+        return Err(format!("path must start with `{SPECPACK_DIR}/`"));
+    }
+    let rel = components.as_path().to_path_buf();
+    if rel.as_os_str().is_empty() {
+        return Err("path must not be specpack root".to_string());
+    }
+    validate_relative_path(rel.to_string_lossy().as_ref())?;
+    Ok(rel)
+}
+
+fn normalize_entrypoints(entrypoints: Vec<String>) -> Result<Vec<String>, String> {
+    let mut normalized = Vec::new();
+    for entrypoint in entrypoints {
+        let input = validate_relative_path(&entrypoint)?;
+        let rel = if input
+            .components()
+            .next()
+            .is_some_and(|component| component == Component::Normal(OsStr::new(SPECPACK_DIR)))
+        {
+            normalize_specpack_relative_path(&input)?
+        } else {
+            input
+        };
+        normalized.push(rel.to_string_lossy().replace('\\', "/"));
+    }
+    Ok(normalized)
+}
+
+fn decode_content_bytes(encoding: &str, content: &str) -> Result<Vec<u8>, String> {
+    match encoding {
+        "utf-8" => Ok(content.as_bytes().to_vec()),
+        "base64" => base64::engine::general_purpose::STANDARD
+            .decode(content.as_bytes())
+            .map_err(|e| format!("invalid base64 content: {e}")),
+        other => Err(format!("unsupported encoding: {other}")),
+    }
+}
+
+fn media_type_for_path(path: &Path) -> &'static str {
+    match path.extension().and_then(|ext| ext.to_str()) {
+        Some("md") => "text/markdown",
+        Some("json") => "application/json",
+        Some("txt") => "text/plain",
+        _ => "application/octet-stream",
+    }
+}
+
+fn collect_specpack_files(specpack_dir: &Path) -> Result<Vec<PathBuf>, std::io::Error> {
+    fn walk(root: &Path, current: &Path, output: &mut Vec<PathBuf>) -> Result<(), std::io::Error> {
+        for entry in std::fs::read_dir(current)? {
+            let entry = entry?;
+            let path = entry.path();
+            if path.is_dir() {
+                walk(root, &path, output)?;
+                continue;
+            }
+            let rel = path
+                .strip_prefix(root)
+                .map_err(std::io::Error::other)?
+                .to_path_buf();
+            if rel == Path::new("manifest.json") {
+                continue;
+            }
+            output.push(rel);
+        }
+        Ok(())
+    }
+
+    let mut output = Vec::new();
+    walk(specpack_dir, specpack_dir, &mut output)?;
+    Ok(output)
+}
+
+fn validate_specpack_queue(
+    specpack_dir: &Path,
+    queue_path: &Path,
+    job_id: &str,
+) -> Result<(), String> {
+    let full = specpack_dir.join(queue_path);
+    if !full.exists() {
+        return Err(format!(
+            "missing required queue file: {}/{}",
+            SPECPACK_DIR,
+            queue_path.display()
+        ));
+    }
+    let text = std::fs::read_to_string(&full).map_err(|e| e.to_string())?;
+    let queue: SpecPackQueue = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+    let _ = parse_rfc3339_utc(&queue.created_at)?;
+    if queue.job_id != job_id {
+        return Err(format!(
+            "queue job_id mismatch: expected {job_id}, got {}",
+            queue.job_id
+        ));
+    }
+    let mut task_ids = HashSet::<String>::new();
+    for task in &queue.tasks {
+        if task.id.trim().is_empty() {
+            return Err("queue task id must be non-empty".to_string());
+        }
+        if !task_ids.insert(task.id.clone()) {
+            return Err(format!("duplicate queue task id: {}", task.id));
+        }
+        for spec_ref in &task.spec_refs {
+            let rel = validate_relative_path(&spec_ref.path)?;
+            if rel
+                .components()
+                .next()
+                .is_some_and(|component| component == Component::Normal(OsStr::new(SPECPACK_DIR)))
+            {
+                return Err(format!(
+                    "queue spec_refs must be specpack-relative, got: {}",
+                    spec_ref.path
+                ));
+            }
+            if !spec_ref.path.starts_with("specs/") {
+                return Err(format!(
+                    "queue spec_refs path must be under specs/: {}",
+                    spec_ref.path
+                ));
+            }
+            if !specpack_dir.join(&rel).exists() {
+                return Err(format!(
+                    "queue spec_refs path missing from specpack: {}",
+                    spec_ref.path
+                ));
+            }
+        }
+    }
+    for task in &queue.tasks {
+        for dep in &task.depends_on {
+            if !task_ids.contains(dep) {
+                return Err(format!(
+                    "queue task `{}` depends on unknown task `{dep}`",
+                    task.id
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_specpack_manifest(job_dir: &Path, manifest: &SpecPackManifest) -> Result<(), String> {
+    let _ = parse_rfc3339_utc(&manifest.produced_at)?;
+    let specpack_dir = job_dir.join(SPECPACK_DIR);
+    let mut file_paths = HashSet::<String>::new();
+    for file in &manifest.files {
+        if file.path.trim().is_empty() {
+            return Err("manifest file path must be non-empty".to_string());
+        }
+        if !file_paths.insert(file.path.clone()) {
+            return Err(format!("duplicate manifest file path: {}", file.path));
+        }
+        let rel = validate_relative_path(&file.path)?;
+        let full = specpack_dir.join(&rel);
+        let bytes = std::fs::read(&full)
+            .map_err(|e| format!("missing manifest file `{}`: {e}", file.path))?;
+        let computed = sha256_hex(&bytes);
+        if computed != file.sha256 {
+            return Err(format!(
+                "hash mismatch for `{}`: expected {}, got {}",
+                file.path, file.sha256, computed
+            ));
+        }
+    }
+    for entrypoint in &manifest.entrypoints {
+        if !file_paths.contains(entrypoint) {
+            return Err(format!("manifest entrypoint not found: {entrypoint}"));
+        }
+    }
+    if manifest.roots.specs_dir != "specs/" {
+        return Err("manifest roots.specs_dir must be `specs/`".to_string());
+    }
+    if !file_paths.contains(&manifest.roots.index_path) {
+        return Err(format!(
+            "manifest roots.index_path not found in files: {}",
+            manifest.roots.index_path
+        ));
+    }
+    if !file_paths.contains(&manifest.roots.queue_path) {
+        return Err(format!(
+            "manifest roots.queue_path not found in files: {}",
+            manifest.roots.queue_path
+        ));
+    }
+    Ok(())
+}
+
 fn write_json_artifact(
     job_dir: &Path,
     rel_path: &Path,
@@ -1050,6 +1496,166 @@ impl ToolDyn for ResearchJobCancelTool {
                 .and_then(|v| v.as_str())
                 .ok_or_else(|| ToolError::InvalidInput("missing field: job_id".to_string()))?;
             self.mgr.cancel(job_id).await
+        })
+    }
+}
+
+struct SpecPackInitTool {
+    mgr: Arc<JobManager>,
+}
+
+impl SpecPackInitTool {
+    fn new(mgr: Arc<JobManager>) -> Self {
+        Self { mgr }
+    }
+}
+
+impl ToolDyn for SpecPackInitTool {
+    fn name(&self) -> &str {
+        "specpack_init"
+    }
+    fn description(&self) -> &str {
+        "Initialize specpack directories for an existing research job."
+    }
+    fn input_schema(&self) -> Value {
+        serde_json::json!({
+            "type":"object",
+            "properties":{"job_id":{"type":"string"}},
+            "required":["job_id"]
+        })
+    }
+    fn call(
+        &self,
+        input: Value,
+    ) -> Pin<Box<dyn Future<Output = Result<Value, ToolError>> + Send + '_>> {
+        Box::pin(async move {
+            let job_id = input
+                .get("job_id")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| ToolError::InvalidInput("missing field: job_id".to_string()))?;
+            self.mgr.specpack_init(job_id).await
+        })
+    }
+}
+
+struct SpecPackWriteFileTool {
+    mgr: Arc<JobManager>,
+}
+
+impl SpecPackWriteFileTool {
+    fn new(mgr: Arc<JobManager>) -> Self {
+        Self { mgr }
+    }
+}
+
+impl ToolDyn for SpecPackWriteFileTool {
+    fn name(&self) -> &str {
+        "specpack_write_file"
+    }
+    fn description(&self) -> &str {
+        "Write one file under specpack/ for an existing job."
+    }
+    fn input_schema(&self) -> Value {
+        serde_json::json!({
+            "type":"object",
+            "properties":{
+                "job_id":{"type":"string"},
+                "path":{"type":"string"},
+                "encoding":{"type":"string"},
+                "content":{"type":"string"},
+                "media_type":{"type":"string"}
+            },
+            "required":["job_id","path","encoding","content","media_type"]
+        })
+    }
+    fn call(
+        &self,
+        input: Value,
+    ) -> Pin<Box<dyn Future<Output = Result<Value, ToolError>> + Send + '_>> {
+        Box::pin(async move {
+            let job_id = input
+                .get("job_id")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| ToolError::InvalidInput("missing field: job_id".to_string()))?;
+            let path = input
+                .get("path")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| ToolError::InvalidInput("missing field: path".to_string()))?;
+            let encoding = input
+                .get("encoding")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| ToolError::InvalidInput("missing field: encoding".to_string()))?;
+            let content = input
+                .get("content")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| ToolError::InvalidInput("missing field: content".to_string()))?;
+            let media_type = input
+                .get("media_type")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| ToolError::InvalidInput("missing field: media_type".to_string()))?;
+            self.mgr
+                .specpack_write_file(job_id, path, encoding, content, media_type)
+                .await
+        })
+    }
+}
+
+struct SpecPackFinalizeTool {
+    mgr: Arc<JobManager>,
+}
+
+impl SpecPackFinalizeTool {
+    fn new(mgr: Arc<JobManager>) -> Self {
+        Self { mgr }
+    }
+}
+
+impl ToolDyn for SpecPackFinalizeTool {
+    fn name(&self) -> &str {
+        "specpack_finalize"
+    }
+    fn description(&self) -> &str {
+        "Validate and write specpack/manifest.json for a job."
+    }
+    fn input_schema(&self) -> Value {
+        serde_json::json!({
+            "type":"object",
+            "properties":{
+                "job_id":{"type":"string"},
+                "entrypoints":{"type":"array","items":{"type":"string"}},
+                "queue_path":{"type":"string"}
+            },
+            "required":["job_id"]
+        })
+    }
+    fn call(
+        &self,
+        input: Value,
+    ) -> Pin<Box<dyn Future<Output = Result<Value, ToolError>> + Send + '_>> {
+        Box::pin(async move {
+            let job_id = input
+                .get("job_id")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| ToolError::InvalidInput("missing field: job_id".to_string()))?;
+            let entrypoints = input
+                .get("entrypoints")
+                .and_then(|v| v.as_array())
+                .cloned()
+                .unwrap_or_default()
+                .into_iter()
+                .map(|value| {
+                    value.as_str().map(str::to_string).ok_or_else(|| {
+                        ToolError::InvalidInput("entrypoints must be strings".to_string())
+                    })
+                })
+                .collect::<Result<Vec<String>, ToolError>>()?;
+            let queue_path = input
+                .get("queue_path")
+                .and_then(|v| v.as_str())
+                .map(str::to_string);
+            self.mgr
+                .specpack_finalize(job_id, entrypoints, queue_path)
+                .await
         })
     }
 }

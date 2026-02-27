@@ -545,3 +545,288 @@ async fn v2_artifact_read_rejects_path_traversal() {
         .expect_err("reject traversal");
     let _ = err;
 }
+
+#[tokio::test]
+async fn v2_specpack_finalize_writes_manifest_for_valid_queue() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let artifact_root = temp.path().join(".brain").join("artifacts");
+    let acquisition = brain::v2::testing::fake_acquisition_registry(vec![]);
+    let registry =
+        brain::v2::testing::backend_registry_for_tests(artifact_root.clone(), acquisition);
+
+    let start = registry
+        .get("research_job_start")
+        .expect("start tool exists")
+        .call(json!({"intent":"specpack","constraints":{},"targets":[],"tool_policy":{}}))
+        .await
+        .expect("start ok");
+    let job_id = start
+        .get("job_id")
+        .and_then(|v| v.as_str())
+        .expect("job_id")
+        .to_string();
+    let _terminal = wait_for_terminal_status(&registry, &job_id).await;
+
+    registry
+        .get("specpack_init")
+        .expect("specpack_init exists")
+        .call(json!({"job_id": job_id}))
+        .await
+        .expect("specpack_init ok");
+    registry
+        .get("specpack_write_file")
+        .expect("specpack_write_file exists")
+        .call(json!({
+            "job_id": job_id,
+            "path": "specpack/SPECS.md",
+            "encoding": "utf-8",
+            "content": "# SPECS\n\n- [Overview](specs/00-overview.md)\n",
+            "media_type": "text/markdown"
+        }))
+        .await
+        .expect("write specs index");
+    registry
+        .get("specpack_write_file")
+        .expect("specpack_write_file exists")
+        .call(json!({
+            "job_id": job_id,
+            "path": "specpack/specs/00-overview.md",
+            "encoding": "utf-8",
+            "content": "# Overview\n\nhello\n",
+            "media_type": "text/markdown"
+        }))
+        .await
+        .expect("write spec");
+    registry
+        .get("specpack_write_file")
+        .expect("specpack_write_file exists")
+        .call(json!({
+            "job_id": job_id,
+            "path": "specpack/queue.json",
+            "encoding": "utf-8",
+            "content": serde_json::to_string_pretty(&json!({
+                "queue_version":"0.1",
+                "job_id": job_id,
+                "created_at":"2026-02-27T00:00:00Z",
+                "tasks":[{
+                    "id":"task_1",
+                    "title":"Implement overview",
+                    "kind":"spec",
+                    "spec_refs":[{"path":"specs/00-overview.md","anchor":null}],
+                    "depends_on":[],
+                    "backpressure":{"verify":["nix develop -c cargo test -p brain"]},
+                    "file_ownership":{"allow_globs":["brain/**"],"deny_globs":[]},
+                    "concurrency":{"group":null}
+                }]
+            })).expect("json"),
+            "media_type": "application/json"
+        }))
+        .await
+        .expect("write queue");
+
+    let finalized = registry
+        .get("specpack_finalize")
+        .expect("specpack_finalize exists")
+        .call(json!({
+            "job_id": job_id,
+            "entrypoints": ["specs/00-overview.md"]
+        }))
+        .await
+        .expect("finalize ok");
+    assert_eq!(
+        finalized.get("manifest_path").and_then(|v| v.as_str()),
+        Some("specpack/manifest.json")
+    );
+
+    let manifest_path = artifact_root
+        .join(
+            finalized
+                .get("job_id")
+                .and_then(|v| v.as_str())
+                .expect("job_id"),
+        )
+        .join("specpack/manifest.json");
+    let manifest: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(manifest_path).expect("manifest"))
+            .expect("manifest json");
+    let files = manifest
+        .get("files")
+        .and_then(|v| v.as_array())
+        .expect("files");
+    assert!(
+        files
+            .iter()
+            .any(|f| { f.get("path").and_then(|v| v.as_str()) == Some("specs/00-overview.md") })
+    );
+}
+
+#[tokio::test]
+async fn v2_specpack_finalize_rejects_manifest_drift() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let artifact_root = temp.path().join(".brain").join("artifacts");
+    let acquisition = brain::v2::testing::fake_acquisition_registry(vec![]);
+    let registry = brain::v2::testing::backend_registry_for_tests(artifact_root, acquisition);
+
+    let start = registry
+        .get("research_job_start")
+        .expect("start tool exists")
+        .call(json!({"intent":"specpack drift","constraints":{},"targets":[],"tool_policy":{}}))
+        .await
+        .expect("start ok");
+    let job_id = start
+        .get("job_id")
+        .and_then(|v| v.as_str())
+        .expect("job_id")
+        .to_string();
+    let _terminal = wait_for_terminal_status(&registry, &job_id).await;
+
+    for (path, content, media_type) in [
+        ("specpack/SPECS.md", "# SPECS\n", "text/markdown"),
+        (
+            "specpack/specs/00-overview.md",
+            "# Overview\n",
+            "text/markdown",
+        ),
+        (
+            "specpack/queue.json",
+            "{\"queue_version\":\"0.1\",\"job_id\":\"placeholder\",\"created_at\":\"2026-02-27T00:00:00Z\",\"tasks\":[]}",
+            "application/json",
+        ),
+    ] {
+        registry
+            .get("specpack_write_file")
+            .expect("specpack_write_file exists")
+            .call(json!({
+                "job_id": job_id,
+                "path": path,
+                "encoding": "utf-8",
+                "content": if path == "specpack/queue.json" {
+                    serde_json::to_string_pretty(&json!({
+                        "queue_version":"0.1",
+                        "job_id": job_id,
+                        "created_at":"2026-02-27T00:00:00Z",
+                        "tasks":[]
+                    })).expect("json")
+                } else {
+                    content.to_string()
+                },
+                "media_type": media_type
+            }))
+            .await
+            .expect("write");
+    }
+
+    registry
+        .get("specpack_finalize")
+        .expect("specpack_finalize exists")
+        .call(json!({"job_id": job_id}))
+        .await
+        .expect("first finalize");
+
+    registry
+        .get("specpack_write_file")
+        .expect("specpack_write_file exists")
+        .call(json!({
+            "job_id": job_id,
+            "path": "specpack/specs/00-overview.md",
+            "encoding": "utf-8",
+            "content": "# Overview\n\nchanged\n",
+            "media_type": "text/markdown"
+        }))
+        .await
+        .expect("mutate spec");
+
+    let err = registry
+        .get("specpack_finalize")
+        .expect("specpack_finalize exists")
+        .call(json!({"job_id": job_id}))
+        .await
+        .expect_err("drift must fail");
+    assert!(
+        err.to_string().contains("drift"),
+        "expected drift error, got: {err}"
+    );
+}
+
+#[tokio::test]
+async fn v2_specpack_finalize_rejects_queue_path_traversal_refs() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let artifact_root = temp.path().join(".brain").join("artifacts");
+    let acquisition = brain::v2::testing::fake_acquisition_registry(vec![]);
+    let registry = brain::v2::testing::backend_registry_for_tests(artifact_root, acquisition);
+
+    let start = registry
+        .get("research_job_start")
+        .expect("start tool exists")
+        .call(
+            json!({"intent":"specpack path safety","constraints":{},"targets":[],"tool_policy":{}}),
+        )
+        .await
+        .expect("start ok");
+    let job_id = start
+        .get("job_id")
+        .and_then(|v| v.as_str())
+        .expect("job_id")
+        .to_string();
+    let _terminal = wait_for_terminal_status(&registry, &job_id).await;
+
+    for (path, content, media_type) in [
+        ("specpack/SPECS.md", "# SPECS\n", "text/markdown"),
+        (
+            "specpack/specs/00-overview.md",
+            "# Overview\n",
+            "text/markdown",
+        ),
+    ] {
+        registry
+            .get("specpack_write_file")
+            .expect("specpack_write_file exists")
+            .call(json!({
+                "job_id": job_id,
+                "path": path,
+                "encoding": "utf-8",
+                "content": content,
+                "media_type": media_type
+            }))
+            .await
+            .expect("write");
+    }
+
+    registry
+        .get("specpack_write_file")
+        .expect("specpack_write_file exists")
+        .call(json!({
+            "job_id": job_id,
+            "path": "specpack/queue.json",
+            "encoding": "utf-8",
+            "content": serde_json::to_string_pretty(&json!({
+                "queue_version":"0.1",
+                "job_id": job_id,
+                "created_at":"2026-02-27T00:00:00Z",
+                "tasks":[{
+                    "id":"task_unsafe",
+                    "title":"Unsafe",
+                    "kind":"spec",
+                    "spec_refs":[{"path":"../outside.md","anchor":null}],
+                    "depends_on":[],
+                    "backpressure":{"verify":["true"]},
+                    "file_ownership":{"allow_globs":["**"],"deny_globs":[]},
+                    "concurrency":{"group":null}
+                }]
+            })).expect("json"),
+            "media_type": "application/json"
+        }))
+        .await
+        .expect("write queue");
+
+    let err = registry
+        .get("specpack_finalize")
+        .expect("specpack_finalize exists")
+        .call(json!({"job_id": job_id}))
+        .await
+        .expect_err("unsafe ref must fail");
+    assert!(
+        err.to_string().contains("path"),
+        "expected path error, got: {err}"
+    );
+}
