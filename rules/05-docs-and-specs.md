@@ -29,12 +29,12 @@ Use rules when:
 
 Rules should be small and composable. Avoid giant omnibus documents.
 
-## Loop (`PROMPT.md` + `fix_plan.md`)
+## Loop (`PROMPT.md` + `ralph_queue.md`)
 
 The loop is how we operationalize specs and rules:
 
 1. `PROMPT.md` is the deterministic instruction set for each iteration.
-2. `fix_plan.md` is the single queue of prioritized work items.
+2. `ralph_queue.md` is the single queue of prioritized work items.
 
 ## Docs (`docs/`)
 

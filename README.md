@@ -29,7 +29,7 @@ Run Brain as an MCP server (stdio):
 
 ## Ralph loop (agentic queue)
 
-The repo has a deterministic “what next” queue at `fix_plan.md`, driven by `PROMPT.md`.
+The repo has a deterministic “what next” queue at `ralph_queue.md`, driven by `PROMPT.md`.
 
 - Claude Code: `./scripts/ralph.sh`
 - Codex: `CODEX=1 ./scripts/ralph.sh`
@@ -77,4 +77,3 @@ Security building blocks:
 - `neuron-auth/` and `neuron-auth-*`: auth interfaces + backends
 - `neuron-crypto/` and `neuron-crypto-*`: crypto interfaces + backends
 - `neuron-hook-security/`: security-oriented hooks
-

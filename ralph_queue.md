@@ -1,4 +1,4 @@
-# fix_plan.md
+# ralph_queue.md
 
 This file is the single "what next" queue used by the Ralph loop (`PROMPT.md`).
 
@@ -75,4 +75,3 @@ Rules:
 - 2026-02-27: Brain SpecPack finalize enforces quality/backpressure artifacts
   - Spec: `specs/18-brain-specpack-quality-and-backpressure.md`
   - Adds: `ledger.json` + `conformance/` validation, plus impl-task verify enforcement
-

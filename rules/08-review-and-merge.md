@@ -1,13 +1,13 @@
 # Review And Merge (Ralph Worktrees)
 
-This repo uses “Ralph” as an autonomous implementer running against a single `fix_plan.md` item.
+This repo uses “Ralph” as an autonomous implementer running against a single `ralph_queue.md` item.
 This rule defines how humans (optionally with an LLM) should review Ralph’s worktree output before merging.
 
 ## What Review Must Prove
 
 Before merge, reviewers must have fresh evidence that:
 
-1. The change satisfies the chosen `fix_plan.md` item’s “Done when”.
+1. The change satisfies the chosen `ralph_queue.md` item’s “Done when”.
 2. The change matches the governing spec(s) and did not invent new behavior.
 3. Deterministic backpressure is green.
 4. The change is safe to merge (no scope creep, no accidental protocol expansion).
@@ -33,13 +33,13 @@ Load order for review sessions:
 
 1. `AGENTS.md`
 2. `SPECS.md`
-3. The spec(s) referenced by the completed `fix_plan.md` item
+3. The spec(s) referenced by the completed `ralph_queue.md` item
 4. Relevant `rules/` entries (especially `rules/02-verification-and-nix.md` and this file)
 
 Then:
 
 1. Inspect the diff (`git diff <base>...HEAD`).
-2. Map every meaningful behavior change back to a spec section or the fix_plan “Done when”.
+2. Map every meaningful behavior change back to a spec section or the ralph_queue “Done when”.
 3. Confirm there are tests proving the new behavior (or that the change is doc/config-only).
 
 ## LLM Review (Manual, Recommended)
@@ -58,7 +58,7 @@ Use this as the system/user prompt for the reviewer model:
 
 1. You are reviewing a worktree produced by an autonomous agent (“Ralph”).
 2. Your job is to judge spec compliance and merge safety, not to rewrite the implementation.
-3. Load and cite the governing spec(s) and the `fix_plan.md` item.
+3. Load and cite the governing spec(s) and the `ralph_queue.md` item.
 4. Identify:
    - any behavior not justified by specs,
    - any missing tests vs “Done when”,
@@ -73,6 +73,5 @@ Use this as the system/user prompt for the reviewer model:
 ## Merge Guidance
 
 - Prefer merge commits for integrating worktrees (see `rules/06-worktrees-and-parallelism.md`).
-- Keep follow-up fixes in the same worktree if they are required to satisfy the chosen `fix_plan.md` item.
-- If review discovers scope drift (multiple fix_plan items touched), stop and split the work into separate worktrees.
-
+- Keep follow-up fixes in the same worktree if they are required to satisfy the chosen `ralph_queue.md` item.
+- If review discovers scope drift (multiple ralph_queue items touched), stop and split the work into separate worktrees.

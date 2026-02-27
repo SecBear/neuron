@@ -3,7 +3,7 @@
 Date: 2026-02-27
 
 This document designs Brain v1 (the `brain` POC) per `specs/14-brain-agentic-research-assistant.md`
-and `fix_plan.md` item 1.
+and `ralph_queue.md` item 1.
 
 ## Goal
 
@@ -129,4 +129,3 @@ Brain v1 must include an offline integration-style test proving:
 Verification command:
 
 - `nix develop -c cargo test`
-

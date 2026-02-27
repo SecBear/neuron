@@ -71,9 +71,9 @@ fi
 
 echo "[ralph] runner: ${runner_display}"
 
-if [[ "${RALPH_STOP_ON_EMPTY:-1}" == "1" ]] && [[ -f fix_plan.md ]]; then
-  if grep -qE '^[[:space:]]*1[[:space:]]*\\.[[:space:]]*\\(empty\\)[[:space:]]*$' fix_plan.md; then
-    echo "[ralph] fix_plan queue is empty; exiting"
+if [[ "${RALPH_STOP_ON_EMPTY:-1}" == "1" ]] && [[ -f ralph_queue.md ]]; then
+  if grep -qE '^[[:space:]]*1[[:space:]]*\\.[[:space:]]*\\(empty\\)[[:space:]]*$' ralph_queue.md; then
+    echo "[ralph] ralph_queue is empty; exiting"
     exit 0
   fi
 fi

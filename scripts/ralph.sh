@@ -76,15 +76,15 @@ should_stop_on_empty_queue() {
   if [[ "${RALPH_STOP_ON_EMPTY:-1}" != "1" ]]; then
     return 1
   fi
-  if [[ ! -f fix_plan.md ]]; then
+  if [[ ! -f ralph_queue.md ]]; then
     return 1
   fi
-  grep -qE '^[[:space:]]*1[[:space:]]*\\.[[:space:]]*\\(empty\\)[[:space:]]*$' fix_plan.md
+  grep -qE '^[[:space:]]*1[[:space:]]*\\.[[:space:]]*\\(empty\\)[[:space:]]*$' ralph_queue.md
 }
 
 while :; do
   if should_stop_on_empty_queue; then
-    echo "[ralph] fix_plan queue is empty; exiting"
+    echo "[ralph] ralph_queue is empty; exiting"
     exit 0
   fi
 

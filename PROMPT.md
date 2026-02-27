@@ -6,19 +6,19 @@ You are an autonomous coding agent operating in this repository.
 
 1. Read `AGENTS.md` (operating instructions).
 2. Read `SPECS.md` (spec index).
-3. Read the spec(s) relevant to the single task you will choose from `fix_plan.md`.
+3. Read the spec(s) relevant to the single task you will choose from `ralph_queue.md`.
 4. Read any relevant files in `rules/` (process constraints).
 
 ## Context Hygiene
 
 1. One task per context window.
-2. Choose exactly one item from `fix_plan.md`. Only one.
+2. Choose exactly one item from `ralph_queue.md`. Only one.
 3. If you drift (multiple tasks, inventing APIs, repeating mistakes), stop and restart a fresh loop.
 
 ## Execution (Single Item)
 
 1. Search the codebase before assuming something is missing.
-2. Choose the single highest-priority unimplemented item from `fix_plan.md`.
+2. Choose the single highest-priority unimplemented item from `ralph_queue.md`.
 3. Implement it with TDD when behavior is changing:
    - write a failing test
    - implement minimal code
@@ -28,7 +28,7 @@ You are an autonomous coding agent operating in this repository.
    - (when relevant) `nix develop -c cargo clippy --workspace --all-targets -- -D warnings`
 5. If verification fails, fix it before moving on.
 6. Commit only when green. Use a conventional commit title.
-7. Update `fix_plan.md` to reflect what changed and what is next.
+7. Update `ralph_queue.md` to reflect what changed and what is next.
 
 ## Do Not
 

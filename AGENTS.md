@@ -86,4 +86,4 @@ consult it after the spec/rules stack when doing any substantial work.
 This repo is designed to be run in a deterministic loop:
 
 1. `PROMPT.md` is the loop prompt.
-2. `fix_plan.md` is the single prioritized queue.
+2. `ralph_queue.md` is the single prioritized queue.
