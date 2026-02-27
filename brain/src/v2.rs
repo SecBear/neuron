@@ -24,6 +24,7 @@ const SPECPACK_DEFAULT_QUEUE_PATH: &str = "specpack/queue.json";
 const SPECPACK_VERSION: &str = "0.1";
 const SPECPACK_DEFAULT_LEDGER_PATH: &str = "ledger.json";
 const SPECPACK_DEFAULT_CONFORMANCE_ROOT: &str = "conformance/";
+const SPECPACK_DEFAULT_FEATURE_MAP_PATH: &str = "analysis/feature_map.json";
 const SPECPACK_DEFAULT_REQUIRED_SPEC_FILES: [&str; 2] = [
     "specs/05-edge-cases.md",
     "specs/06-testing-and-backpressure.md",
@@ -215,6 +216,45 @@ struct SpecPackLedgerCapability {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct SpecPackConformanceRef {
+    path: String,
+    kind: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct FeatureMap {
+    feature_map_version: String,
+    job_id: String,
+    produced_at: String,
+    #[serde(default)]
+    capabilities: Vec<FeatureMapCapability>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct FeatureMapCapability {
+    capability_id: String,
+    #[serde(default)]
+    spec_refs: Vec<SpecPackSpecRef>,
+    #[serde(default)]
+    code_refs: Vec<FeatureMapCodeRef>,
+    #[serde(default)]
+    trace_refs: Vec<FeatureMapTraceRef>,
+    #[serde(default)]
+    slice_refs: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct FeatureMapCodeRef {
+    artifact_path: String,
+    #[serde(default)]
+    sha256: Option<String>,
+    #[serde(default)]
+    locator: Option<Value>,
+    #[serde(default)]
+    notes: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct FeatureMapTraceRef {
     path: String,
     kind: String,
 }
@@ -693,6 +733,7 @@ impl JobManager {
         };
         validate_specpack_manifest(&job_dir, &manifest).map_err(ToolError::ExecutionFailed)?;
         validate_specpack_ledger(&job_dir, &manifest).map_err(ToolError::ExecutionFailed)?;
+        validate_feature_map(&job_dir, &manifest).map_err(ToolError::ExecutionFailed)?;
 
         std::fs::write(
             &manifest_path,
@@ -1424,6 +1465,7 @@ fn ensure_specpack_quality_defaults_exist(specpack_dir: &Path) -> Result<(), Str
         PathBuf::from("conformance/verify"),
         PathBuf::from(SPECPACK_DEFAULT_REQUIRED_SPEC_FILES[0]),
         PathBuf::from(SPECPACK_DEFAULT_REQUIRED_SPEC_FILES[1]),
+        PathBuf::from(SPECPACK_DEFAULT_FEATURE_MAP_PATH),
     ];
 
     for rel in required_files {
@@ -1566,6 +1608,76 @@ fn validate_specpack_ledger(job_dir: &Path, manifest: &SpecPackManifest) -> Resu
             match cref.kind.as_str() {
                 "golden" | "test" | "trace" | "matrix" => {}
                 other => return Err(format!("invalid conformance_refs kind: {other}")),
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_feature_map(job_dir: &Path, manifest: &SpecPackManifest) -> Result<(), String> {
+    let quality = manifest
+        .quality
+        .as_ref()
+        .ok_or_else(|| "manifest quality missing".to_string())?;
+
+    let specpack_dir = job_dir.join(SPECPACK_DIR);
+    let feature_map_full = specpack_dir.join(SPECPACK_DEFAULT_FEATURE_MAP_PATH);
+    let text = std::fs::read_to_string(&feature_map_full)
+        .map_err(|e| format!("cannot read analysis/feature_map.json: {e}"))?;
+    let feature_map: FeatureMap =
+        serde_json::from_str(&text).map_err(|e| format!("invalid feature_map.json: {e}"))?;
+
+    let ledger_path = validate_relative_path(&quality.ledger_path)?;
+    let ledger_full = specpack_dir.join(&ledger_path);
+    let ledger_text = std::fs::read_to_string(&ledger_full).map_err(|e| e.to_string())?;
+    let ledger: SpecPackLedger =
+        serde_json::from_str(&ledger_text).map_err(|e| e.to_string())?;
+    let ledger_cap_ids: HashSet<String> =
+        ledger.capabilities.iter().map(|c| c.id.clone()).collect();
+
+    let manifest_paths: HashSet<String> =
+        manifest.files.iter().map(|f| f.path.clone()).collect();
+
+    let index_path = job_dir.join(INDEX_FILENAME);
+    let artifact_paths: HashSet<String> = if index_path.exists() {
+        let index_text = std::fs::read_to_string(&index_path).map_err(|e| e.to_string())?;
+        let index: BundleIndex =
+            serde_json::from_str(&index_text).map_err(|e| e.to_string())?;
+        index.artifacts.into_iter().map(|a| a.path).collect()
+    } else {
+        HashSet::new()
+    };
+
+    for cap in &feature_map.capabilities {
+        if !ledger_cap_ids.contains(&cap.capability_id) {
+            return Err(format!(
+                "feature_map capability_id `{}` not found in ledger.json",
+                cap.capability_id
+            ));
+        }
+        for spec_ref in &cap.spec_refs {
+            if !manifest_paths.contains(&spec_ref.path) {
+                return Err(format!(
+                    "feature_map spec_refs path `{}` missing from specpack manifest",
+                    spec_ref.path
+                ));
+            }
+        }
+        for trace_ref in &cap.trace_refs {
+            if !manifest_paths.contains(&trace_ref.path) {
+                return Err(format!(
+                    "feature_map trace_refs path `{}` missing from specpack manifest",
+                    trace_ref.path
+                ));
+            }
+        }
+        for code_ref in &cap.code_refs {
+            if !artifact_paths.contains(&code_ref.artifact_path) {
+                return Err(format!(
+                    "feature_map code_refs artifact_path `{}` missing from job artifact index",
+                    code_ref.artifact_path
+                ));
             }
         }
     }

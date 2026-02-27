@@ -105,6 +105,27 @@ async fn specpack_write_minimal_quality_bundle(registry: &ToolRegistry, job_id: 
         "text/markdown",
     )
     .await;
+
+    let feature_map = json!({
+        "feature_map_version": "0.1",
+        "job_id": job_id,
+        "produced_at": "2026-02-27T00:00:00Z",
+        "capabilities": [{
+            "capability_id": "cap_overview",
+            "spec_refs": [],
+            "code_refs": [],
+            "trace_refs": [],
+            "slice_refs": []
+        }]
+    });
+    specpack_write(
+        registry,
+        job_id,
+        "specpack/analysis/feature_map.json",
+        &serde_json::to_string_pretty(&feature_map).expect("feature_map json"),
+        "application/json",
+    )
+    .await;
 }
 
 #[derive(Debug, Clone)]
@@ -1101,6 +1122,26 @@ async fn v2_specpack_finalize_rejects_ledger_spec_refs_missing_from_specpack() {
     specpack_write(
         &registry,
         &job_id,
+        "specpack/analysis/feature_map.json",
+        &serde_json::to_string_pretty(&json!({
+            "feature_map_version": "0.1",
+            "job_id": job_id,
+            "produced_at": "2026-02-27T00:00:00Z",
+            "capabilities": [{
+                "capability_id": "cap_missing",
+                "spec_refs": [],
+                "code_refs": [],
+                "trace_refs": [],
+                "slice_refs": []
+            }]
+        }))
+        .expect("json"),
+        "application/json",
+    )
+    .await;
+    specpack_write(
+        &registry,
+        &job_id,
         "specpack/queue.json",
         &serde_json::to_string_pretty(&json!({
             "queue_version":"0.1",
@@ -1202,6 +1243,213 @@ async fn v2_specpack_finalize_rejects_impl_task_missing_verify_commands() {
     assert!(
         err.to_string().contains("verify"),
         "expected verify error, got: {err}"
+    );
+}
+
+// ── traceability: feature_map validation tests ────────────────────────────────
+
+#[tokio::test]
+async fn v2_specpack_finalize_rejects_missing_feature_map() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let artifact_root = temp.path().join(".brain").join("artifacts");
+    let acquisition = brain::v2::testing::fake_acquisition_registry(vec![]);
+    let registry = brain::v2::testing::backend_registry_for_tests(artifact_root, acquisition);
+
+    let start = registry
+        .get("research_job_start")
+        .expect("start tool exists")
+        .call(json!({"intent":"missing feature_map","constraints":{},"targets":[],"tool_policy":{}}))
+        .await
+        .expect("start ok");
+    let job_id = start
+        .get("job_id")
+        .and_then(|v| v.as_str())
+        .expect("job_id")
+        .to_string();
+    let _terminal = wait_for_terminal_status(&registry, &job_id).await;
+
+    registry
+        .get("specpack_init")
+        .expect("specpack_init exists")
+        .call(json!({"job_id": job_id}))
+        .await
+        .expect("specpack_init ok");
+
+    // Write all required quality files EXCEPT analysis/feature_map.json
+    specpack_write(&registry, &job_id, "specpack/SPECS.md", "# SPECS\n", "text/markdown").await;
+    specpack_write(&registry, &job_id, "specpack/specs/00-overview.md", "# Overview\n", "text/markdown").await;
+    specpack_write(
+        &registry, &job_id, "specpack/ledger.json",
+        &serde_json::to_string_pretty(&json!({
+            "ledger_version": "0.1", "job_id": job_id,
+            "created_at": "2026-02-27T00:00:00Z",
+            "targets": [], "capabilities": [], "gaps": []
+        })).expect("json"),
+        "application/json",
+    ).await;
+    specpack_write(&registry, &job_id, "specpack/conformance/README.md", "# Conformance\n", "text/markdown").await;
+    specpack_write(&registry, &job_id, "specpack/conformance/verify", "echo ok\n", "text/plain").await;
+    specpack_write(&registry, &job_id, "specpack/specs/05-edge-cases.md", "# Edge Cases\n", "text/markdown").await;
+    specpack_write(&registry, &job_id, "specpack/specs/06-testing-and-backpressure.md", "# Testing\n", "text/markdown").await;
+    specpack_write(
+        &registry, &job_id, "specpack/queue.json",
+        &serde_json::to_string_pretty(&json!({
+            "queue_version": "0.1", "job_id": job_id,
+            "created_at": "2026-02-27T00:00:00Z", "tasks": []
+        })).expect("json"),
+        "application/json",
+    ).await;
+    // Note: analysis/feature_map.json is NOT written
+
+    let err = registry
+        .get("specpack_finalize")
+        .expect("specpack_finalize exists")
+        .call(json!({"job_id": job_id}))
+        .await
+        .expect_err("missing feature_map must fail");
+    assert!(
+        err.to_string().contains("feature_map") || err.to_string().contains("analysis"),
+        "expected feature_map error, got: {err}"
+    );
+}
+
+#[tokio::test]
+async fn v2_specpack_finalize_rejects_unknown_capability_id_in_feature_map() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let artifact_root = temp.path().join(".brain").join("artifacts");
+    let acquisition = brain::v2::testing::fake_acquisition_registry(vec![]);
+    let registry = brain::v2::testing::backend_registry_for_tests(artifact_root, acquisition);
+
+    let start = registry
+        .get("research_job_start")
+        .expect("start tool exists")
+        .call(json!({"intent":"unknown capability_id","constraints":{},"targets":[],"tool_policy":{}}))
+        .await
+        .expect("start ok");
+    let job_id = start
+        .get("job_id")
+        .and_then(|v| v.as_str())
+        .expect("job_id")
+        .to_string();
+    let _terminal = wait_for_terminal_status(&registry, &job_id).await;
+
+    registry
+        .get("specpack_init")
+        .expect("specpack_init exists")
+        .call(json!({"job_id": job_id}))
+        .await
+        .expect("specpack_init ok");
+
+    specpack_write(&registry, &job_id, "specpack/SPECS.md", "# SPECS\n", "text/markdown").await;
+    specpack_write(&registry, &job_id, "specpack/specs/00-overview.md", "# Overview\n", "text/markdown").await;
+    specpack_write_minimal_quality_bundle(&registry, &job_id).await;
+
+    // Override feature_map with one referencing a capability_id not in ledger
+    specpack_write(
+        &registry, &job_id, "specpack/analysis/feature_map.json",
+        &serde_json::to_string_pretty(&json!({
+            "feature_map_version": "0.1",
+            "job_id": job_id,
+            "produced_at": "2026-02-27T00:00:00Z",
+            "capabilities": [{
+                "capability_id": "cap_DOES_NOT_EXIST",
+                "spec_refs": [], "code_refs": [], "trace_refs": [], "slice_refs": []
+            }]
+        })).expect("json"),
+        "application/json",
+    ).await;
+
+    specpack_write(
+        &registry, &job_id, "specpack/queue.json",
+        &serde_json::to_string_pretty(&json!({
+            "queue_version": "0.1", "job_id": job_id,
+            "created_at": "2026-02-27T00:00:00Z", "tasks": []
+        })).expect("json"),
+        "application/json",
+    ).await;
+
+    let err = registry
+        .get("specpack_finalize")
+        .expect("specpack_finalize exists")
+        .call(json!({"job_id": job_id}))
+        .await
+        .expect_err("unknown capability_id must fail");
+    assert!(
+        err.to_string().contains("capability_id") || err.to_string().contains("not found"),
+        "expected capability_id error, got: {err}"
+    );
+}
+
+#[tokio::test]
+async fn v2_specpack_finalize_rejects_missing_artifact_ref_in_feature_map() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let artifact_root = temp.path().join(".brain").join("artifacts");
+    let acquisition = brain::v2::testing::fake_acquisition_registry(vec![(
+        "web_search",
+        json!({"results":[{"title":"T","url":"https://example.invalid","snippet":"x"}]}),
+    )]);
+    let registry = brain::v2::testing::backend_registry_for_tests(artifact_root, acquisition);
+
+    let start = registry
+        .get("research_job_start")
+        .expect("start tool exists")
+        .call(json!({"intent":"missing artifact ref","constraints":{},"targets":[],"tool_policy":{}}))
+        .await
+        .expect("start ok");
+    let job_id = start
+        .get("job_id")
+        .and_then(|v| v.as_str())
+        .expect("job_id")
+        .to_string();
+    let _terminal = wait_for_terminal_status(&registry, &job_id).await;
+
+    registry
+        .get("specpack_init")
+        .expect("specpack_init exists")
+        .call(json!({"job_id": job_id}))
+        .await
+        .expect("specpack_init ok");
+
+    specpack_write(&registry, &job_id, "specpack/SPECS.md", "# SPECS\n", "text/markdown").await;
+    specpack_write(&registry, &job_id, "specpack/specs/00-overview.md", "# Overview\n", "text/markdown").await;
+    specpack_write_minimal_quality_bundle(&registry, &job_id).await;
+
+    // Override feature_map with a code_ref pointing to a nonexistent artifact
+    specpack_write(
+        &registry, &job_id, "specpack/analysis/feature_map.json",
+        &serde_json::to_string_pretty(&json!({
+            "feature_map_version": "0.1",
+            "job_id": job_id,
+            "produced_at": "2026-02-27T00:00:00Z",
+            "capabilities": [{
+                "capability_id": "cap_overview",
+                "spec_refs": [],
+                "code_refs": [{"artifact_path": "sources/nonexistent_artifact_xyzzy.json"}],
+                "trace_refs": [],
+                "slice_refs": []
+            }]
+        })).expect("json"),
+        "application/json",
+    ).await;
+
+    specpack_write(
+        &registry, &job_id, "specpack/queue.json",
+        &serde_json::to_string_pretty(&json!({
+            "queue_version": "0.1", "job_id": job_id,
+            "created_at": "2026-02-27T00:00:00Z", "tasks": []
+        })).expect("json"),
+        "application/json",
+    ).await;
+
+    let err = registry
+        .get("specpack_finalize")
+        .expect("specpack_finalize exists")
+        .call(json!({"job_id": job_id}))
+        .await
+        .expect_err("missing artifact ref must fail");
+    assert!(
+        err.to_string().contains("artifact") || err.to_string().contains("nonexistent"),
+        "expected artifact ref error, got: {err}"
     );
 }
 
