@@ -10,20 +10,34 @@ Rules:
 
 ## Queue
 
-1. Add CI (hard enforcement) for formatting, tests, and clippy
+1. Harden Brain v2 research backend (bundle contract + acquisition roles)
+   - Spec: `specs/15-brain-research-backend.md`
+   - Done when:
+     - `index.json` includes explicit `bundle_version` and `brain_version`
+     - Brain validates `index.json` against typed structs (job fails if invalid)
+     - Brain supports canonical acquisition roles with alias mapping:
+       - `web_search`, `web_fetch`
+       - `deep_research_start`, `deep_research_status`, `deep_research_get` (preferred when available)
+     - Brain exposes `research_job_list` for discovery across restarts
+     - Offline tests prove:
+       - Deep-research (async) path works using injected fake tools
+       - Evidence pointers always reference existing artifacts
+   - Verify: `nix develop -c cargo test`
+
+2. Add CI (hard enforcement) for formatting, tests, and clippy
    - Specs: `specs/13-documentation-and-dx-parity.md`
    - Done when:
      - GitHub Actions runs `pre-commit` (treefmt), `cargo test`, `cargo clippy` in the Nix dev shell
    - Verify: `nix develop -c cargo test`
 
-2. Add root README + crate map + quickstart
+3. Add root README + crate map + quickstart
    - Spec: `specs/13-documentation-and-dx-parity.md`
    - Done when:
      - A new `README.md` exists with a minimal quickstart for local composition
      - Includes a crate map and points to `SPECS.md` for requirements
    - Verify: `nix develop -c cargo test`
 
-3. Add umbrella `neuron` crate with feature flags + prelude
+4. Add umbrella `neuron` crate with feature flags + prelude
    - Spec: `specs/12-packaging-versioning-and-umbrella-crate.md`
    - Done when:
      - `neuron/` crate exists and re-exports the happy-path set behind features

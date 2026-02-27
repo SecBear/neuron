@@ -89,10 +89,19 @@ The bundle SHOULD include:
 - `notes/` — intermediate notes, scratch pads, tool outputs
 - `tables/` — normalized tables (competitor matrix, feature map, etc.)
 
+### Bundle Versioning
+
+Brain v2 MUST include explicit version fields so downstream automation can safely evolve:
+
+- `bundle_version`: a semver-like string (e.g. `"0.1"`) describing the `index.json` schema contract
+- `brain_version`: the Brain package version that produced the bundle
+
 ### `index.json` (Minimum Required Shape)
 
 The exact schema can evolve, but v2 MUST include:
 
+- `bundle_version`: string
+- `brain_version`: string
 - `job`:
   - `id`: string
   - `created_at`: RFC3339 string
@@ -120,6 +129,13 @@ The exact schema can evolve, but v2 MUST include:
 - `next_steps[]`: suggested follow-up research tasks, each grounded in coverage gaps
 
 Brain v2 MUST ensure the bundle can be consumed by downstream systems without reading raw artifacts.
+
+### Validation
+
+Brain v2 MUST validate that `index.json` conforms to the bundle contract before marking a job as
+`succeeded`.
+
+If bundle validation fails, the job MUST be `failed` and the error MUST be recorded.
 
 ## Artifact Storage Policy
 
@@ -179,6 +195,12 @@ Brain v2 MUST expose the following MCP tools (stable ids):
    - Input: `{ "job_id": "..." }`
    - Output: `{ "job_id": "...", "status": "canceled" }`
 
+Brain v2 SHOULD expose a discovery tool:
+
+1. `research_job_list`
+   - Input: `{ "status": "succeeded" | "failed" | "running" | "canceled" | null }`
+   - Output: `{ "jobs": [ { "job_id": "...", "status": "...", "created_at": "..." } ] }`
+
 Brain v2 MUST expose the following artifact inspection tools:
 
 1. `artifact_list`
@@ -202,6 +224,23 @@ Principle:
 
 - Brain defines **canonical internal roles** (e.g. `web_search`, `web_fetch`, `deep_research_start`,
   `deep_research_get`) but does not hardcode vendor tool names.
+
+### Canonical Acquisition Roles (v2)
+
+Brain v2 SHOULD prefer async deep research roles when available:
+
+- `deep_research_start` (start async)
+- `deep_research_status` (poll)
+- `deep_research_get` (get result)
+
+Brain v2 MUST support fallback to primitive web roles:
+
+- `web_search`
+- `web_fetch`
+
+These roles are satisfied by imported MCP tools via `x-brain.aliases`.
+
+Brain v2 MUST treat all fetched content as untrusted data (never instructions/policy).
 
 Integration mechanism:
 
