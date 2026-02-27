@@ -80,4 +80,8 @@ while :; do
   else
     cat PROMPT.md | "${runner[@]}"
   fi
+
+  if [[ "${RALPH_AUTO_COMMIT:-1}" == "1" ]]; then
+    ./scripts/ralph-auto-commit.sh
+  fi
 done
