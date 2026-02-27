@@ -3,7 +3,8 @@
 //!
 //! Dispatches to registered agents via `HashMap<AgentId, Arc<dyn Operator>>`.
 //! Concurrent dispatch uses `tokio::spawn`. No durability — operators that fail
-//! are not retried and state is not persisted. Signal and query are no-ops.
+//! are not retried and state is not persisted. Workflow `signal` and `query`
+//! semantics are implemented as an in-memory signal journal.
 
 use async_trait::async_trait;
 use layer0::effect::SignalPayload;
@@ -11,8 +12,10 @@ use layer0::error::OrchError;
 use layer0::id::{AgentId, WorkflowId};
 use layer0::operator::{Operator, OperatorInput, OperatorOutput};
 use layer0::orchestrator::{Orchestrator, QueryPayload};
+use serde_json::json;
 use std::collections::HashMap;
 use std::sync::Arc;
+use tokio::sync::RwLock;
 
 /// In-process orchestrator that dispatches to registered agents.
 ///
@@ -21,6 +24,7 @@ use std::sync::Arc;
 /// testing, and single-process deployments.
 pub struct LocalOrch {
     agents: HashMap<String, Arc<dyn Operator>>,
+    workflow_signals: RwLock<HashMap<String, Vec<SignalPayload>>>,
 }
 
 impl LocalOrch {
@@ -28,6 +32,7 @@ impl LocalOrch {
     pub fn new() -> Self {
         Self {
             agents: HashMap::new(),
+            workflow_signals: RwLock::new(HashMap::new()),
         }
     }
 
@@ -91,18 +96,59 @@ impl Orchestrator for LocalOrch {
         results
     }
 
-    async fn signal(&self, _target: &WorkflowId, _signal: SignalPayload) -> Result<(), OrchError> {
-        // LocalOrch doesn't track running workflows — accept and discard.
+    async fn signal(&self, target: &WorkflowId, signal: SignalPayload) -> Result<(), OrchError> {
+        let mut workflows = self.workflow_signals.write().await;
+        workflows
+            .entry(target.to_string())
+            .or_default()
+            .push(signal);
         Ok(())
     }
 
     async fn query(
         &self,
-        _target: &WorkflowId,
-        _query: QueryPayload,
+        target: &WorkflowId,
+        query: QueryPayload,
     ) -> Result<serde_json::Value, OrchError> {
-        // LocalOrch doesn't track running workflows — return null.
-        Ok(serde_json::Value::Null)
+        let workflow_id = target.to_string();
+        let workflows = self.workflow_signals.read().await;
+        let signals = workflows
+            .get(&workflow_id)
+            .ok_or_else(|| OrchError::WorkflowNotFound(workflow_id.clone()))?;
+
+        match query.query_type.as_str() {
+            "status" => Ok(json!({
+                "workflow_id": workflow_id,
+                "signal_count": signals.len(),
+                "last_signal_type": signals.last().map(|s| s.signal_type.clone()),
+            })),
+            "signals" => {
+                let limit = query
+                    .params
+                    .get("limit")
+                    .and_then(serde_json::Value::as_u64)
+                    .map_or(signals.len(), |v| v as usize);
+                let start = signals.len().saturating_sub(limit);
+                let entries: Vec<serde_json::Value> = signals[start..]
+                    .iter()
+                    .map(|s| {
+                        json!({
+                            "signal_type": s.signal_type.clone(),
+                            "data": s.data.clone(),
+                        })
+                    })
+                    .collect();
+
+                Ok(json!({
+                    "workflow_id": workflow_id,
+                    "signal_count": signals.len(),
+                    "signals": entries,
+                }))
+            }
+            other => Err(OrchError::DispatchFailed(format!(
+                "unsupported query_type: {other}"
+            ))),
+        }
     }
 }
 
@@ -207,28 +253,37 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn signal_is_noop() {
+    async fn signal_is_recorded() {
         let orch = LocalOrch::new();
-        let result = orch
+        orch
             .signal(
                 &WorkflowId::new("wf1"),
                 layer0::effect::SignalPayload::new("test", serde_json::Value::Null),
             )
-            .await;
-        assert!(result.is_ok());
+            .await
+            .unwrap();
+
+        let status = orch
+            .query(
+                &WorkflowId::new("wf1"),
+                QueryPayload::new("status", serde_json::json!({})),
+            )
+            .await
+            .unwrap();
+        assert_eq!(status["signal_count"], serde_json::json!(1));
     }
 
     #[tokio::test]
-    async fn query_returns_null() {
+    async fn query_unknown_workflow_errors() {
         let orch = LocalOrch::new();
         let result = orch
             .query(
                 &WorkflowId::new("wf1"),
                 QueryPayload::new("test", serde_json::Value::Null),
             )
-            .await;
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap(), serde_json::Value::Null);
+            .await
+            .unwrap_err();
+        assert!(result.to_string().contains("workflow not found"));
     }
 
     #[test]

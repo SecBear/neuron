@@ -75,17 +75,23 @@ impl Orchestrator for SimpleOrch {
 
 struct TestStore {
     data: RwLock<HashMap<String, serde_json::Value>>,
+    ops: Mutex<Vec<String>>,
 }
 
 impl TestStore {
     fn new() -> Self {
         Self {
             data: RwLock::new(HashMap::new()),
+            ops: Mutex::new(vec![]),
         }
     }
 
     async fn read_raw(&self, key: &str) -> Option<serde_json::Value> {
         self.data.read().await.get(key).cloned()
+    }
+
+    async fn ops(&self) -> Vec<String> {
+        self.ops.lock().await.clone()
     }
 }
 
@@ -106,11 +112,13 @@ impl StateStore for TestStore {
         value: serde_json::Value,
     ) -> Result<(), StateError> {
         self.data.write().await.insert(key.to_string(), value);
+        self.ops.lock().await.push(format!("write:{key}"));
         Ok(())
     }
 
     async fn delete(&self, _scope: &Scope, key: &str) -> Result<(), StateError> {
         self.data.write().await.remove(key);
+        self.ops.lock().await.push(format!("delete:{key}"));
         Ok(())
     }
 
@@ -203,6 +211,40 @@ impl Operator for HandoffTargetOperator {
             Content::text("accepted"),
             ExitReason::Complete,
         ))
+    }
+}
+
+struct FullPipelineRootOperator;
+
+#[async_trait]
+impl Operator for FullPipelineRootOperator {
+    async fn execute(&self, _input: OperatorInput) -> Result<OperatorOutput, OperatorError> {
+        let mut output = OperatorOutput::new(Content::text("root"), ExitReason::Complete);
+        output.effects.push(Effect::WriteMemory {
+            scope: Scope::Global,
+            key: "k-pipeline".into(),
+            value: json!({"v": 42}),
+        });
+        output.effects.push(Effect::Delegate {
+            agent: AgentId::new("child"),
+            input: Box::new(OperatorInput::new(
+                Content::text("child task"),
+                TriggerType::Task,
+            )),
+        });
+        output.effects.push(Effect::Handoff {
+            agent: AgentId::new("handoff_target"),
+            state: json!({"ticket": 123}),
+        });
+        output.effects.push(Effect::Signal {
+            target: WorkflowId::new("wf-pipeline"),
+            payload: SignalPayload::new("pipeline.signal", json!({"ok": true})),
+        });
+        output.effects.push(Effect::DeleteMemory {
+            scope: Scope::Global,
+            key: "k-pipeline".into(),
+        });
+        Ok(output)
     }
 }
 
@@ -346,4 +388,51 @@ async fn runner_has_safety_bound_for_infinite_followups() {
         .await
         .unwrap_err();
     assert!(err.to_string().contains("max_followups"));
+}
+
+#[tokio::test]
+async fn runner_effect_pipeline_end_to_end() {
+    let mut orch = SimpleOrch::new();
+    orch.register("root", Arc::new(FullPipelineRootOperator));
+    orch.register("child", Arc::new(ChildOperator));
+    orch.register("handoff_target", Arc::new(HandoffTargetOperator));
+    let orch = Arc::new(orch);
+    let orch_for_runner: Arc<dyn Orchestrator> = orch.clone();
+
+    let state = Arc::new(TestStore::new());
+    let runner = OrchestratedRunner::new(
+        orch_for_runner,
+        Arc::new(LocalEffectExecutor::new(Arc::clone(&state))),
+    );
+
+    let trace = runner
+        .run(
+            AgentId::new("root"),
+            OperatorInput::new(Content::text("go"), TriggerType::User),
+        )
+        .await
+        .expect("runner should succeed");
+
+    // root + delegate + handoff follow-up dispatches
+    assert_eq!(trace.outputs.len(), 3);
+    let messages: Vec<String> = trace
+        .outputs
+        .iter()
+        .map(|o| o.message.as_text().unwrap_or_default().to_string())
+        .collect();
+    assert!(messages.iter().any(|m| m == "child done"));
+    assert!(messages.iter().any(|m| m == "accepted"));
+
+    // WriteMemory/DeleteMemory executed against state backend.
+    assert_eq!(state.read_raw("k-pipeline").await, None);
+    assert_eq!(
+        state.ops().await,
+        vec!["write:k-pipeline".to_string(), "delete:k-pipeline".to_string()]
+    );
+
+    // Signal is sent by runner via Orchestrator::signal and is observable.
+    let signals = orch.recorded_signals().await;
+    assert_eq!(signals.len(), 1);
+    assert_eq!(signals[0].0, WorkflowId::new("wf-pipeline"));
+    assert_eq!(signals[0].1.signal_type, "pipeline.signal");
 }

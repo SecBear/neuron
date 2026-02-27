@@ -101,22 +101,71 @@ async fn dispatch_many_partial_failure() {
 // --- Signal and query ---
 
 #[tokio::test]
-async fn signal_accepted() {
+async fn signal_is_recorded_and_visible_via_status_query() {
     let orch = LocalOrch::new();
     let wf = WorkflowId::new("wf-1");
     let signal =
         layer0::effect::SignalPayload::new("cancel", serde_json::json!({"reason": "user request"}));
-    let result = orch.signal(&wf, signal).await;
-    assert!(result.is_ok());
+    orch.signal(&wf, signal).await.unwrap();
+
+    let status = orch
+        .query(
+            &wf,
+            QueryPayload::new("status", serde_json::json!({})),
+        )
+        .await
+        .unwrap();
+    assert_eq!(status["workflow_id"], serde_json::json!("wf-1"));
+    assert_eq!(status["signal_count"], serde_json::json!(1));
+    assert_eq!(status["last_signal_type"], serde_json::json!("cancel"));
 }
 
 #[tokio::test]
-async fn query_returns_null() {
+async fn query_signals_returns_recorded_signal_history() {
     let orch = LocalOrch::new();
     let wf = WorkflowId::new("wf-1");
-    let query = QueryPayload::new("status", serde_json::json!({}));
-    let result = orch.query(&wf, query).await.unwrap();
-    assert_eq!(result, serde_json::Value::Null);
+    orch.signal(
+        &wf,
+        layer0::effect::SignalPayload::new("a", serde_json::json!({"n": 1})),
+    )
+    .await
+    .unwrap();
+    orch.signal(
+        &wf,
+        layer0::effect::SignalPayload::new("b", serde_json::json!({"n": 2})),
+    )
+    .await
+    .unwrap();
+
+    let result = orch
+        .query(
+            &wf,
+            QueryPayload::new("signals", serde_json::json!({"limit": 1})),
+        )
+        .await
+        .unwrap();
+    assert_eq!(result["workflow_id"], serde_json::json!("wf-1"));
+    assert_eq!(result["signals"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        result["signals"][0]["signal_type"],
+        serde_json::json!("b"),
+    );
+}
+
+#[tokio::test]
+async fn query_unknown_workflow_returns_not_found() {
+    let orch = LocalOrch::new();
+    let result = orch
+        .query(
+            &WorkflowId::new("missing"),
+            QueryPayload::new("status", serde_json::json!({})),
+        )
+        .await;
+    assert!(result.is_err());
+    assert!(result
+        .unwrap_err()
+        .to_string()
+        .contains("workflow not found"));
 }
 
 // --- Object safety ---

@@ -10,17 +10,7 @@ Rules:
 
 ## Queue
 
-1. Make orchestration “core complete” for composed systems
-   - Specs: `specs/03-effects-and-execution-semantics.md`, `specs/05-orchestration-core.md`, `specs/06-composition-factory-and-glue.md`, `specs/11-testing-examples-and-backpressure.md`
-   - Done when:
-     - `neuron-orch-kit` has an integration-style test proving an effect pipeline end-to-end:
-       - `WriteMemory`/`DeleteMemory` executed against a StateStore
-       - `Delegate`/`Handoff` become follow-up dispatches
-       - `Signal` calls `Orchestrator::signal` and is observable
-     - `neuron-orch-local` defines and tests non-trivial `signal`/`query` semantics (not noop/null)
-   - Verify: `nix develop -c cargo test --workspace --all-targets`
-
-2. Implement credential resolution + injection + audit story in local mode
+1. Implement credential resolution + injection + audit story in local mode
    - Specs: `specs/08-environment-and-credentials.md`, `specs/10-secrets-auth-crypto.md`, `specs/09-hooks-lifecycle-and-governance.md`
    - Done when:
      - Local execution demonstrates a coherent pipeline: `SecretSource` resolution → environment injection → lifecycle/audit event emission
@@ -29,6 +19,15 @@ Rules:
 
 
 ## Completed
+
+- 2026-02-27: Make orchestration “core complete” for composed systems
+  - Specs: `specs/03-effects-and-execution-semantics.md`, `specs/05-orchestration-core.md`, `specs/06-composition-factory-and-glue.md`, `specs/11-testing-examples-and-backpressure.md`
+  - Adds:
+    - `neuron-orch-kit` end-to-end effect pipeline integration test covering `WriteMemory`, `DeleteMemory`, `Delegate`, `Handoff`, and observable `Signal` (`runner_effect_pipeline_end_to_end`)
+    - `neuron-orch-local` in-memory workflow signal journal semantics with query contracts (`status`, `signals`) and workflow-not-found behavior
+  - Verify:
+    - `nix develop -c cargo test --workspace --all-targets` (pass)
+    - `cargo clippy --workspace --all-targets -- -D warnings` (pass; nix-daemon socket blocked for `nix develop -c cargo clippy`)
 
 - 2026-02-27: Brain job groups (fan-out + merge) for large landscapes
   - Spec: `specs/15-brain-research-backend.md`
