@@ -114,6 +114,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "brain"
+version = "0.1.0"
+dependencies = [
+ "layer0",
+ "neuron-context",
+ "neuron-hooks",
+ "neuron-mcp",
+ "neuron-op-react",
+ "neuron-orch-kit",
+ "neuron-orch-local",
+ "neuron-provider-anthropic",
+ "neuron-provider-ollama",
+ "neuron-provider-openai",
+ "neuron-state-fs",
+ "neuron-state-memory",
+ "neuron-tool",
+ "neuron-turn",
+ "rust_decimal",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+ "tokio",
+]
+
+[[package]]
 name = "bumpalo"
 version = "3.20.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
