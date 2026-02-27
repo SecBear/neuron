@@ -25,11 +25,18 @@ neuron-state-fs = { path = "../neuron-state-fs" }
 neuron-state-memory = { path = "../neuron-state-memory" }
 neuron-tool = { path = "../neuron-tool" }
 neuron-turn = { path = "../neuron-turn" }
+chrono = { version = "0.4", default-features = false, features = [
+  "clock",
+  "std",
+] }
+hex = "0.4"
 rust_decimal = { version = "1", features = ["serde-str"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+sha2 = "0.10"
 thiserror = "2"
 tokio = { version = "1", features = ["macros", "process", "rt-multi-thread"] }
+uuid = { version = "1", features = ["v4"] }
 
 [dev-dependencies]
 tempfile = "3"

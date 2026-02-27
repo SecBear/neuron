@@ -1,5 +1,7 @@
 //! Brain v1: agentic research assistant POC.
 
+pub mod v2;
+
 use layer0::content::Content;
 use layer0::id::{AgentId, SessionId};
 use layer0::operator::Operator;
