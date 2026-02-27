@@ -10,15 +10,7 @@ Rules:
 
 ## Queue
 
-1. Brain: add artifact ingest + write tools for source-first workflows
-   - Spec: `specs/17-brain-artifact-ingest-and-write.md`
-   - Done when:
-     - Brain exposes `artifact_import` and `artifact_write` (job-local, traversal-safe)
-     - Artifact sha256 is over raw bytes on disk
-     - Offline tests cover import/write and traversal rejection
-   - Verify: `nix develop -c cargo test -p brain`
-
-2. Brain: SpecPack traceability (feature map + slices + evidence refs)
+1. Brain: SpecPack traceability (feature map + slices + evidence refs)
    - Spec: `specs/19-brain-specpack-traceability-and-feature-map.md`
    - Done when:
      - `specpack_finalize` requires `specpack/analysis/feature_map.json`
@@ -36,6 +28,10 @@ Rules:
 
 
 ## Completed
+
+- 2026-02-27: Added artifact_import and artifact_write tools (source-first ingest)
+  - Spec: `specs/17-brain-artifact-ingest-and-write.md`
+  - Tools: `artifact_import`, `artifact_write` (traversal-safe, sha256-hashed)
 
 - 2026-02-27: Implemented `brain` v1 (controller + worker tools + MCP config)
   - Spec: `specs/14-brain-agentic-research-assistant.md`
