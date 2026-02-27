@@ -24,8 +24,8 @@ You are an autonomous coding agent operating in this repository.
    - implement minimal code
    - refactor after green
 4. Run verification:
-   - `nix develop -c cargo test`
-   - (when relevant) `nix develop -c cargo clippy -- -D warnings`
+   - `nix develop -c cargo test --workspace --all-targets`
+   - (when relevant) `nix develop -c cargo clippy --workspace --all-targets -- -D warnings`
 5. If verification fails, fix it before moving on.
 6. Commit only when green. Use a conventional commit title.
 7. Update `fix_plan.md` to reflect what changed and what is next.
@@ -55,4 +55,3 @@ Pure loop (supervised):
 ```bash
 while :; do cat PROMPT.md | claude-code; done
 ```
-

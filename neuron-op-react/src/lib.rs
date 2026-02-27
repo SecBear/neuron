@@ -749,10 +749,6 @@ mod tests {
                 call_count: AtomicUsize::new(0),
             }
         }
-
-        fn calls(&self) -> usize {
-            self.call_count.load(Ordering::SeqCst)
-        }
     }
 
     impl Provider for MockProvider {
@@ -1308,6 +1304,7 @@ mod tests {
     async fn provider_retryable_error_maps_to_retryable() {
         struct ErrorProvider;
         impl Provider for ErrorProvider {
+            #[allow(clippy::manual_async_fn)]
             fn complete(
                 &self,
                 _request: ProviderRequest,
@@ -1344,6 +1341,7 @@ mod tests {
             count: std::sync::Arc<AtomicUsize>,
         }
         impl Provider for CountingProvider {
+            #[allow(clippy::manual_async_fn)]
             fn complete(
                 &self,
                 request: ProviderRequest,

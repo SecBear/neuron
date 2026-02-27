@@ -46,8 +46,8 @@ This repo assumes Rust tooling is provided by Nix. Do not assume `cargo` exists 
 Use these commands as your default backpressure:
 
 1. Format: `nix develop -c nix fmt`
-2. Tests: `nix develop -c cargo test`
-3. Lints: `nix develop -c cargo clippy -- -D warnings`
+2. Tests: `nix develop -c cargo test --workspace --all-targets`
+3. Lints: `nix develop -c cargo clippy --workspace --all-targets -- -D warnings`
 
 Do not claim "done" unless you have fresh evidence from the relevant command(s) for the change.
 

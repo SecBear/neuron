@@ -607,7 +607,7 @@ fn decimal_serializes_as_string_not_number() {
     // not as 1.23 (number) or {"lo":...,"mid":...,...} (struct).
     // This is critical for wire-format stability across implementations.
     let cost = Decimal::new(123, 2); // 1.23
-    let json = serde_json::to_value(&cost).unwrap();
+    let json = serde_json::to_value(cost).unwrap();
     assert!(
         json.is_string(),
         "Decimal must serialize as a JSON string, got: {json}"
@@ -618,7 +618,7 @@ fn decimal_serializes_as_string_not_number() {
 #[test]
 fn decimal_zero_serializes_as_string() {
     let cost = Decimal::ZERO;
-    let json = serde_json::to_value(&cost).unwrap();
+    let json = serde_json::to_value(cost).unwrap();
     assert!(
         json.is_string(),
         "Decimal::ZERO must serialize as string, got: {json}"
@@ -701,7 +701,7 @@ fn content_text_and_blocks_are_structurally_distinct() {
 #[test]
 fn duration_ms_serializes_as_integer() {
     let d = DurationMs::from_millis(1500);
-    let json = serde_json::to_value(&d).unwrap();
+    let json = serde_json::to_value(d).unwrap();
     assert!(
         json.is_u64(),
         "DurationMs must serialize as integer, got: {json}"
@@ -712,7 +712,7 @@ fn duration_ms_serializes_as_integer() {
 #[test]
 fn duration_ms_zero_serializes_as_zero() {
     let d = DurationMs::ZERO;
-    let json = serde_json::to_value(&d).unwrap();
+    let json = serde_json::to_value(d).unwrap();
     assert_eq!(json.as_u64().unwrap(), 0);
 }
 

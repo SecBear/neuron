@@ -37,3 +37,4 @@ CI runs the same feedback loops:
 2. `cargo test`
 3. `cargo clippy -- -D warnings`
 
+Note: use the workspace-wide forms from `rules/02-verification-and-nix.md`.

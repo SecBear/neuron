@@ -14,10 +14,17 @@ else
   runner="claude-code"
 fi
 
+model_arg=()
+if [[ "${runner}" == "codex" && -n "${RALPH_MODEL:-}" ]]; then
+  model_arg=(-m "${RALPH_MODEL}")
+fi
+
 echo "[ralph] runner: ${runner}"
+if [[ "${#model_arg[@]}" -gt 0 ]]; then
+  echo "[ralph] model: ${RALPH_MODEL}"
+fi
 echo "[ralph] ctrl-c to stop"
 
 while :; do
-  cat PROMPT.md | ${runner}
+  cat PROMPT.md | ${runner} "${model_arg[@]}"
 done
-
