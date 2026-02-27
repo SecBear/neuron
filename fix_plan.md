@@ -10,14 +10,7 @@ Rules:
 
 ## Queue
 
-1. Add root README + crate map + quickstart
-   - Spec: `specs/13-documentation-and-dx-parity.md`
-   - Done when:
-     - A new `README.md` exists with a minimal quickstart for local composition
-     - Includes a crate map and points to `SPECS.md` for requirements
-   - Verify: `nix develop -c cargo test`
-
-2. Add umbrella `neuron` crate with feature flags + prelude
+1. Add umbrella `neuron` crate with feature flags + prelude
    - Spec: `specs/12-packaging-versioning-and-umbrella-crate.md`
    - Done when:
      - `neuron/` crate exists and re-exports the happy-path set behind features
@@ -37,3 +30,7 @@ Rules:
 - 2026-02-27: CI hard enforcement (format, tests, clippy) is present
   - Spec: `specs/13-documentation-and-dx-parity.md`
   - Workflow: `.github/workflows/ci.yml`
+
+- 2026-02-27: Root README added (crate map + quickstart)
+  - Spec: `specs/13-documentation-and-dx-parity.md`
+  - File: `README.md`
