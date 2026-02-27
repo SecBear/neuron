@@ -11,8 +11,9 @@ Before doing ANY work, read these documents IN ORDER:
 1. **NEURON-REDESIGN-PLAN.md** — The authoritative plan for the workspace redesign. 6-layer architecture, workspace structure, design decisions, phased implementation.
 2. **docs/architecture/HANDOFF.md** — Layer 0 implementation spec. Trait signatures, type definitions, module structure, layer definitions.
 3. **docs/architecture/composable-agentic-architecture.md** — Design rationale. 4 protocols + 2 interfaces, gap analysis, coverage map.
-4. **docs/architecture/agentic-decision-map-v3.md** — Full design space. All 23 architectural decisions.
-5. **DEVELOPMENT-LOG.md** — Complete history of all decisions, research, and rationale across all sessions.
+4. **docs/architecture/platform-scope-mapping.md** — Where features live (Neuron vs platform vs external infra).
+5. **docs/architecture/agentic-decision-map-v3.md** — Full design space. All 23 architectural decisions.
+6. **DEVELOPMENT-LOG.md** — Complete history of all decisions, research, and rationale across all sessions.
 
 ## Build & Test
 

@@ -1,5 +1,8 @@
 # Composable Agentic Architecture
 
+For “where does this live?” (Neuron vs platform vs external infra), see
+`docs/architecture/platform-scope-mapping.md`.
+
 ## The Core Idea
 
 Every agentic AI system makes the same 23 architectural decisions (enumerated in the Agentic Decision Map). Today, each framework bundles its own answers to all 23 into a monolith — if you want Temporal's durability, you buy into its entire programming model; if you want Claude Code's tool execution, you buy into its entire agent runtime. You can't mix Temporal's crash recovery with NanoClaw's container isolation and Aider's repo-map context assembly.

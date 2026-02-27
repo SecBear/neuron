@@ -70,6 +70,9 @@ If `neuron-orch-kit` becomes constraining (e.g., it encodes product-level policy
 
 ## Current Implementation Status
 
-On `redesign/v2`, there is no `neuron-orch-kit` crate yet.
+On `redesign/v2`, `neuron-orch-kit` exists as the unopinionated wiring kit.
 
-This is required for “core complete” because it is the mechanism that proves composability and prevents example/test drift.
+Still required for “core complete”:
+
+- end-to-end examples/tests that exercise `neuron-orch-kit` as the shared wiring layer (to prevent drift)
+- a reference effect execution story that is explicitly documented and test-proven (delegate/handoff/signal/state)
