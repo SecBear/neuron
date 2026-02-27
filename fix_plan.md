@@ -10,15 +10,7 @@ Rules:
 
 ## Queue
 
-1. Brain: enforce SpecPack quality/backpressure (ledger + conformance bundle)
-   - Spec: `specs/18-brain-specpack-quality-and-backpressure.md`
-   - Done when:
-     - `specpack_finalize` validates `ledger.json` and conformance bundle exists
-     - `specpack_finalize` rejects invalid ledger spec refs and missing verify commands
-     - Offline tests cover: missing ledger, bad refs, missing verify for impl task
-   - Verify: `nix develop -c cargo test -p brain`
-
-2. Brain: add artifact ingest + write tools for source-first workflows
+1. Brain: add artifact ingest + write tools for source-first workflows
    - Spec: `specs/17-brain-artifact-ingest-and-write.md`
    - Done when:
      - Brain exposes `artifact_import` and `artifact_write` (job-local, traversal-safe)
@@ -26,7 +18,7 @@ Rules:
      - Offline tests cover import/write and traversal rejection
    - Verify: `nix develop -c cargo test -p brain`
 
-3. Brain: job groups (fan-out + merge) for large landscapes
+2. Brain: job groups (fan-out + merge) for large landscapes
    - Spec: `specs/15-brain-research-backend.md`
    - Done when:
      - Brain can start a group job and produce per-target bundles
@@ -61,3 +53,7 @@ Rules:
 - 2026-02-27: Brain SpecPack outputs added (specpack init/write/finalize)
   - Spec: `specs/16-brain-specpack-output-and-queue.md`
   - Tools: `specpack_init`, `specpack_write_file`, `specpack_finalize`
+
+- 2026-02-27: Brain SpecPack finalize enforces quality/backpressure artifacts
+  - Spec: `specs/18-brain-specpack-quality-and-backpressure.md`
+  - Adds: `ledger.json` + `conformance/` validation, plus impl-task verify enforcement

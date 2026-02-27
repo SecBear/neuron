@@ -23,6 +23,89 @@ async fn wait_for_terminal_status(registry: &ToolRegistry, job_id: &str) -> serd
     panic!("job did not reach terminal status in time");
 }
 
+async fn specpack_write(
+    registry: &ToolRegistry,
+    job_id: &str,
+    path: &str,
+    content: &str,
+    media_type: &str,
+) {
+    registry
+        .get("specpack_write_file")
+        .expect("specpack_write_file exists")
+        .call(json!({
+            "job_id": job_id,
+            "path": path,
+            "encoding": "utf-8",
+            "content": content,
+            "media_type": media_type
+        }))
+        .await
+        .unwrap_or_else(|e| panic!("write {path} failed: {e}"));
+}
+
+async fn specpack_write_minimal_quality_bundle(registry: &ToolRegistry, job_id: &str) {
+    let ledger = json!({
+        "ledger_version": "0.1",
+        "job_id": job_id,
+        "created_at": "2026-02-27T00:00:00Z",
+        "targets": [],
+        "capabilities": [{
+            "id": "cap_overview",
+            "domain": "docs",
+            "title": "Overview exists",
+            "status": "specified",
+            "priority": 1,
+            "spec_refs": [{"path":"specs/00-overview.md","anchor": null}],
+            "evidence": []
+        }],
+        "gaps": []
+    });
+
+    specpack_write(
+        registry,
+        job_id,
+        "specpack/ledger.json",
+        &serde_json::to_string_pretty(&ledger).expect("ledger json"),
+        "application/json",
+    )
+    .await;
+
+    specpack_write(
+        registry,
+        job_id,
+        "specpack/conformance/README.md",
+        "# Conformance\n\nRun `./verify`.\n",
+        "text/markdown",
+    )
+    .await;
+    specpack_write(
+        registry,
+        job_id,
+        "specpack/conformance/verify",
+        "echo ok\n",
+        "text/plain",
+    )
+    .await;
+
+    specpack_write(
+        registry,
+        job_id,
+        "specpack/specs/05-edge-cases.md",
+        "# Edge Cases\n\n- TBD\n",
+        "text/markdown",
+    )
+    .await;
+    specpack_write(
+        registry,
+        job_id,
+        "specpack/specs/06-testing-and-backpressure.md",
+        "# Testing\n\nBackpressure lives here.\n",
+        "text/markdown",
+    )
+    .await;
+}
+
 #[derive(Debug, Clone)]
 struct RecordedCall {
     tool: String,
@@ -573,56 +656,48 @@ async fn v2_specpack_finalize_writes_manifest_for_valid_queue() {
         .call(json!({"job_id": job_id}))
         .await
         .expect("specpack_init ok");
-    registry
-        .get("specpack_write_file")
-        .expect("specpack_write_file exists")
-        .call(json!({
+
+    specpack_write(
+        &registry,
+        &job_id,
+        "specpack/SPECS.md",
+        "# SPECS\n\n- [Overview](specs/00-overview.md)\n",
+        "text/markdown",
+    )
+    .await;
+    specpack_write(
+        &registry,
+        &job_id,
+        "specpack/specs/00-overview.md",
+        "# Overview\n\nhello\n",
+        "text/markdown",
+    )
+    .await;
+    specpack_write_minimal_quality_bundle(&registry, &job_id).await;
+
+    specpack_write(
+        &registry,
+        &job_id,
+        "specpack/queue.json",
+        &serde_json::to_string_pretty(&json!({
+            "queue_version":"0.1",
             "job_id": job_id,
-            "path": "specpack/SPECS.md",
-            "encoding": "utf-8",
-            "content": "# SPECS\n\n- [Overview](specs/00-overview.md)\n",
-            "media_type": "text/markdown"
+            "created_at":"2026-02-27T00:00:00Z",
+            "tasks":[{
+                "id":"task_1",
+                "title":"Implement overview",
+                "kind":"spec",
+                "spec_refs":[{"path":"specs/00-overview.md","anchor":null}],
+                "depends_on":[],
+                "backpressure":{"verify":["nix develop -c cargo test -p brain"]},
+                "file_ownership":{"allow_globs":["brain/**"],"deny_globs":[]},
+                "concurrency":{"group":null}
+            }]
         }))
-        .await
-        .expect("write specs index");
-    registry
-        .get("specpack_write_file")
-        .expect("specpack_write_file exists")
-        .call(json!({
-            "job_id": job_id,
-            "path": "specpack/specs/00-overview.md",
-            "encoding": "utf-8",
-            "content": "# Overview\n\nhello\n",
-            "media_type": "text/markdown"
-        }))
-        .await
-        .expect("write spec");
-    registry
-        .get("specpack_write_file")
-        .expect("specpack_write_file exists")
-        .call(json!({
-            "job_id": job_id,
-            "path": "specpack/queue.json",
-            "encoding": "utf-8",
-            "content": serde_json::to_string_pretty(&json!({
-                "queue_version":"0.1",
-                "job_id": job_id,
-                "created_at":"2026-02-27T00:00:00Z",
-                "tasks":[{
-                    "id":"task_1",
-                    "title":"Implement overview",
-                    "kind":"spec",
-                    "spec_refs":[{"path":"specs/00-overview.md","anchor":null}],
-                    "depends_on":[],
-                    "backpressure":{"verify":["nix develop -c cargo test -p brain"]},
-                    "file_ownership":{"allow_globs":["brain/**"],"deny_globs":[]},
-                    "concurrency":{"group":null}
-                }]
-            })).expect("json"),
-            "media_type": "application/json"
-        }))
-        .await
-        .expect("write queue");
+        .expect("json"),
+        "application/json",
+    )
+    .await;
 
     let finalized = registry
         .get("specpack_finalize")
@@ -680,41 +755,37 @@ async fn v2_specpack_finalize_rejects_manifest_drift() {
         .to_string();
     let _terminal = wait_for_terminal_status(&registry, &job_id).await;
 
-    for (path, content, media_type) in [
-        ("specpack/SPECS.md", "# SPECS\n", "text/markdown"),
-        (
-            "specpack/specs/00-overview.md",
-            "# Overview\n",
-            "text/markdown",
-        ),
-        (
-            "specpack/queue.json",
-            "{\"queue_version\":\"0.1\",\"job_id\":\"placeholder\",\"created_at\":\"2026-02-27T00:00:00Z\",\"tasks\":[]}",
-            "application/json",
-        ),
-    ] {
-        registry
-            .get("specpack_write_file")
-            .expect("specpack_write_file exists")
-            .call(json!({
-                "job_id": job_id,
-                "path": path,
-                "encoding": "utf-8",
-                "content": if path == "specpack/queue.json" {
-                    serde_json::to_string_pretty(&json!({
-                        "queue_version":"0.1",
-                        "job_id": job_id,
-                        "created_at":"2026-02-27T00:00:00Z",
-                        "tasks":[]
-                    })).expect("json")
-                } else {
-                    content.to_string()
-                },
-                "media_type": media_type
-            }))
-            .await
-            .expect("write");
-    }
+    specpack_write(
+        &registry,
+        &job_id,
+        "specpack/SPECS.md",
+        "# SPECS\n",
+        "text/markdown",
+    )
+    .await;
+    specpack_write(
+        &registry,
+        &job_id,
+        "specpack/specs/00-overview.md",
+        "# Overview\n",
+        "text/markdown",
+    )
+    .await;
+    specpack_write_minimal_quality_bundle(&registry, &job_id).await;
+    specpack_write(
+        &registry,
+        &job_id,
+        "specpack/queue.json",
+        &serde_json::to_string_pretty(&json!({
+            "queue_version":"0.1",
+            "job_id": job_id,
+            "created_at":"2026-02-27T00:00:00Z",
+            "tasks":[]
+        }))
+        .expect("json"),
+        "application/json",
+    )
+    .await;
 
     registry
         .get("specpack_finalize")
@@ -770,54 +841,46 @@ async fn v2_specpack_finalize_rejects_queue_path_traversal_refs() {
         .to_string();
     let _terminal = wait_for_terminal_status(&registry, &job_id).await;
 
-    for (path, content, media_type) in [
-        ("specpack/SPECS.md", "# SPECS\n", "text/markdown"),
-        (
-            "specpack/specs/00-overview.md",
-            "# Overview\n",
-            "text/markdown",
-        ),
-    ] {
-        registry
-            .get("specpack_write_file")
-            .expect("specpack_write_file exists")
-            .call(json!({
-                "job_id": job_id,
-                "path": path,
-                "encoding": "utf-8",
-                "content": content,
-                "media_type": media_type
-            }))
-            .await
-            .expect("write");
-    }
-
-    registry
-        .get("specpack_write_file")
-        .expect("specpack_write_file exists")
-        .call(json!({
+    specpack_write(
+        &registry,
+        &job_id,
+        "specpack/SPECS.md",
+        "# SPECS\n",
+        "text/markdown",
+    )
+    .await;
+    specpack_write(
+        &registry,
+        &job_id,
+        "specpack/specs/00-overview.md",
+        "# Overview\n",
+        "text/markdown",
+    )
+    .await;
+    specpack_write_minimal_quality_bundle(&registry, &job_id).await;
+    specpack_write(
+        &registry,
+        &job_id,
+        "specpack/queue.json",
+        &serde_json::to_string_pretty(&json!({
+            "queue_version":"0.1",
             "job_id": job_id,
-            "path": "specpack/queue.json",
-            "encoding": "utf-8",
-            "content": serde_json::to_string_pretty(&json!({
-                "queue_version":"0.1",
-                "job_id": job_id,
-                "created_at":"2026-02-27T00:00:00Z",
-                "tasks":[{
-                    "id":"task_unsafe",
-                    "title":"Unsafe",
-                    "kind":"spec",
-                    "spec_refs":[{"path":"../outside.md","anchor":null}],
-                    "depends_on":[],
-                    "backpressure":{"verify":["true"]},
-                    "file_ownership":{"allow_globs":["**"],"deny_globs":[]},
-                    "concurrency":{"group":null}
-                }]
-            })).expect("json"),
-            "media_type": "application/json"
+            "created_at":"2026-02-27T00:00:00Z",
+            "tasks":[{
+                "id":"task_unsafe",
+                "title":"Unsafe",
+                "kind":"spec",
+                "spec_refs":[{"path":"../outside.md","anchor":null}],
+                "depends_on":[],
+                "backpressure":{"verify":["true"]},
+                "file_ownership":{"allow_globs":["**"],"deny_globs":[]},
+                "concurrency":{"group":null}
+            }]
         }))
-        .await
-        .expect("write queue");
+        .expect("json"),
+        "application/json",
+    )
+    .await;
 
     let err = registry
         .get("specpack_finalize")
@@ -828,5 +891,315 @@ async fn v2_specpack_finalize_rejects_queue_path_traversal_refs() {
     assert!(
         err.to_string().contains("path"),
         "expected path error, got: {err}"
+    );
+}
+
+#[tokio::test]
+async fn v2_specpack_finalize_rejects_missing_ledger_json() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let artifact_root = temp.path().join(".brain").join("artifacts");
+    let acquisition = brain::v2::testing::fake_acquisition_registry(vec![]);
+    let registry = brain::v2::testing::backend_registry_for_tests(artifact_root, acquisition);
+
+    let start = registry
+        .get("research_job_start")
+        .expect("start tool exists")
+        .call(json!({"intent":"specpack missing ledger","constraints":{},"targets":[],"tool_policy":{}}))
+        .await
+        .expect("start ok");
+    let job_id = start
+        .get("job_id")
+        .and_then(|v| v.as_str())
+        .expect("job_id")
+        .to_string();
+    let _terminal = wait_for_terminal_status(&registry, &job_id).await;
+
+    registry
+        .get("specpack_init")
+        .expect("specpack_init exists")
+        .call(json!({"job_id": job_id}))
+        .await
+        .expect("specpack_init ok");
+
+    specpack_write(
+        &registry,
+        &job_id,
+        "specpack/SPECS.md",
+        "# SPECS\n",
+        "text/markdown",
+    )
+    .await;
+    specpack_write(
+        &registry,
+        &job_id,
+        "specpack/specs/00-overview.md",
+        "# Overview\n",
+        "text/markdown",
+    )
+    .await;
+    specpack_write(
+        &registry,
+        &job_id,
+        "specpack/conformance/README.md",
+        "# Conformance\n",
+        "text/markdown",
+    )
+    .await;
+    specpack_write(
+        &registry,
+        &job_id,
+        "specpack/conformance/verify",
+        "echo ok\n",
+        "text/plain",
+    )
+    .await;
+    specpack_write(
+        &registry,
+        &job_id,
+        "specpack/specs/05-edge-cases.md",
+        "# Edge Cases\n",
+        "text/markdown",
+    )
+    .await;
+    specpack_write(
+        &registry,
+        &job_id,
+        "specpack/specs/06-testing-and-backpressure.md",
+        "# Testing\n",
+        "text/markdown",
+    )
+    .await;
+    specpack_write(
+        &registry,
+        &job_id,
+        "specpack/queue.json",
+        &serde_json::to_string_pretty(&json!({
+            "queue_version":"0.1",
+            "job_id": job_id,
+            "created_at":"2026-02-27T00:00:00Z",
+            "tasks":[]
+        }))
+        .expect("json"),
+        "application/json",
+    )
+    .await;
+
+    let err = registry
+        .get("specpack_finalize")
+        .expect("specpack_finalize exists")
+        .call(json!({"job_id": job_id}))
+        .await
+        .expect_err("missing ledger must fail");
+    assert!(
+        err.to_string().contains("ledger"),
+        "expected ledger error, got: {err}"
+    );
+}
+
+#[tokio::test]
+async fn v2_specpack_finalize_rejects_ledger_spec_refs_missing_from_specpack() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let artifact_root = temp.path().join(".brain").join("artifacts");
+    let acquisition = brain::v2::testing::fake_acquisition_registry(vec![]);
+    let registry = brain::v2::testing::backend_registry_for_tests(artifact_root, acquisition);
+
+    let start = registry
+        .get("research_job_start")
+        .expect("start tool exists")
+        .call(json!({"intent":"specpack bad ledger refs","constraints":{},"targets":[],"tool_policy":{}}))
+        .await
+        .expect("start ok");
+    let job_id = start
+        .get("job_id")
+        .and_then(|v| v.as_str())
+        .expect("job_id")
+        .to_string();
+    let _terminal = wait_for_terminal_status(&registry, &job_id).await;
+
+    registry
+        .get("specpack_init")
+        .expect("specpack_init exists")
+        .call(json!({"job_id": job_id}))
+        .await
+        .expect("specpack_init ok");
+
+    specpack_write(
+        &registry,
+        &job_id,
+        "specpack/SPECS.md",
+        "# SPECS\n",
+        "text/markdown",
+    )
+    .await;
+    specpack_write(
+        &registry,
+        &job_id,
+        "specpack/specs/00-overview.md",
+        "# Overview\n",
+        "text/markdown",
+    )
+    .await;
+
+    let bad_ledger = json!({
+        "ledger_version": "0.1",
+        "job_id": job_id,
+        "created_at": "2026-02-27T00:00:00Z",
+        "targets": [],
+        "capabilities": [{
+            "id": "cap_missing",
+            "domain": "docs",
+            "title": "Refers to missing spec",
+            "status": "specified",
+            "priority": 1,
+            "spec_refs": [{"path":"specs/does-not-exist.md","anchor": null}],
+            "evidence": []
+        }],
+        "gaps": []
+    });
+    specpack_write(
+        &registry,
+        &job_id,
+        "specpack/ledger.json",
+        &serde_json::to_string_pretty(&bad_ledger).expect("ledger json"),
+        "application/json",
+    )
+    .await;
+
+    specpack_write(
+        &registry,
+        &job_id,
+        "specpack/conformance/README.md",
+        "# Conformance\n",
+        "text/markdown",
+    )
+    .await;
+    specpack_write(
+        &registry,
+        &job_id,
+        "specpack/conformance/verify",
+        "echo ok\n",
+        "text/plain",
+    )
+    .await;
+    specpack_write(
+        &registry,
+        &job_id,
+        "specpack/specs/05-edge-cases.md",
+        "# Edge Cases\n",
+        "text/markdown",
+    )
+    .await;
+    specpack_write(
+        &registry,
+        &job_id,
+        "specpack/specs/06-testing-and-backpressure.md",
+        "# Testing\n",
+        "text/markdown",
+    )
+    .await;
+    specpack_write(
+        &registry,
+        &job_id,
+        "specpack/queue.json",
+        &serde_json::to_string_pretty(&json!({
+            "queue_version":"0.1",
+            "job_id": job_id,
+            "created_at":"2026-02-27T00:00:00Z",
+            "tasks":[]
+        }))
+        .expect("json"),
+        "application/json",
+    )
+    .await;
+
+    let err = registry
+        .get("specpack_finalize")
+        .expect("specpack_finalize exists")
+        .call(json!({"job_id": job_id}))
+        .await
+        .expect_err("bad ledger refs must fail");
+    assert!(
+        err.to_string().contains("spec"),
+        "expected spec ref error, got: {err}"
+    );
+}
+
+#[tokio::test]
+async fn v2_specpack_finalize_rejects_impl_task_missing_verify_commands() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let artifact_root = temp.path().join(".brain").join("artifacts");
+    let acquisition = brain::v2::testing::fake_acquisition_registry(vec![]);
+    let registry = brain::v2::testing::backend_registry_for_tests(artifact_root, acquisition);
+
+    let start = registry
+        .get("research_job_start")
+        .expect("start tool exists")
+        .call(json!({"intent":"specpack missing verify","constraints":{},"targets":[],"tool_policy":{}}))
+        .await
+        .expect("start ok");
+    let job_id = start
+        .get("job_id")
+        .and_then(|v| v.as_str())
+        .expect("job_id")
+        .to_string();
+    let _terminal = wait_for_terminal_status(&registry, &job_id).await;
+
+    registry
+        .get("specpack_init")
+        .expect("specpack_init exists")
+        .call(json!({"job_id": job_id}))
+        .await
+        .expect("specpack_init ok");
+
+    specpack_write(
+        &registry,
+        &job_id,
+        "specpack/SPECS.md",
+        "# SPECS\n",
+        "text/markdown",
+    )
+    .await;
+    specpack_write(
+        &registry,
+        &job_id,
+        "specpack/specs/00-overview.md",
+        "# Overview\n",
+        "text/markdown",
+    )
+    .await;
+    specpack_write_minimal_quality_bundle(&registry, &job_id).await;
+    specpack_write(
+        &registry,
+        &job_id,
+        "specpack/queue.json",
+        &serde_json::to_string_pretty(&json!({
+            "queue_version":"0.1",
+            "job_id": job_id,
+            "created_at":"2026-02-27T00:00:00Z",
+            "tasks":[{
+                "id":"task_impl",
+                "title":"Implement something",
+                "kind":"impl",
+                "spec_refs":[{"path":"specs/00-overview.md","anchor":null}],
+                "depends_on":[],
+                "backpressure":{"verify":[]},
+                "file_ownership":{"allow_globs":["**"],"deny_globs":[]},
+                "concurrency":{"group":null}
+            }]
+        }))
+        .expect("json"),
+        "application/json",
+    )
+    .await;
+
+    let err = registry
+        .get("specpack_finalize")
+        .expect("specpack_finalize exists")
+        .call(json!({"job_id": job_id}))
+        .await
+        .expect_err("impl task without verify must fail");
+    assert!(
+        err.to_string().contains("verify"),
+        "expected verify error, got: {err}"
     );
 }

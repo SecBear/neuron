@@ -22,6 +22,12 @@ const SPECPACK_INDEX_PATH: &str = "specpack/SPECS.md";
 const SPECPACK_MANIFEST_PATH: &str = "specpack/manifest.json";
 const SPECPACK_DEFAULT_QUEUE_PATH: &str = "specpack/queue.json";
 const SPECPACK_VERSION: &str = "0.1";
+const SPECPACK_DEFAULT_LEDGER_PATH: &str = "ledger.json";
+const SPECPACK_DEFAULT_CONFORMANCE_ROOT: &str = "conformance/";
+const SPECPACK_DEFAULT_REQUIRED_SPEC_FILES: [&str; 2] = [
+    "specs/05-edge-cases.md",
+    "specs/06-testing-and-backpressure.md",
+];
 
 /// Status for an async research job.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -144,6 +150,8 @@ struct SpecPackManifest {
     files: Vec<SpecPackManifestFile>,
     entrypoints: Vec<String>,
     roots: SpecPackManifestRoots,
+    #[serde(default)]
+    quality: Option<SpecPackManifestQuality>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -161,12 +169,54 @@ struct SpecPackManifestRoots {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+struct SpecPackManifestQuality {
+    ledger_path: String,
+    conformance_root: String,
+    #[serde(default)]
+    required_spec_files: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct SpecPackQueue {
     queue_version: String,
     job_id: String,
     created_at: String,
     #[serde(default)]
     tasks: Vec<SpecPackTask>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct SpecPackLedger {
+    ledger_version: String,
+    job_id: String,
+    created_at: String,
+    #[serde(default)]
+    targets: Vec<Value>,
+    #[serde(default)]
+    capabilities: Vec<SpecPackLedgerCapability>,
+    #[serde(default)]
+    gaps: Vec<Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct SpecPackLedgerCapability {
+    id: String,
+    domain: String,
+    title: String,
+    status: String,
+    priority: i64,
+    #[serde(default)]
+    spec_refs: Vec<SpecPackSpecRef>,
+    #[serde(default)]
+    evidence: Vec<Value>,
+    #[serde(default)]
+    conformance_refs: Vec<SpecPackConformanceRef>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct SpecPackConformanceRef {
+    path: String,
+    kind: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -573,13 +623,14 @@ impl JobManager {
             ));
         }
 
+        ensure_specpack_quality_defaults_exist(&specpack_dir)
+            .map_err(ToolError::ExecutionFailed)?;
+
         let manifest_path = job_dir.join(SPECPACK_MANIFEST_PATH);
         if manifest_path.exists() {
             let existing_text = std::fs::read_to_string(&manifest_path)
                 .map_err(|e| ToolError::ExecutionFailed(e.to_string()))?;
-            let existing_manifest: SpecPackManifest = serde_json::from_str(&existing_text)
-                .map_err(|e| ToolError::ExecutionFailed(e.to_string()))?;
-            validate_specpack_manifest(&job_dir, &existing_manifest)
+            validate_existing_manifest_drift(&job_dir, &existing_text)
                 .map_err(|e| ToolError::ExecutionFailed(format!("specpack manifest drift: {e}")))?;
         }
 
@@ -631,8 +682,17 @@ impl JobManager {
                 queue_path: queue_rel_specpack.to_string_lossy().replace('\\', "/"),
                 index_path: "SPECS.md".to_string(),
             },
+            quality: Some(SpecPackManifestQuality {
+                ledger_path: SPECPACK_DEFAULT_LEDGER_PATH.to_string(),
+                conformance_root: SPECPACK_DEFAULT_CONFORMANCE_ROOT.to_string(),
+                required_spec_files: SPECPACK_DEFAULT_REQUIRED_SPEC_FILES
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect(),
+            }),
         };
         validate_specpack_manifest(&job_dir, &manifest).map_err(ToolError::ExecutionFailed)?;
+        validate_specpack_ledger(&job_dir, &manifest).map_err(ToolError::ExecutionFailed)?;
 
         std::fs::write(
             &manifest_path,
@@ -1142,6 +1202,12 @@ fn validate_specpack_queue(
         if task.id.trim().is_empty() {
             return Err("queue task id must be non-empty".to_string());
         }
+        if task.kind == "impl" && task.backpressure.verify.is_empty() {
+            return Err(format!(
+                "queue task `{}` kind=impl must include at least one backpressure.verify command",
+                task.id
+            ));
+        }
         if !task_ids.insert(task.id.clone()) {
             return Err(format!("duplicate queue task id: {}", task.id));
         }
@@ -1227,6 +1293,219 @@ fn validate_specpack_manifest(job_dir: &Path, manifest: &SpecPackManifest) -> Re
             manifest.roots.queue_path
         ));
     }
+
+    let quality = manifest
+        .quality
+        .as_ref()
+        .ok_or_else(|| "manifest quality missing".to_string())?;
+    let ledger_rel = validate_relative_path(&quality.ledger_path)?;
+    let ledger_rel_text = ledger_rel.to_string_lossy().replace('\\', "/");
+    if !file_paths.contains(&ledger_rel_text) {
+        return Err(format!(
+            "manifest quality.ledger_path not found in files: {}",
+            quality.ledger_path
+        ));
+    }
+
+    let conformance_root = normalize_dir_prefix(&quality.conformance_root)?;
+    let conformance_readme = format!("{conformance_root}README.md");
+    let conformance_verify = format!("{conformance_root}verify");
+    if !file_paths.contains(&conformance_readme) {
+        return Err(format!(
+            "missing required conformance file in manifest: {conformance_readme}"
+        ));
+    }
+    if !file_paths.contains(&conformance_verify) {
+        return Err(format!(
+            "missing required conformance file in manifest: {conformance_verify}"
+        ));
+    }
+
+    for required in &quality.required_spec_files {
+        if !required.starts_with("specs/") {
+            return Err(format!(
+                "manifest quality.required_spec_files must be under specs/: {required}"
+            ));
+        }
+        if !file_paths.contains(required) {
+            return Err(format!(
+                "manifest required spec file missing from files: {required}"
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn normalize_dir_prefix(input: &str) -> Result<String, String> {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        return Err("directory prefix must be non-empty".to_string());
+    }
+    let rel = validate_relative_path(trimmed)?;
+    let text = rel.to_string_lossy().replace('\\', "/");
+    if text.is_empty() {
+        return Err("directory prefix must be non-empty".to_string());
+    }
+    if text.ends_with('/') {
+        Ok(text)
+    } else {
+        Ok(format!("{text}/"))
+    }
+}
+
+fn ensure_specpack_quality_defaults_exist(specpack_dir: &Path) -> Result<(), String> {
+    let required_files = [
+        PathBuf::from(SPECPACK_DEFAULT_LEDGER_PATH),
+        PathBuf::from("conformance/README.md"),
+        PathBuf::from("conformance/verify"),
+        PathBuf::from(SPECPACK_DEFAULT_REQUIRED_SPEC_FILES[0]),
+        PathBuf::from(SPECPACK_DEFAULT_REQUIRED_SPEC_FILES[1]),
+    ];
+
+    for rel in required_files {
+        let full = specpack_dir.join(&rel);
+        if !full.exists() {
+            return Err(format!(
+                "missing required file: {SPECPACK_DIR}/{}",
+                rel.display()
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_existing_manifest_drift(job_dir: &Path, manifest_text: &str) -> Result<(), String> {
+    let parsed: Value = serde_json::from_str(manifest_text).map_err(|e| e.to_string())?;
+    let files = parsed
+        .get("files")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| "manifest drift check: missing files[]".to_string())?;
+
+    let specpack_dir = job_dir.join(SPECPACK_DIR);
+    let mut seen_paths = HashSet::<String>::new();
+    for file in files {
+        let path = file
+            .get("path")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| "manifest drift check: file missing path".to_string())?;
+        let sha256 = file
+            .get("sha256")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| "manifest drift check: file missing sha256".to_string())?;
+        if !seen_paths.insert(path.to_string()) {
+            return Err(format!("manifest drift check: duplicate file path: {path}"));
+        }
+        let rel = validate_relative_path(path)?;
+        let full = specpack_dir.join(&rel);
+        let bytes = std::fs::read(&full)
+            .map_err(|e| format!("manifest drift check: missing file `{path}`: {e}"))?;
+        let computed = sha256_hex(&bytes);
+        if computed != sha256 {
+            return Err(format!(
+                "manifest drift check: hash mismatch for `{path}`: expected {sha256}, got {computed}"
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_specpack_ledger(job_dir: &Path, manifest: &SpecPackManifest) -> Result<(), String> {
+    let quality = manifest
+        .quality
+        .as_ref()
+        .ok_or_else(|| "manifest quality missing".to_string())?;
+
+    let ledger_path = validate_relative_path(&quality.ledger_path)?;
+    let ledger_full = job_dir.join(SPECPACK_DIR).join(&ledger_path);
+    let text = std::fs::read_to_string(&ledger_full).map_err(|e| e.to_string())?;
+    let ledger: SpecPackLedger = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+
+    let _ = parse_rfc3339_utc(&ledger.created_at)?;
+    if ledger.job_id != manifest.job_id {
+        return Err(format!(
+            "ledger job_id mismatch: expected {}, got {}",
+            manifest.job_id, ledger.job_id
+        ));
+    }
+
+    let conformance_root = normalize_dir_prefix(&quality.conformance_root)?;
+    let manifest_paths: HashSet<String> = manifest.files.iter().map(|f| f.path.clone()).collect();
+
+    let mut capability_ids = HashSet::<String>::new();
+    for capability in &ledger.capabilities {
+        if capability.id.trim().is_empty() {
+            return Err("ledger capability id must be non-empty".to_string());
+        }
+        if !capability_ids.insert(capability.id.clone()) {
+            return Err(format!("duplicate ledger capability id: {}", capability.id));
+        }
+        match capability.status.as_str() {
+            "unknown" | "specified" | "implemented" | "verified" => {}
+            other => return Err(format!("invalid ledger capability status: {other}")),
+        }
+        for spec_ref in &capability.spec_refs {
+            let rel = validate_relative_path(&spec_ref.path)?;
+            if rel
+                .components()
+                .next()
+                .is_some_and(|component| component == Component::Normal(OsStr::new(SPECPACK_DIR)))
+            {
+                return Err(format!(
+                    "ledger spec_refs must be specpack-relative, got: {}",
+                    spec_ref.path
+                ));
+            }
+            if !spec_ref.path.starts_with("specs/") {
+                return Err(format!(
+                    "ledger spec_refs path must be under specs/: {}",
+                    spec_ref.path
+                ));
+            }
+            if !manifest_paths.contains(&spec_ref.path) {
+                return Err(format!(
+                    "ledger spec_refs path missing from manifest files: {}",
+                    spec_ref.path
+                ));
+            }
+        }
+
+        if capability.status == "verified" && capability.conformance_refs.is_empty() {
+            return Err(format!(
+                "ledger capability `{}` status=verified must include conformance_refs[]",
+                capability.id
+            ));
+        }
+        for cref in &capability.conformance_refs {
+            let rel = validate_relative_path(&cref.path)?;
+            if rel
+                .components()
+                .next()
+                .is_some_and(|component| component == Component::Normal(OsStr::new(SPECPACK_DIR)))
+            {
+                return Err(format!(
+                    "ledger conformance_refs must be specpack-relative, got: {}",
+                    cref.path
+                ));
+            }
+            if !cref.path.starts_with(&conformance_root) {
+                return Err(format!(
+                    "ledger conformance_refs must be under conformance root `{conformance_root}`, got: {}",
+                    cref.path
+                ));
+            }
+            if !manifest_paths.contains(&cref.path) {
+                return Err(format!(
+                    "ledger conformance_refs path missing from manifest files: {}",
+                    cref.path
+                ));
+            }
+            match cref.kind.as_str() {
+                "golden" | "test" | "trace" | "matrix" => {}
+                other => return Err(format!("invalid conformance_refs kind: {other}")),
+            }
+        }
+    }
+
     Ok(())
 }
 
