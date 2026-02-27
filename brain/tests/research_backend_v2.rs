@@ -98,6 +98,71 @@ async fn v2_job_writes_bundle_and_artifacts_and_can_be_inspected() {
 }
 
 #[tokio::test]
+async fn v2_jobs_persist_across_manager_restart() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let artifact_root = temp.path().join(".brain").join("artifacts");
+
+    let acquisition = brain::v2::testing::fake_acquisition_registry(vec![(
+        "web_search",
+        json!({"results":[{"title":"Example","url":"https://example.invalid","snippet":"alpha"}]}),
+    )]);
+
+    let registry1 =
+        brain::v2::testing::backend_registry_for_tests(artifact_root.clone(), acquisition);
+    let start = registry1
+        .get("research_job_start")
+        .expect("start tool exists")
+        .call(json!({"intent":"persist test","constraints":{},"targets":[],"tool_policy":{}}))
+        .await
+        .expect("start ok");
+    let job_id = start
+        .get("job_id")
+        .and_then(|v| v.as_str())
+        .expect("job_id")
+        .to_string();
+
+    for _ in 0..50 {
+        let status = registry1
+            .get("research_job_status")
+            .expect("status tool exists")
+            .call(json!({"job_id": job_id.clone()}))
+            .await
+            .expect("status ok");
+        if status.get("status").and_then(|v| v.as_str()) == Some("succeeded") {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+
+    let registry2 = brain::v2::testing::backend_registry_for_tests(
+        artifact_root,
+        brain::v2::testing::fake_acquisition_registry(vec![]),
+    );
+
+    let status2 = registry2
+        .get("research_job_status")
+        .expect("status tool exists")
+        .call(json!({"job_id": job_id.clone()}))
+        .await
+        .expect("status ok");
+    assert_eq!(
+        status2.get("status").and_then(|v| v.as_str()),
+        Some("succeeded")
+    );
+
+    let got2 = registry2
+        .get("research_job_get")
+        .expect("get tool exists")
+        .call(json!({"job_id": job_id.clone()}))
+        .await
+        .expect("get ok");
+    assert_eq!(
+        got2.get("status").and_then(|v| v.as_str()),
+        Some("succeeded")
+    );
+}
+
+#[tokio::test]
 async fn v2_artifact_read_rejects_path_traversal() {
     let temp = tempfile::tempdir().expect("tempdir");
     let artifact_root = temp.path().join(".brain").join("artifacts");

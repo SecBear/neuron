@@ -1,5 +1,6 @@
 //! Brain v2: structured research backend (async jobs + grounded bundles).
 
+use base64::Engine;
 use chrono::{DateTime, Utc};
 use neuron_tool::{ToolDyn, ToolError, ToolRegistry};
 use serde::{Deserialize, Serialize};
@@ -56,6 +57,15 @@ struct JobEntry {
     handle: Option<tokio::task::JoinHandle<()>>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct JobRecord {
+    job_id: String,
+    created_at: String,
+    status: JobStatus,
+    inputs: JobInputs,
+    error: Option<String>,
+}
+
 /// Shared manager for research jobs.
 ///
 /// The MCP-exposed tools call into this manager to start/poll/get/cancel jobs and inspect artifacts.
@@ -68,15 +78,112 @@ pub struct JobManager {
 impl JobManager {
     /// Create a new job manager.
     pub fn new(artifact_root: PathBuf, acquisition: ToolRegistry) -> Self {
+        std::fs::create_dir_all(&artifact_root).ok();
+
+        let mut initial = HashMap::new();
+        if let Ok(entries) = std::fs::read_dir(&artifact_root) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if !path.is_dir() {
+                    continue;
+                }
+                let job_id = match path.file_name().and_then(|s| s.to_str()) {
+                    Some(name) => name.to_string(),
+                    None => continue,
+                };
+                let job_path = path.join("job.json");
+                if !job_path.exists() {
+                    continue;
+                }
+                if let Ok(content) = std::fs::read_to_string(&job_path) {
+                    if let Ok(record) = serde_json::from_str::<JobRecord>(&content) {
+                        if let Ok(created_at) = parse_rfc3339_utc(&record.created_at) {
+                            let mut status = record.status;
+                            let mut error = record.error;
+                            // Pragmatic restart semantics: running/pending can't be resumed yet.
+                            if matches!(status, JobStatus::Running | JobStatus::Pending) {
+                                status = JobStatus::Failed;
+                                if error.is_none() {
+                                    error = Some(
+                                        "job was running during process restart; not resumable"
+                                            .to_string(),
+                                    );
+                                }
+                                let updated = JobRecord {
+                                    job_id: job_id.clone(),
+                                    created_at: record.created_at,
+                                    status: status.clone(),
+                                    inputs: record.inputs.clone(),
+                                    error: error.clone(),
+                                };
+                                let _ = std::fs::write(
+                                    &job_path,
+                                    serde_json::to_string_pretty(&updated)
+                                        .unwrap_or_else(|_| "{}".to_string()),
+                                );
+                            }
+
+                            initial.insert(
+                                job_id,
+                                JobEntry {
+                                    created_at,
+                                    status,
+                                    inputs: record.inputs,
+                                    error,
+                                    handle: None,
+                                },
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
         Self {
             artifact_root,
             acquisition: Arc::new(acquisition),
-            jobs: Mutex::new(HashMap::new()),
+            jobs: Mutex::new(initial),
         }
     }
 
     fn job_dir(&self, job_id: &str) -> PathBuf {
         self.artifact_root.join(job_id)
+    }
+
+    fn job_record_path(&self, job_id: &str) -> PathBuf {
+        self.job_dir(job_id).join("job.json")
+    }
+
+    fn write_job_record(&self, job_id: &str, entry: &JobEntry) -> Result<(), ToolError> {
+        let record = JobRecord {
+            job_id: job_id.to_string(),
+            created_at: entry.created_at.to_rfc3339(),
+            status: entry.status.clone(),
+            inputs: entry.inputs.clone(),
+            error: entry.error.clone(),
+        };
+        let path = self.job_record_path(job_id);
+        std::fs::write(
+            &path,
+            serde_json::to_string_pretty(&record)
+                .map_err(|e| ToolError::ExecutionFailed(e.to_string()))?,
+        )
+        .map_err(|e| ToolError::ExecutionFailed(e.to_string()))?;
+        Ok(())
+    }
+
+    fn try_load_job_record(&self, job_id: &str) -> Option<JobEntry> {
+        let path = self.job_record_path(job_id);
+        let content = std::fs::read_to_string(&path).ok()?;
+        let record = serde_json::from_str::<JobRecord>(&content).ok()?;
+        let created_at = parse_rfc3339_utc(&record.created_at).ok()?;
+        Some(JobEntry {
+            created_at,
+            status: record.status,
+            inputs: record.inputs,
+            error: record.error,
+            handle: None,
+        })
     }
 
     async fn start_job(self: &Arc<Self>, inputs: JobInputs) -> Result<String, ToolError> {
@@ -98,6 +205,9 @@ impl JobManager {
                 handle: None,
             },
         );
+        if let Some(entry) = jobs.get(&job_id) {
+            self.write_job_record(&job_id, entry)?;
+        }
 
         let mgr = Arc::clone(self);
         let job_id_clone = job_id.clone();
@@ -123,18 +233,25 @@ impl JobManager {
                     }
                 }
                 entry.handle = None;
+                let _ = mgr.write_job_record(&job_id_clone, entry);
             }
         });
 
         if let Some(entry) = jobs.get_mut(&job_id) {
             entry.handle = Some(handle);
+            self.write_job_record(&job_id, entry)?;
         }
 
         Ok(job_id)
     }
 
     async fn status(&self, job_id: &str) -> Result<Value, ToolError> {
-        let jobs = self.jobs.lock().await;
+        let mut jobs = self.jobs.lock().await;
+        if !jobs.contains_key(job_id) {
+            if let Some(loaded) = self.try_load_job_record(job_id) {
+                jobs.insert(job_id.to_string(), loaded);
+            }
+        }
         let entry = jobs
             .get(job_id)
             .ok_or_else(|| ToolError::NotFound(format!("job not found: {job_id}")))?;
@@ -150,7 +267,12 @@ impl JobManager {
     }
 
     async fn get_bundle(&self, job_id: &str) -> Result<Value, ToolError> {
-        let jobs = self.jobs.lock().await;
+        let mut jobs = self.jobs.lock().await;
+        if !jobs.contains_key(job_id) {
+            if let Some(loaded) = self.try_load_job_record(job_id) {
+                jobs.insert(job_id.to_string(), loaded);
+            }
+        }
         let entry = jobs
             .get(job_id)
             .ok_or_else(|| ToolError::NotFound(format!("job not found: {job_id}")))?;
@@ -184,6 +306,7 @@ impl JobManager {
         if let Some(handle) = entry.handle.take() {
             handle.abort();
         }
+        self.write_job_record(job_id, entry)?;
         Ok(serde_json::json!({"job_id": job_id, "status": JobStatus::Canceled}))
     }
 
@@ -218,14 +341,26 @@ impl JobManager {
         let rel =
             validate_relative_path(path).map_err(|e| ToolError::InvalidInput(e.to_string()))?;
         let full = self.job_dir(job_id).join(&rel);
-        let content = std::fs::read_to_string(&full)
-            .map_err(|e| ToolError::ExecutionFailed(e.to_string()))?;
-        let sha256 = sha256_hex(content.as_bytes());
-        Ok(serde_json::json!({
-            "path": rel.to_string_lossy(),
-            "content": content,
-            "sha256": sha256
-        }))
+        let bytes = std::fs::read(&full).map_err(|e| ToolError::ExecutionFailed(e.to_string()))?;
+        let sha256 = sha256_hex(&bytes);
+        match String::from_utf8(bytes) {
+            Ok(content) => Ok(serde_json::json!({
+                "path": rel.to_string_lossy(),
+                "sha256": sha256,
+                "encoding": "utf-8",
+                "content": content
+            })),
+            Err(e) => {
+                let raw = e.into_bytes();
+                let b64 = base64::engine::general_purpose::STANDARD.encode(raw);
+                Ok(serde_json::json!({
+                    "path": rel.to_string_lossy(),
+                    "sha256": sha256,
+                    "encoding": "base64",
+                    "content_base64": b64
+                }))
+            }
+        }
     }
 
     async fn read_index(&self, job_id: &str) -> Result<Value, ToolError> {
@@ -389,6 +524,11 @@ fn sha256_hex(bytes: &[u8]) -> String {
     let mut hasher = Sha256::new();
     hasher.update(bytes);
     hex::encode(hasher.finalize())
+}
+
+fn parse_rfc3339_utc(text: &str) -> Result<DateTime<Utc>, String> {
+    let parsed = DateTime::parse_from_rfc3339(text).map_err(|e| e.to_string())?;
+    Ok(parsed.with_timezone(&Utc))
 }
 
 struct ResearchJobStartTool {

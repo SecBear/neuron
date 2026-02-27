@@ -81,6 +81,7 @@ At minimum the following files MUST exist:
 
 1. `index.json` (machine-readable bundle index)
 2. `findings.md` (human-readable distillation)
+3. `job.json` (job record; used for restart persistence)
 
 The bundle SHOULD include:
 
@@ -135,6 +136,32 @@ Safety constraints:
 2. Path traversal (`..`) and absolute paths MUST be rejected.
 3. Artifact writes MUST create parent directories as needed.
 
+## Job Persistence
+
+Brain v2 MUST persist job status to disk so a process restart does not lose completed bundles.
+
+Minimum requirement:
+
+- Each job directory MUST contain `job.json` with:
+  - `job_id`
+  - `created_at` (RFC3339)
+  - `status`
+  - `inputs`
+  - `error` (optional)
+
+Restart semantics (pragmatic):
+
+- Jobs that were `pending` or `running` when the process restarted MUST be treated as `failed`
+  (unless Brain implements resumable execution) and the error SHOULD indicate that resumption is
+  not supported yet.
+
+## Hashing / Provenance
+
+Brain v2 MUST compute `sha256` values over the **raw bytes** stored on disk for each artifact.
+
+Brain v2 MUST NOT compute hashes over decoded/normalized strings if doing so could change the byte
+representation.
+
 ## MCP Tool Surface (Brain v2)
 
 Brain v2 MUST expose the following MCP tools (stable ids):
@@ -159,7 +186,8 @@ Brain v2 MUST expose the following artifact inspection tools:
    - Output: `{ "artifacts": [ { "path": "...", "sha256": "..." } ] }`
 2. `artifact_read`
    - Input: `{ "job_id": "...", "path": "sources/foo.md" }`
-   - Output: `{ "path": "...", "content": "...", "sha256": "..." }`
+   - Output (UTF-8): `{ "path": "...", "encoding": "utf-8", "content": "...", "sha256": "..." }`
+   - Output (binary): `{ "path": "...", "encoding": "base64", "content_base64": "...", "sha256": "..." }`
 
 Brain v2 MAY add additional tools for:
 
@@ -220,4 +248,3 @@ Future work may add a “specifier” mode that takes a bundle index and emits:
 Hard constraint:
 
 - no spec claim without evidence or explicit “assumption/design choice” markers.
-
