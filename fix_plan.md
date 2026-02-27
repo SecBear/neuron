@@ -10,20 +10,14 @@ Rules:
 
 ## Queue
 
-1. Add CI (hard enforcement) for formatting, tests, and clippy
-   - Specs: `specs/13-documentation-and-dx-parity.md`
-   - Done when:
-     - GitHub Actions runs `pre-commit` (treefmt), `cargo test`, `cargo clippy` in the Nix dev shell
-   - Verify: `nix develop -c cargo test`
-
-2. Add root README + crate map + quickstart
+1. Add root README + crate map + quickstart
    - Spec: `specs/13-documentation-and-dx-parity.md`
    - Done when:
      - A new `README.md` exists with a minimal quickstart for local composition
      - Includes a crate map and points to `SPECS.md` for requirements
    - Verify: `nix develop -c cargo test`
 
-3. Add umbrella `neuron` crate with feature flags + prelude
+2. Add umbrella `neuron` crate with feature flags + prelude
    - Spec: `specs/12-packaging-versioning-and-umbrella-crate.md`
    - Done when:
      - `neuron/` crate exists and re-exports the happy-path set behind features
@@ -39,3 +33,7 @@ Rules:
 
 - 2026-02-27: Hardened Brain v2 research backend (bundle contract + acquisition roles)
   - Spec: `specs/15-brain-research-backend.md`
+
+- 2026-02-27: CI hard enforcement (format, tests, clippy) is present
+  - Spec: `specs/13-documentation-and-dx-parity.md`
+  - Workflow: `.github/workflows/ci.yml`
