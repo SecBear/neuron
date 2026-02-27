@@ -754,6 +754,58 @@ impl JobManager {
         }
     }
 
+    async fn artifact_import(
+        &self,
+        job_id: &str,
+        path: &str,
+        encoding: &str,
+        content: &str,
+        _media_type: &str,
+    ) -> Result<Value, ToolError> {
+        let rel =
+            validate_relative_path(path).map_err(|e| ToolError::InvalidInput(e.to_string()))?;
+        let bytes = decode_content(encoding, content)
+            .map_err(|e| ToolError::InvalidInput(e.to_string()))?;
+        let full_path = self.job_dir(job_id).join(&rel);
+        if let Some(parent) = full_path.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| ToolError::ExecutionFailed(e.to_string()))?;
+        }
+        std::fs::write(&full_path, &bytes)
+            .map_err(|e| ToolError::ExecutionFailed(e.to_string()))?;
+        let sha256 = sha256_hex(&bytes);
+        Ok(serde_json::json!({
+            "path": rel.to_string_lossy(),
+            "sha256": sha256,
+        }))
+    }
+
+    async fn artifact_write(
+        &self,
+        job_id: &str,
+        path: &str,
+        encoding: &str,
+        content: &str,
+        _media_type: &str,
+    ) -> Result<Value, ToolError> {
+        let rel =
+            validate_relative_path(path).map_err(|e| ToolError::InvalidInput(e.to_string()))?;
+        let bytes = decode_content(encoding, content)
+            .map_err(|e| ToolError::InvalidInput(e.to_string()))?;
+        let full_path = self.job_dir(job_id).join(&rel);
+        if let Some(parent) = full_path.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| ToolError::ExecutionFailed(e.to_string()))?;
+        }
+        std::fs::write(&full_path, &bytes)
+            .map_err(|e| ToolError::ExecutionFailed(e.to_string()))?;
+        let sha256 = sha256_hex(&bytes);
+        Ok(serde_json::json!({
+            "path": rel.to_string_lossy(),
+            "sha256": sha256,
+        }))
+    }
+
     async fn read_index_typed(&self, job_id: &str) -> Result<BundleIndex, ToolError> {
         let path = self.job_dir(job_id).join(INDEX_FILENAME);
         let content = std::fs::read_to_string(&path)
@@ -779,6 +831,8 @@ pub fn backend_registry(manager: Arc<JobManager>) -> ToolRegistry {
     registry.register(Arc::new(SpecPackFinalizeTool::new(Arc::clone(&manager))));
     registry.register(Arc::new(ArtifactListTool::new(Arc::clone(&manager))));
     registry.register(Arc::new(ArtifactReadTool::new(Arc::clone(&manager))));
+    registry.register(Arc::new(ArtifactImportTool::new(Arc::clone(&manager))));
+    registry.register(Arc::new(ArtifactWriteTool::new(Arc::clone(&manager))));
     registry
 }
 
@@ -1083,6 +1137,16 @@ fn sha256_hex(bytes: &[u8]) -> String {
 fn parse_rfc3339_utc(text: &str) -> Result<DateTime<Utc>, String> {
     let parsed = DateTime::parse_from_rfc3339(text).map_err(|e| e.to_string())?;
     Ok(parsed.with_timezone(&Utc))
+}
+
+fn decode_content(encoding: &str, content: &str) -> Result<Vec<u8>, String> {
+    match encoding {
+        "utf-8" => Ok(content.as_bytes().to_vec()),
+        "base64" => base64::engine::general_purpose::STANDARD
+            .decode(content)
+            .map_err(|e| format!("base64 decode error: {e}")),
+        other => Err(format!("unsupported encoding: {other}")),
+    }
 }
 
 fn validate_specpack_job_path(path: &str) -> Result<PathBuf, String> {
@@ -2022,6 +2086,137 @@ impl ToolDyn for ArtifactReadTool {
                 .and_then(|v| v.as_str())
                 .ok_or_else(|| ToolError::InvalidInput("missing field: path".to_string()))?;
             self.mgr.artifact_read(job_id, path).await
+        })
+    }
+}
+
+struct ArtifactImportTool {
+    mgr: Arc<JobManager>,
+}
+
+impl ArtifactImportTool {
+    fn new(mgr: Arc<JobManager>) -> Self {
+        Self { mgr }
+    }
+}
+
+impl ToolDyn for ArtifactImportTool {
+    fn name(&self) -> &str {
+        "artifact_import"
+    }
+    fn description(&self) -> &str {
+        "Import a source snapshot or content into a job directory. Stores bytes only; does not execute code."
+    }
+    fn input_schema(&self) -> Value {
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "job_id": {"type": "string"},
+                "path": {"type": "string"},
+                "encoding": {"type": "string", "enum": ["utf-8", "base64"]},
+                "content": {"type": "string"},
+                "media_type": {"type": "string"},
+                "provenance": {
+                    "type": "object",
+                    "properties": {
+                        "source_url": {"type": ["string", "null"]},
+                        "retrieved_at": {"type": ["string", "null"]}
+                    }
+                }
+            },
+            "required": ["job_id", "path", "encoding", "content", "media_type"]
+        })
+    }
+    fn call(
+        &self,
+        input: Value,
+    ) -> Pin<Box<dyn Future<Output = Result<Value, ToolError>> + Send + '_>> {
+        Box::pin(async move {
+            let job_id = input
+                .get("job_id")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| ToolError::InvalidInput("missing field: job_id".to_string()))?;
+            let path = input
+                .get("path")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| ToolError::InvalidInput("missing field: path".to_string()))?;
+            let encoding = input
+                .get("encoding")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| ToolError::InvalidInput("missing field: encoding".to_string()))?;
+            let content = input
+                .get("content")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| ToolError::InvalidInput("missing field: content".to_string()))?;
+            let media_type = input
+                .get("media_type")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| ToolError::InvalidInput("missing field: media_type".to_string()))?;
+            self.mgr
+                .artifact_import(job_id, path, encoding, content, media_type)
+                .await
+        })
+    }
+}
+
+struct ArtifactWriteTool {
+    mgr: Arc<JobManager>,
+}
+
+impl ArtifactWriteTool {
+    fn new(mgr: Arc<JobManager>) -> Self {
+        Self { mgr }
+    }
+}
+
+impl ToolDyn for ArtifactWriteTool {
+    fn name(&self) -> &str {
+        "artifact_write"
+    }
+    fn description(&self) -> &str {
+        "Write or overwrite a derived artifact (e.g. tables, normalized specs, queues) under a job directory."
+    }
+    fn input_schema(&self) -> Value {
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "job_id": {"type": "string"},
+                "path": {"type": "string"},
+                "encoding": {"type": "string", "enum": ["utf-8", "base64"]},
+                "content": {"type": "string"},
+                "media_type": {"type": "string"}
+            },
+            "required": ["job_id", "path", "encoding", "content", "media_type"]
+        })
+    }
+    fn call(
+        &self,
+        input: Value,
+    ) -> Pin<Box<dyn Future<Output = Result<Value, ToolError>> + Send + '_>> {
+        Box::pin(async move {
+            let job_id = input
+                .get("job_id")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| ToolError::InvalidInput("missing field: job_id".to_string()))?;
+            let path = input
+                .get("path")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| ToolError::InvalidInput("missing field: path".to_string()))?;
+            let encoding = input
+                .get("encoding")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| ToolError::InvalidInput("missing field: encoding".to_string()))?;
+            let content = input
+                .get("content")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| ToolError::InvalidInput("missing field: content".to_string()))?;
+            let media_type = input
+                .get("media_type")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| ToolError::InvalidInput("missing field: media_type".to_string()))?;
+            self.mgr
+                .artifact_write(job_id, path, encoding, content, media_type)
+                .await
         })
     }
 }

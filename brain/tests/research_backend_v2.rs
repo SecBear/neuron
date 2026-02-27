@@ -1,3 +1,4 @@
+use base64::Engine as _;
 use neuron_tool::{ToolDyn, ToolError, ToolRegistry};
 use serde_json::json;
 use std::future::Future;
@@ -1201,5 +1202,179 @@ async fn v2_specpack_finalize_rejects_impl_task_missing_verify_commands() {
     assert!(
         err.to_string().contains("verify"),
         "expected verify error, got: {err}"
+    );
+}
+
+// ── artifact_import / artifact_write tests ────────────────────────────────────
+
+fn make_artifact_registry() -> (neuron_tool::ToolRegistry, tempfile::TempDir) {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let artifact_root = temp.path().join(".brain").join("artifacts");
+    let acquisition = brain::v2::testing::fake_acquisition_registry(vec![]);
+    let registry =
+        brain::v2::testing::backend_registry_for_tests(artifact_root, acquisition);
+    (registry, temp)
+}
+
+#[tokio::test]
+async fn artifact_import_utf8_writes_bytes_and_returns_sha256() {
+    let (registry, _tmp) = make_artifact_registry();
+    let job_id = "test-job-import-utf8";
+    let content = "hello, world\n";
+
+    let result = registry
+        .get("artifact_import")
+        .expect("artifact_import tool exists")
+        .call(json!({
+            "job_id": job_id,
+            "path": "sources/hello.txt",
+            "encoding": "utf-8",
+            "content": content,
+            "media_type": "text/plain"
+        }))
+        .await
+        .expect("artifact_import succeeded");
+
+    let returned_path = result["path"].as_str().expect("path field");
+    assert_eq!(returned_path, "sources/hello.txt");
+
+    let sha256 = result["sha256"].as_str().expect("sha256 field");
+    // Compute expected sha256 over the raw bytes
+    use sha2::Digest;
+    let mut hasher = sha2::Sha256::new();
+    hasher.update(content.as_bytes());
+    let expected = hex::encode(hasher.finalize());
+    assert_eq!(sha256, expected);
+}
+
+#[tokio::test]
+async fn artifact_import_base64_decodes_and_returns_sha256() {
+    let (registry, _tmp) = make_artifact_registry();
+    let job_id = "test-job-import-b64";
+    let raw = b"\x00\x01\x02\x03binary";
+    let b64 = base64::engine::general_purpose::STANDARD.encode(raw);
+
+    let result = registry
+        .get("artifact_import")
+        .expect("artifact_import tool exists")
+        .call(json!({
+            "job_id": job_id,
+            "path": "sources/blob.bin",
+            "encoding": "base64",
+            "content": b64,
+            "media_type": "application/octet-stream"
+        }))
+        .await
+        .expect("artifact_import base64 succeeded");
+
+    let sha256 = result["sha256"].as_str().expect("sha256 field");
+    use sha2::Digest;
+    let mut hasher = sha2::Sha256::new();
+    hasher.update(raw);
+    let expected = hex::encode(hasher.finalize());
+    assert_eq!(sha256, expected);
+}
+
+#[tokio::test]
+async fn artifact_import_rejects_traversal_path() {
+    let (registry, _tmp) = make_artifact_registry();
+
+    let err = registry
+        .get("artifact_import")
+        .expect("artifact_import tool exists")
+        .call(json!({
+            "job_id": "any-job",
+            "path": "../escape.txt",
+            "encoding": "utf-8",
+            "content": "bad",
+            "media_type": "text/plain"
+        }))
+        .await
+        .expect_err("traversal must be rejected");
+    assert!(
+        err.to_string().contains(".."),
+        "expected traversal error, got: {err}"
+    );
+}
+
+#[tokio::test]
+async fn artifact_import_rejects_absolute_path() {
+    let (registry, _tmp) = make_artifact_registry();
+
+    let err = registry
+        .get("artifact_import")
+        .expect("artifact_import tool exists")
+        .call(json!({
+            "job_id": "any-job",
+            "path": "/etc/passwd",
+            "encoding": "utf-8",
+            "content": "bad",
+            "media_type": "text/plain"
+        }))
+        .await
+        .expect_err("absolute path must be rejected");
+    assert!(
+        err.to_string().contains("absolute") || err.to_string().contains("not"),
+        "expected absolute path error, got: {err}"
+    );
+}
+
+#[tokio::test]
+async fn artifact_write_overwrites_and_hash_changes() {
+    let (registry, _tmp) = make_artifact_registry();
+    let job_id = "test-job-write-overwrite";
+    let path = "derived/spec.md";
+
+    let r1 = registry
+        .get("artifact_write")
+        .expect("artifact_write tool exists")
+        .call(json!({
+            "job_id": job_id,
+            "path": path,
+            "encoding": "utf-8",
+            "content": "version 1\n",
+            "media_type": "text/markdown"
+        }))
+        .await
+        .expect("first write succeeded");
+
+    let sha1 = r1["sha256"].as_str().expect("sha256 v1").to_string();
+
+    let r2 = registry
+        .get("artifact_write")
+        .expect("artifact_write tool exists")
+        .call(json!({
+            "job_id": job_id,
+            "path": path,
+            "encoding": "utf-8",
+            "content": "version 2 — updated\n",
+            "media_type": "text/markdown"
+        }))
+        .await
+        .expect("second write succeeded");
+
+    let sha2 = r2["sha256"].as_str().expect("sha256 v2").to_string();
+    assert_ne!(sha1, sha2, "hash must change when content changes");
+}
+
+#[tokio::test]
+async fn artifact_write_rejects_traversal_path() {
+    let (registry, _tmp) = make_artifact_registry();
+
+    let err = registry
+        .get("artifact_write")
+        .expect("artifact_write tool exists")
+        .call(json!({
+            "job_id": "any-job",
+            "path": "../../etc/crontab",
+            "encoding": "utf-8",
+            "content": "bad",
+            "media_type": "text/plain"
+        }))
+        .await
+        .expect_err("traversal must be rejected");
+    assert!(
+        err.to_string().contains(".."),
+        "expected traversal error, got: {err}"
     );
 }
