@@ -10,14 +10,15 @@ Rules:
 
 ## Queue
 
-1. Implement `brain` v1 (controller + worker tools + MCP config)
-   - Spec: `specs/14-brain-agentic-research-assistant.md`
+1. Implement Brain v2 as a structured research backend (MCP + async jobs)
+   - Spec: `specs/15-brain-research-backend.md`
    - Done when:
-     - A new `brain` crate exists with an offline integration test proving:
-       - controller selects a worker tool
-       - worker uses mock provider and returns structured JSON
-       - controller synthesizes into final answer
-     - `brain` loads a Claude/Codex-compatible `.mcp.json` (with optional `x-brain`) and assembles tools
+     - `brain` can run as an MCP server exposing:
+       - `research_job_start`, `research_job_status`, `research_job_get`, `research_job_cancel`
+       - `artifact_list`, `artifact_read`
+     - Offline tests prove:
+       - job writes `index.json` + `findings.md` + at least one `sources/*` artifact
+       - artifact path traversal is rejected
    - Verify: `nix develop -c cargo test`
 
 2. Add CI (hard enforcement) for formatting, tests, and clippy
@@ -39,3 +40,7 @@ Rules:
      - `neuron/` crate exists and re-exports the happy-path set behind features
    - Verify: `nix develop -c cargo test`
 
+## Completed
+
+- 2026-02-27: Implemented `brain` v1 (controller + worker tools + MCP config)
+  - Spec: `specs/14-brain-agentic-research-assistant.md`

@@ -29,3 +29,4 @@ These specs are written to ensure the project is *composable by construction*: o
 | `specs/12-packaging-versioning-and-umbrella-crate.md` | Release | Crate naming, umbrella crate, feature flags, publishing |
 | `specs/13-documentation-and-dx-parity.md` | Docs/DX | Documentation requirements and parity targets |
 | `specs/14-brain-agentic-research-assistant.md` | Product/POC | Brain v1/v2: controller + worker tools, MCP config compatibility |
+| `specs/15-brain-research-backend.md` | Product/POC | Brain v2 ResearchOps: async jobs, grounded bundles, artifact contracts |
