@@ -62,6 +62,12 @@ Codex loop (supervised):
 CODEX=1 ./scripts/ralph.sh
 ```
 
+Auto-create worktree + run:
+
+```bash
+./scripts/ralph-worktree.sh brain-v1 redesign/v2
+```
+
 Codex model override:
 
 ```bash
