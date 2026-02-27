@@ -3,6 +3,27 @@ set -euo pipefail
 
 cd "$(git rev-parse --show-toplevel)"
 
+require_worktree() {
+  if [[ "${RALPH_REQUIRE_WORKTREE:-1}" != "1" ]]; then
+    return 0
+  fi
+
+  if [[ ! -e .git ]]; then
+    echo "[ralph] error: .git not found (not a git checkout?)"
+    exit 2
+  fi
+
+  if [[ -d .git ]] && [[ "${RALPH_ALLOW_MAIN:-0}" != "1" ]]; then
+    echo "[ralph] error: refusing to run in main worktree ('.git' is a directory)"
+    echo "[ralph] create a worktree first, then run ralph inside it"
+    echo "[ralph] example: ./scripts/new-worktree.sh brain-v1 redesign/v2"
+    echo "[ralph] override: RALPH_ALLOW_MAIN=1 ./scripts/ralph.sh"
+    exit 2
+  fi
+}
+
+require_worktree
+
 runner_display=""
 runner=()
 pretty=()
