@@ -50,6 +50,8 @@ but v2 core is “research bundle A” first.
 ## Definitions
 
 - **Job**: An asynchronous unit of work that produces exactly one bundle on success.
+- **Job Group**: A coordination wrapper that fans out into per-target jobs and (optionally) produces
+  a merged “landscape” bundle from the succeeded children.
 - **Bundle**: The durable, auditable output of a job: machine index + human distillation + artifacts.
 - **Artifact**: A file written under a job’s artifact directory (sources, extracts, notes, indexes).
 - **Claim**: A statement in the machine index that is either (a) grounded with evidence, or
@@ -215,6 +217,24 @@ Brain v2 MAY add additional tools for:
 
 - artifact search/grep (bounded)
 - bundle diffing across job versions
+- bundle merging and job groups (fan-out + merge)
+
+## Job Groups (Fan-out + Merge)
+
+Brain v2 SHOULD support job groups for “large landscape” research where work is split per target
+and later merged.
+
+If implemented, Brain v2 SHOULD expose these MCP tools:
+
+1. `research_group_start`
+   - Input: `{ "intent": "...", "constraints": { ... }, "targets": [ ... ], "tool_policy": { ... } }`
+   - Output: `{ "group_id": "...", "status": "running", "jobs": [ { "target": <json>, "job_id": "..." } ] }`
+2. `research_group_status`
+   - Input: `{ "group_id": "..." }`
+   - Output: `{ "group_id": "...", "status": "...", "jobs": [ { "target": <json>, "job_id": "...", "status": "..." } ], "landscape_job_id": "..." | null }`
+3. `research_job_merge`
+   - Input: `{ "job_ids": [ "...", "..." ], "intent": "..." }`
+   - Output: `{ "job_id": "...", "status": "running" }`
 
 ## Acquisition Backends (Pluggable)
 

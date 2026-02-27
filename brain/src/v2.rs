@@ -17,6 +17,8 @@ use uuid::Uuid;
 
 const BUNDLE_VERSION: &str = "0.1";
 const INDEX_FILENAME: &str = "index.json";
+const GROUPS_DIR: &str = "groups";
+const GROUP_RECORD_FILENAME: &str = "group.json";
 const SPECPACK_DIR: &str = "specpack";
 const SPECPACK_INDEX_PATH: &str = "specpack/SPECS.md";
 const SPECPACK_MANIFEST_PATH: &str = "specpack/manifest.json";
@@ -55,6 +57,23 @@ struct JobInputs {
     targets: Vec<Value>,
     #[serde(default)]
     tool_policy: Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct GroupInputs {
+    intent: String,
+    #[serde(default)]
+    constraints: Value,
+    #[serde(default)]
+    targets: Vec<Value>,
+    #[serde(default)]
+    tool_policy: Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct GroupChildJob {
+    target: Value,
+    job_id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -309,12 +328,37 @@ struct JobEntry {
     handle: Option<tokio::task::JoinHandle<()>>,
 }
 
+#[derive(Debug)]
+struct GroupEntry {
+    created_at: DateTime<Utc>,
+    status: JobStatus,
+    inputs: GroupInputs,
+    jobs: Vec<GroupChildJob>,
+    landscape_job_id: Option<String>,
+    error: Option<String>,
+    handle: Option<tokio::task::JoinHandle<()>>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct JobRecord {
     job_id: String,
     created_at: String,
     status: JobStatus,
     inputs: JobInputs,
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct GroupRecord {
+    group_id: String,
+    created_at: String,
+    status: JobStatus,
+    inputs: GroupInputs,
+    #[serde(default)]
+    jobs: Vec<GroupChildJob>,
+    #[serde(default)]
+    landscape_job_id: Option<String>,
+    #[serde(default)]
     error: Option<String>,
 }
 
@@ -325,12 +369,14 @@ pub struct JobManager {
     artifact_root: PathBuf,
     acquisition: Arc<ToolRegistry>,
     jobs: Mutex<HashMap<String, JobEntry>>,
+    groups: Mutex<HashMap<String, GroupEntry>>,
 }
 
 impl JobManager {
     /// Create a new job manager.
     pub fn new(artifact_root: PathBuf, acquisition: ToolRegistry) -> Self {
         std::fs::create_dir_all(&artifact_root).ok();
+        std::fs::create_dir_all(artifact_root.join(GROUPS_DIR)).ok();
 
         let mut initial = HashMap::new();
         if let Ok(entries) = std::fs::read_dir(&artifact_root) {
@@ -391,10 +437,74 @@ impl JobManager {
             }
         }
 
+        let mut initial_groups = HashMap::new();
+        let groups_root = artifact_root.join(GROUPS_DIR);
+        if let Ok(entries) = std::fs::read_dir(&groups_root) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if !path.is_dir() {
+                    continue;
+                }
+                let group_id = match path.file_name().and_then(|s| s.to_str()) {
+                    Some(name) => name.to_string(),
+                    None => continue,
+                };
+                let group_path = path.join(GROUP_RECORD_FILENAME);
+                if !group_path.exists() {
+                    continue;
+                }
+                if let Ok(content) = std::fs::read_to_string(&group_path) {
+                    if let Ok(record) = serde_json::from_str::<GroupRecord>(&content) {
+                        if let Ok(created_at) = parse_rfc3339_utc(&record.created_at) {
+                            let mut status = record.status;
+                            let mut error = record.error;
+                            if matches!(status, JobStatus::Running | JobStatus::Pending) {
+                                status = JobStatus::Failed;
+                                if error.is_none() {
+                                    error = Some(
+                                        "group was running during process restart; not resumable"
+                                            .to_string(),
+                                    );
+                                }
+                                let updated = GroupRecord {
+                                    group_id: group_id.clone(),
+                                    created_at: record.created_at,
+                                    status: status.clone(),
+                                    inputs: record.inputs.clone(),
+                                    jobs: record.jobs.clone(),
+                                    landscape_job_id: record.landscape_job_id.clone(),
+                                    error: error.clone(),
+                                };
+                                let _ = std::fs::write(
+                                    &group_path,
+                                    serde_json::to_string_pretty(&updated)
+                                        .unwrap_or_else(|_| "{}".to_string()),
+                                );
+                            }
+
+                            initial_groups.insert(
+                                group_id,
+                                GroupEntry {
+                                    created_at,
+                                    status,
+                                    inputs: record.inputs,
+                                    jobs: record.jobs,
+                                    landscape_job_id: record.landscape_job_id,
+                                    error,
+                                    handle: None,
+                                },
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
         Self {
             artifact_root,
             acquisition: Arc::new(acquisition),
             jobs: Mutex::new(initial),
+            groups: Mutex::new(initial_groups),
         }
     }
 
@@ -404,6 +514,14 @@ impl JobManager {
 
     fn job_record_path(&self, job_id: &str) -> PathBuf {
         self.job_dir(job_id).join("job.json")
+    }
+
+    fn group_dir(&self, group_id: &str) -> PathBuf {
+        self.artifact_root.join(GROUPS_DIR).join(group_id)
+    }
+
+    fn group_record_path(&self, group_id: &str) -> PathBuf {
+        self.group_dir(group_id).join(GROUP_RECORD_FILENAME)
     }
 
     fn specpack_dir(&self, job_id: &str) -> PathBuf {
@@ -437,6 +555,46 @@ impl JobManager {
             created_at,
             status: record.status,
             inputs: record.inputs,
+            error: record.error,
+            handle: None,
+        })
+    }
+
+    fn write_group_record(&self, group_id: &str, entry: &GroupEntry) -> Result<(), ToolError> {
+        let record = GroupRecord {
+            group_id: group_id.to_string(),
+            created_at: entry.created_at.to_rfc3339(),
+            status: entry.status.clone(),
+            inputs: entry.inputs.clone(),
+            jobs: entry.jobs.clone(),
+            landscape_job_id: entry.landscape_job_id.clone(),
+            error: entry.error.clone(),
+        };
+        let path = self.group_record_path(group_id);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| ToolError::ExecutionFailed(e.to_string()))?;
+        }
+        std::fs::write(
+            &path,
+            serde_json::to_string_pretty(&record)
+                .map_err(|e| ToolError::ExecutionFailed(e.to_string()))?,
+        )
+        .map_err(|e| ToolError::ExecutionFailed(e.to_string()))?;
+        Ok(())
+    }
+
+    fn try_load_group_record(&self, group_id: &str) -> Option<GroupEntry> {
+        let path = self.group_record_path(group_id);
+        let content = std::fs::read_to_string(&path).ok()?;
+        let record = serde_json::from_str::<GroupRecord>(&content).ok()?;
+        let created_at = parse_rfc3339_utc(&record.created_at).ok()?;
+        Some(GroupEntry {
+            created_at,
+            status: record.status,
+            inputs: record.inputs,
+            jobs: record.jobs,
+            landscape_job_id: record.landscape_job_id,
             error: record.error,
             handle: None,
         })
@@ -584,6 +742,18 @@ impl JobManager {
         Ok(serde_json::json!({ "jobs": items }))
     }
 
+    async fn ensure_group_exists(&self, group_id: &str) -> Result<(), ToolError> {
+        let mut groups = self.groups.lock().await;
+        if groups.contains_key(group_id) {
+            return Ok(());
+        }
+        if let Some(loaded) = self.try_load_group_record(group_id) {
+            groups.insert(group_id.to_string(), loaded);
+            return Ok(());
+        }
+        Err(ToolError::NotFound(format!("group not found: {group_id}")))
+    }
+
     async fn ensure_job_exists(&self, job_id: &str) -> Result<(), ToolError> {
         let mut jobs = self.jobs.lock().await;
         if jobs.contains_key(job_id) {
@@ -594,6 +764,225 @@ impl JobManager {
             return Ok(());
         }
         Err(ToolError::NotFound(format!("job not found: {job_id}")))
+    }
+
+    async fn start_merge_job(
+        self: &Arc<Self>,
+        intent: String,
+        source_job_ids: Vec<String>,
+        extra_gaps: Vec<String>,
+    ) -> Result<String, ToolError> {
+        let job_id = Uuid::new_v4().to_string();
+        self.start_merge_job_with_id(job_id.clone(), intent, source_job_ids, extra_gaps)
+            .await?;
+        Ok(job_id)
+    }
+
+    async fn start_merge_job_with_id(
+        self: &Arc<Self>,
+        job_id: String,
+        intent: String,
+        source_job_ids: Vec<String>,
+        extra_gaps: Vec<String>,
+    ) -> Result<(), ToolError> {
+        let artifact_dir = self.job_dir(&job_id);
+        std::fs::create_dir_all(&artifact_dir)
+            .map_err(|e| ToolError::ExecutionFailed(e.to_string()))?;
+
+        let created_at = Utc::now();
+        let inputs = JobInputs {
+            intent: intent.clone(),
+            constraints: serde_json::json!({
+                "merged_from_job_ids": source_job_ids,
+                "extra_gaps": extra_gaps
+            }),
+            targets: vec![],
+            tool_policy: Value::Null,
+        };
+
+        let mut jobs = self.jobs.lock().await;
+        jobs.insert(
+            job_id.clone(),
+            JobEntry {
+                created_at,
+                status: JobStatus::Running,
+                inputs: inputs.clone(),
+                error: None,
+                handle: None,
+            },
+        );
+        if let Some(entry) = jobs.get(&job_id) {
+            self.write_job_record(&job_id, entry)?;
+        }
+
+        let mgr = Arc::clone(self);
+        let job_id_clone = job_id.clone();
+        let handle = tokio::spawn(async move {
+            let result = run_merge_job(
+                &job_id_clone,
+                created_at,
+                &intent,
+                &mgr.artifact_root,
+                &inputs,
+            )
+            .await;
+
+            let mut jobs = mgr.jobs.lock().await;
+            if let Some(entry) = jobs.get_mut(&job_id_clone) {
+                match result {
+                    Ok(()) => entry.status = JobStatus::Succeeded,
+                    Err(err) => {
+                        entry.status = JobStatus::Failed;
+                        entry.error = Some(err);
+                    }
+                }
+                entry.handle = None;
+                let _ = mgr.write_job_record(&job_id_clone, entry);
+            }
+        });
+
+        if let Some(entry) = jobs.get_mut(&job_id) {
+            entry.handle = Some(handle);
+            self.write_job_record(&job_id, entry)?;
+        }
+
+        Ok(())
+    }
+
+    async fn start_group(
+        self: &Arc<Self>,
+        inputs: GroupInputs,
+    ) -> Result<(String, Value), ToolError> {
+        if inputs.targets.is_empty() {
+            return Err(ToolError::InvalidInput(
+                "targets must be non-empty for research_group_start".to_string(),
+            ));
+        }
+
+        let mut jobs_out = Vec::<GroupChildJob>::new();
+        for target in &inputs.targets {
+            let child_intent = format!("{}\n\nTarget: {}", inputs.intent, target_label(target));
+            let child = JobInputs {
+                intent: child_intent,
+                constraints: inputs.constraints.clone(),
+                targets: vec![target.clone()],
+                tool_policy: inputs.tool_policy.clone(),
+            };
+            let job_id = self.start_job(child).await?;
+            jobs_out.push(GroupChildJob {
+                target: target.clone(),
+                job_id,
+            });
+        }
+
+        let group_id = Uuid::new_v4().to_string();
+        let created_at = Utc::now();
+        {
+            let mut groups = self.groups.lock().await;
+            groups.insert(
+                group_id.clone(),
+                GroupEntry {
+                    created_at,
+                    status: JobStatus::Running,
+                    inputs: inputs.clone(),
+                    jobs: jobs_out.clone(),
+                    landscape_job_id: None,
+                    error: None,
+                    handle: None,
+                },
+            );
+            if let Some(entry) = groups.get(&group_id) {
+                self.write_group_record(&group_id, entry)?;
+            }
+        }
+
+        let mgr = Arc::clone(self);
+        let group_id_clone = group_id.clone();
+        let handle = tokio::spawn(async move {
+            let result = run_group(&mgr, &group_id_clone).await;
+            let mut groups = mgr.groups.lock().await;
+            if let Some(entry) = groups.get_mut(&group_id_clone) {
+                match result {
+                    Ok(()) => entry.status = JobStatus::Succeeded,
+                    Err(err) => {
+                        if entry.status != JobStatus::Canceled {
+                            entry.status = JobStatus::Failed;
+                            entry.error = Some(err);
+                        }
+                    }
+                }
+                entry.handle = None;
+                let _ = mgr.write_group_record(&group_id_clone, entry);
+            }
+        });
+
+        {
+            let mut groups = self.groups.lock().await;
+            if let Some(entry) = groups.get_mut(&group_id) {
+                entry.handle = Some(handle);
+                self.write_group_record(&group_id, entry)?;
+            }
+        }
+
+        let jobs_value = serde_json::to_value(&jobs_out).unwrap_or(Value::Null);
+        Ok((
+            group_id,
+            serde_json::json!({
+                "jobs": jobs_value
+            }),
+        ))
+    }
+
+    async fn group_status(&self, group_id: &str) -> Result<Value, ToolError> {
+        self.ensure_group_exists(group_id).await?;
+
+        let (created_at, status, inputs, jobs, landscape_job_id, error) = {
+            let groups = self.groups.lock().await;
+            let entry = groups
+                .get(group_id)
+                .ok_or_else(|| ToolError::NotFound(format!("group not found: {group_id}")))?;
+            (
+                entry.created_at,
+                entry.status.clone(),
+                entry.inputs.clone(),
+                entry.jobs.clone(),
+                entry.landscape_job_id.clone(),
+                entry.error.clone(),
+            )
+        };
+
+        let mut jobs_with_status = Vec::<Value>::new();
+        for child in jobs {
+            let status_val = self.status(&child.job_id).await.ok();
+            let child_status = status_val
+                .as_ref()
+                .and_then(|v| v.get("status"))
+                .cloned()
+                .unwrap_or(Value::Null);
+            jobs_with_status.push(serde_json::json!({
+                "target": child.target,
+                "job_id": child.job_id,
+                "status": child_status
+            }));
+        }
+
+        let mut landscape_status = Value::Null;
+        if let Some(landscape_job_id) = &landscape_job_id {
+            if let Ok(st) = self.status(landscape_job_id).await {
+                landscape_status = st.get("status").cloned().unwrap_or(Value::Null);
+            }
+        }
+
+        Ok(serde_json::json!({
+            "group_id": group_id,
+            "status": status,
+            "created_at": created_at.to_rfc3339(),
+            "inputs": serde_json::to_value(inputs).unwrap_or(Value::Null),
+            "jobs": jobs_with_status,
+            "landscape_job_id": landscape_job_id,
+            "landscape_status": landscape_status,
+            "error": error
+        }))
     }
 
     async fn specpack_init(&self, job_id: &str) -> Result<Value, ToolError> {
@@ -867,6 +1256,9 @@ pub fn backend_registry(manager: Arc<JobManager>) -> ToolRegistry {
     registry.register(Arc::new(ResearchJobGetTool::new(Arc::clone(&manager))));
     registry.register(Arc::new(ResearchJobListTool::new(Arc::clone(&manager))));
     registry.register(Arc::new(ResearchJobCancelTool::new(Arc::clone(&manager))));
+    registry.register(Arc::new(ResearchJobMergeTool::new(Arc::clone(&manager))));
+    registry.register(Arc::new(ResearchGroupStartTool::new(Arc::clone(&manager))));
+    registry.register(Arc::new(ResearchGroupStatusTool::new(Arc::clone(&manager))));
     registry.register(Arc::new(SpecPackInitTool::new(Arc::clone(&manager))));
     registry.register(Arc::new(SpecPackWriteFileTool::new(Arc::clone(&manager))));
     registry.register(Arc::new(SpecPackFinalizeTool::new(Arc::clone(&manager))));
@@ -1068,7 +1460,7 @@ async fn run_job(
             ]
         })],
         "coverage": {
-            "targets": [],
+            "targets": inputs.targets.clone(),
             "gaps": []
         },
         "next_steps": []
@@ -1097,6 +1489,260 @@ async fn run_job(
     std::fs::write(job_dir.join("findings.md"), findings).map_err(|e| e.to_string())?;
 
     Ok(())
+}
+
+async fn run_merge_job(
+    job_id: &str,
+    created_at: DateTime<Utc>,
+    intent: &str,
+    artifact_root: &Path,
+    job_record_inputs: &JobInputs,
+) -> Result<(), String> {
+    let job_dir = artifact_root.join(job_id);
+    std::fs::create_dir_all(job_dir.join("notes")).map_err(|e| e.to_string())?;
+
+    let source_job_ids = job_record_inputs
+        .constraints
+        .get("merged_from_job_ids")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| "merge job missing constraints.merged_from_job_ids".to_string())?
+        .iter()
+        .filter_map(|v| v.as_str().map(|s| s.to_string()))
+        .collect::<Vec<String>>();
+
+    let extra_gaps = job_record_inputs
+        .constraints
+        .get("extra_gaps")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect::<Vec<String>>()
+        })
+        .unwrap_or_default();
+
+    let mut source_indexes = Vec::<BundleIndex>::new();
+    let mut source_next_steps = Vec::<String>::new();
+    let mut gaps = std::collections::BTreeSet::<String>::new();
+    let mut targets = std::collections::BTreeSet::<String>::new();
+    let mut source_index_hashes = Vec::<Value>::new();
+
+    for src in &source_job_ids {
+        let src_dir = artifact_root.join(src);
+        let index_path = src_dir.join(INDEX_FILENAME);
+        let index_bytes = std::fs::read(&index_path).map_err(|e| {
+            format!(
+                "missing source index.json for job {src}: {}: {e}",
+                index_path.display()
+            )
+        })?;
+        let index_text = String::from_utf8(index_bytes.clone())
+            .map_err(|e| format!("source index.json not utf-8 for job {src}: {e}"))?;
+        let parsed: BundleIndex =
+            serde_json::from_str(&index_text).map_err(|e| format!("invalid index.json: {e}"))?;
+        validate_bundle_index(&src_dir, &parsed)?;
+
+        let index_sha256 = sha256_hex(&index_bytes);
+        source_index_hashes.push(serde_json::json!({"job_id": src, "index_sha256": index_sha256}));
+
+        for t in targets_from_index(&parsed) {
+            let s = serde_json::to_string(&t).map_err(|e| e.to_string())?;
+            targets.insert(s);
+        }
+        for g in &parsed.coverage.gaps {
+            gaps.insert(g.clone());
+        }
+        for ns in &parsed.next_steps {
+            source_next_steps.push(ns.clone());
+        }
+        source_indexes.push(parsed);
+    }
+
+    for g in extra_gaps {
+        gaps.insert(g);
+    }
+
+    let merged_targets = targets
+        .iter()
+        .map(|s| serde_json::from_str::<Value>(s).map_err(|e| e.to_string()))
+        .collect::<Result<Vec<Value>, String>>()?;
+    let merged_gaps = gaps.into_iter().collect::<Vec<String>>();
+
+    let mut next_steps = std::collections::BTreeSet::<String>::new();
+    for ns in source_next_steps {
+        next_steps.insert(ns);
+    }
+    for g in &merged_gaps {
+        next_steps.insert(format!("Investigate gap: {g}"));
+    }
+    let merged_next_steps = next_steps.into_iter().collect::<Vec<String>>();
+
+    let merged_from = serde_json::json!({
+        "kind": "landscape_merge",
+        "source_job_ids": source_job_ids,
+        "source_index_hashes": source_index_hashes,
+        "created_at": created_at.to_rfc3339(),
+    });
+    let merged_from_path = PathBuf::from("notes/merged_from.json");
+    let merged_artifact = write_json_artifact(
+        &job_dir,
+        &merged_from_path,
+        &merged_from,
+        "application/json",
+        None,
+        None,
+    )?;
+
+    let bundle_inputs = BundleInputs {
+        intent: intent.to_string(),
+        constraints: job_record_inputs.constraints.clone(),
+        targets: merged_targets.clone(),
+        tool_policy: Value::Null,
+    };
+
+    let index = BundleIndex {
+        bundle_version: BUNDLE_VERSION.to_string(),
+        brain_version: env!("CARGO_PKG_VERSION").to_string(),
+        job: BundleJob {
+            id: job_id.to_string(),
+            created_at: created_at.to_rfc3339(),
+            status: JobStatus::Succeeded,
+            inputs: bundle_inputs,
+        },
+        artifacts: vec![merged_artifact],
+        claims: vec![],
+        coverage: BundleCoverage {
+            targets: merged_targets,
+            gaps: merged_gaps,
+        },
+        next_steps: merged_next_steps,
+    };
+
+    std::fs::write(
+        job_dir.join(INDEX_FILENAME),
+        serde_json::to_string_pretty(&index).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())?;
+
+    validate_bundle_index(&job_dir, &index)?;
+
+    let findings = format!(
+        "# Findings\n\nLandscape merge job `{}` completed.\n\n- Sources: {}\n- Targets: {}\n- Gaps: {}\n",
+        job_id,
+        source_indexes.len(),
+        index.coverage.targets.len(),
+        index.coverage.gaps.len()
+    );
+    std::fs::write(job_dir.join("findings.md"), findings).map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+async fn run_group(mgr: &Arc<JobManager>, group_id: &str) -> Result<(), String> {
+    let (inputs, jobs) = {
+        let groups = mgr.groups.lock().await;
+        let entry = groups
+            .get(group_id)
+            .ok_or_else(|| format!("group not found: {group_id}"))?;
+        (entry.inputs.clone(), entry.jobs.clone())
+    };
+
+    let mut terminal = HashMap::<String, JobStatus>::new();
+    let mut all_terminal = false;
+    for _ in 0..2000 {
+        terminal.clear();
+        all_terminal = true;
+        for child in &jobs {
+            let st = mgr.status(&child.job_id).await.map_err(|e| e.to_string())?;
+            let status_str = st
+                .get("status")
+                .and_then(|v| v.as_str())
+                .unwrap_or("failed");
+            let child_status = match status_str {
+                "pending" => JobStatus::Pending,
+                "running" => JobStatus::Running,
+                "succeeded" => JobStatus::Succeeded,
+                "failed" => JobStatus::Failed,
+                "canceled" => JobStatus::Canceled,
+                _ => JobStatus::Failed,
+            };
+            if matches!(child_status, JobStatus::Pending | JobStatus::Running) {
+                all_terminal = false;
+            }
+            terminal.insert(child.job_id.clone(), child_status);
+        }
+        if all_terminal {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    if !all_terminal {
+        return Err("group fan-out jobs did not complete in time".to_string());
+    }
+
+    let mut succeeded_ids = Vec::<String>::new();
+    let mut extra_gaps = Vec::<String>::new();
+    for child in &jobs {
+        match terminal.get(&child.job_id) {
+            Some(JobStatus::Succeeded) => succeeded_ids.push(child.job_id.clone()),
+            Some(other) => extra_gaps.push(format!(
+                "missing_bundle_for_target({}): {}",
+                other_string(other),
+                target_label(&child.target)
+            )),
+            None => extra_gaps.push(format!(
+                "missing_bundle_for_target(unknown): {}",
+                target_label(&child.target)
+            )),
+        }
+    }
+
+    let merge_intent = format!("{} (landscape merge)", inputs.intent);
+    let landscape_job_id = mgr
+        .start_merge_job(merge_intent, succeeded_ids, extra_gaps)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    {
+        let mut groups = mgr.groups.lock().await;
+        if let Some(entry) = groups.get_mut(group_id) {
+            entry.landscape_job_id = Some(landscape_job_id.clone());
+            let _ = mgr.write_group_record(group_id, entry);
+        }
+    }
+
+    for _ in 0..2000 {
+        let st = mgr
+            .status(&landscape_job_id)
+            .await
+            .map_err(|e| e.to_string())?;
+        match st.get("status").and_then(|v| v.as_str()) {
+            Some("succeeded") => return Ok(()),
+            Some("failed") => return Err("landscape merge job failed".to_string()),
+            Some("canceled") => return Err("landscape merge job canceled".to_string()),
+            _ => {}
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+
+    Err("landscape merge job did not complete in time".to_string())
+}
+
+fn targets_from_index(index: &BundleIndex) -> Vec<Value> {
+    if !index.coverage.targets.is_empty() {
+        return index.coverage.targets.clone();
+    }
+    index.job.inputs.targets.clone()
+}
+
+fn other_string(status: &JobStatus) -> &'static str {
+    match status {
+        JobStatus::Pending => "pending",
+        JobStatus::Running => "running",
+        JobStatus::Succeeded => "succeeded",
+        JobStatus::Failed => "failed",
+        JobStatus::Canceled => "canceled",
+    }
 }
 
 fn validate_bundle_index(job_dir: &Path, index: &BundleIndex) -> Result<(), String> {
@@ -1631,19 +2277,16 @@ fn validate_feature_map(job_dir: &Path, manifest: &SpecPackManifest) -> Result<(
     let ledger_path = validate_relative_path(&quality.ledger_path)?;
     let ledger_full = specpack_dir.join(&ledger_path);
     let ledger_text = std::fs::read_to_string(&ledger_full).map_err(|e| e.to_string())?;
-    let ledger: SpecPackLedger =
-        serde_json::from_str(&ledger_text).map_err(|e| e.to_string())?;
+    let ledger: SpecPackLedger = serde_json::from_str(&ledger_text).map_err(|e| e.to_string())?;
     let ledger_cap_ids: HashSet<String> =
         ledger.capabilities.iter().map(|c| c.id.clone()).collect();
 
-    let manifest_paths: HashSet<String> =
-        manifest.files.iter().map(|f| f.path.clone()).collect();
+    let manifest_paths: HashSet<String> = manifest.files.iter().map(|f| f.path.clone()).collect();
 
     let index_path = job_dir.join(INDEX_FILENAME);
     let artifact_paths: HashSet<String> = if index_path.exists() {
         let index_text = std::fs::read_to_string(&index_path).map_err(|e| e.to_string())?;
-        let index: BundleIndex =
-            serde_json::from_str(&index_text).map_err(|e| e.to_string())?;
+        let index: BundleIndex = serde_json::from_str(&index_text).map_err(|e| e.to_string())?;
         index.artifacts.into_iter().map(|a| a.path).collect()
     } else {
         HashSet::new()
@@ -1739,6 +2382,21 @@ fn is_deep_research_done(status: &Value) -> bool {
         status.get("status").and_then(|v| v.as_str()),
         Some("succeeded") | Some("completed") | Some("done")
     )
+}
+
+fn target_label(target: &Value) -> String {
+    if let Some(s) = target.as_str() {
+        return s.to_string();
+    }
+    if let Some(obj) = target.as_object() {
+        if let Some(name) = obj.get("name").and_then(|v| v.as_str()) {
+            return name.to_string();
+        }
+        if let Some(id) = obj.get("id").and_then(|v| v.as_str()) {
+            return id.to_string();
+        }
+    }
+    serde_json::to_string(target).unwrap_or_else(|_| "<target>".to_string())
 }
 
 struct ResearchJobStartTool {
@@ -1951,6 +2609,170 @@ impl ToolDyn for ResearchJobCancelTool {
                 .and_then(|v| v.as_str())
                 .ok_or_else(|| ToolError::InvalidInput("missing field: job_id".to_string()))?;
             self.mgr.cancel(job_id).await
+        })
+    }
+}
+
+struct ResearchJobMergeTool {
+    mgr: Arc<JobManager>,
+}
+
+impl ResearchJobMergeTool {
+    fn new(mgr: Arc<JobManager>) -> Self {
+        Self { mgr }
+    }
+}
+
+impl ToolDyn for ResearchJobMergeTool {
+    fn name(&self) -> &str {
+        "research_job_merge"
+    }
+    fn description(&self) -> &str {
+        "Merge one or more succeeded bundles into a single landscape bundle."
+    }
+    fn input_schema(&self) -> Value {
+        serde_json::json!({
+            "type":"object",
+            "properties":{
+                "job_ids":{"type":"array","items":{"type":"string"}},
+                "intent":{"type":"string"}
+            },
+            "required":["job_ids"]
+        })
+    }
+    fn call(
+        &self,
+        input: Value,
+    ) -> Pin<Box<dyn Future<Output = Result<Value, ToolError>> + Send + '_>> {
+        Box::pin(async move {
+            let job_ids = input
+                .get("job_ids")
+                .and_then(|v| v.as_array())
+                .ok_or_else(|| ToolError::InvalidInput("missing field: job_ids".to_string()))?
+                .iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect::<Vec<String>>();
+            if job_ids.is_empty() {
+                return Err(ToolError::InvalidInput(
+                    "job_ids must be non-empty".to_string(),
+                ));
+            }
+            for id in &job_ids {
+                let st = self.mgr.status(id).await?;
+                if st.get("status").and_then(|v| v.as_str()) != Some("succeeded") {
+                    return Err(ToolError::ExecutionFailed(format!(
+                        "cannot merge non-succeeded job: {id}"
+                    )));
+                }
+            }
+
+            let intent = input
+                .get("intent")
+                .and_then(|v| v.as_str())
+                .unwrap_or("Landscape merge")
+                .to_string();
+
+            let job_id = self.mgr.start_merge_job(intent, job_ids, vec![]).await?;
+            Ok(serde_json::json!({ "job_id": job_id, "status": JobStatus::Running }))
+        })
+    }
+}
+
+struct ResearchGroupStartTool {
+    mgr: Arc<JobManager>,
+}
+
+impl ResearchGroupStartTool {
+    fn new(mgr: Arc<JobManager>) -> Self {
+        Self { mgr }
+    }
+}
+
+impl ToolDyn for ResearchGroupStartTool {
+    fn name(&self) -> &str {
+        "research_group_start"
+    }
+    fn description(&self) -> &str {
+        "Start a job group (fan-out per target; later merges into a landscape bundle)."
+    }
+    fn input_schema(&self) -> Value {
+        serde_json::json!({
+            "type":"object",
+            "properties":{
+                "intent":{"type":"string"},
+                "constraints":{"type":"object"},
+                "targets":{"type":"array"},
+                "tool_policy":{"type":"object"}
+            },
+            "required":["intent","targets"]
+        })
+    }
+    fn call(
+        &self,
+        input: Value,
+    ) -> Pin<Box<dyn Future<Output = Result<Value, ToolError>> + Send + '_>> {
+        Box::pin(async move {
+            let intent = input
+                .get("intent")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| ToolError::InvalidInput("missing field: intent".to_string()))?
+                .to_string();
+            let targets = input
+                .get("targets")
+                .and_then(|v| v.as_array())
+                .cloned()
+                .unwrap_or_default();
+            let inputs = GroupInputs {
+                intent,
+                constraints: input.get("constraints").cloned().unwrap_or(Value::Null),
+                targets,
+                tool_policy: input.get("tool_policy").cloned().unwrap_or(Value::Null),
+            };
+
+            let (group_id, extra) = self.mgr.start_group(inputs).await?;
+            Ok(serde_json::json!({
+                "group_id": group_id,
+                "status": JobStatus::Running,
+                "jobs": extra.get("jobs").cloned().unwrap_or(Value::Null)
+            }))
+        })
+    }
+}
+
+struct ResearchGroupStatusTool {
+    mgr: Arc<JobManager>,
+}
+
+impl ResearchGroupStatusTool {
+    fn new(mgr: Arc<JobManager>) -> Self {
+        Self { mgr }
+    }
+}
+
+impl ToolDyn for ResearchGroupStatusTool {
+    fn name(&self) -> &str {
+        "research_group_status"
+    }
+    fn description(&self) -> &str {
+        "Get status for a research job group."
+    }
+    fn input_schema(&self) -> Value {
+        serde_json::json!({
+            "type":"object",
+            "properties":{"group_id":{"type":"string"}},
+            "required":["group_id"]
+        })
+    }
+    fn call(
+        &self,
+        input: Value,
+    ) -> Pin<Box<dyn Future<Output = Result<Value, ToolError>> + Send + '_>> {
+        Box::pin(async move {
+            let group_id = input
+                .get("group_id")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| ToolError::InvalidInput("missing field: group_id".to_string()))?;
+            self.mgr.group_status(group_id).await
         })
     }
 }

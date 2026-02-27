@@ -10,16 +10,19 @@ Rules:
 
 ## Queue
 
-1. Brain: job groups (fan-out + merge) for large landscapes
-   - Spec: `specs/15-brain-research-backend.md`
-   - Done when:
-     - Brain can start a group job and produce per-target bundles
-     - Brain can merge bundles into a single “landscape” bundle + coverage gaps
-     - Offline tests cover deterministic merge from fixtures
-   - Verify: `nix develop -c cargo test -p brain`
+1. (empty)
 
 
 ## Completed
+
+- 2026-02-27: Brain job groups (fan-out + merge) for large landscapes
+  - Spec: `specs/15-brain-research-backend.md`
+  - Adds tools: `research_group_start`, `research_group_status`, `research_job_merge`
+  - Adds offline fixtures: `brain/tests/fixtures/merge/`
+  - Done when:
+    - Group start fans out per-target jobs; group status reports `landscape_job_id`
+    - Merge tool produces deterministic `coverage.targets/gaps/next_steps` from fixtures
+  - Verify: `nix develop -c cargo test -p brain`
 
 - 2026-02-27: Brain SpecPack traceability (feature map + slices + evidence refs)
   - Spec: `specs/19-brain-specpack-traceability-and-feature-map.md`
