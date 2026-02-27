@@ -167,6 +167,10 @@ Compatibility rules:
 Brain v2 adds an optional mode where the controller loop is hosted by an external harness
 (Claude Code / Codex) while `brain` hosts tools.
 
+For the v2 ResearchOps “async jobs + grounded bundles” direction, see:
+
+- `specs/15-brain-research-backend.md`
+
 Requirements:
 
 1. `brain` MUST be able to run as an MCP server (`neuron-mcp::McpServer`) exposing the same tool surface.
@@ -174,4 +178,3 @@ Requirements:
    (best-effort; enforcement is weaker than Neuron-native mode).
 3. Brain v2 MUST preserve the "tool surface contract" so behavior is comparable to v1, even if
    internal policy enforcement differs.
-
