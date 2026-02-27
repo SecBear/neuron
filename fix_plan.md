@@ -10,15 +10,7 @@ Rules:
 
 ## Queue
 
-1. Brain: SpecPack traceability (feature map + slices + evidence refs)
-   - Spec: `specs/19-brain-specpack-traceability-and-feature-map.md`
-   - Done when:
-     - `specpack_finalize` requires `specpack/analysis/feature_map.json`
-     - `specpack_finalize` validates capability ids (feature map ↔ ledger) and artifact refs exist
-     - Offline tests cover: missing feature map, unknown capability id, missing artifact ref
-   - Verify: `nix develop -c cargo test -p brain`
-
-3. Brain: job groups (fan-out + merge) for large landscapes
+1. Brain: job groups (fan-out + merge) for large landscapes
    - Spec: `specs/15-brain-research-backend.md`
    - Done when:
      - Brain can start a group job and produce per-target bundles
@@ -28,6 +20,10 @@ Rules:
 
 
 ## Completed
+
+- 2026-02-27: Brain SpecPack traceability (feature map + slices + evidence refs)
+  - Spec: `specs/19-brain-specpack-traceability-and-feature-map.md`
+  - Adds: `analysis/feature_map.json` required by `specpack_finalize`; validates capability_ids ↔ ledger, spec_refs/trace_refs ↔ manifest, code_refs ↔ artifact index
 
 - 2026-02-27: Added artifact_import and artifact_write tools (source-first ingest)
   - Spec: `specs/17-brain-artifact-ingest-and-write.md`
