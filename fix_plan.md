@@ -10,6 +10,31 @@ Rules:
 
 ## Queue
 
+1. Brain: add SpecPack outputs (spec library + manifest + factory queue)
+   - Spec: `specs/16-brain-specpack-output-and-queue.md`
+   - Done when:
+     - Brain exposes `specpack_init`, `specpack_write_file`, `specpack_finalize`
+     - Brain writes `specpack/manifest.json` and rejects drift (hash mismatch)
+     - Brain validates `specpack/queue.json` references and path safety
+     - Offline tests cover finalize success + manifest drift failure
+   - Verify: `nix develop -c cargo test -p brain`
+
+2. Brain: add artifact ingest + write tools for source-first workflows
+   - Spec: `specs/17-brain-artifact-ingest-and-write.md`
+   - Done when:
+     - Brain exposes `artifact_import` and `artifact_write` (job-local, traversal-safe)
+     - Artifact sha256 is over raw bytes on disk
+     - Offline tests cover import/write and traversal rejection
+   - Verify: `nix develop -c cargo test -p brain`
+
+3. Brain: job groups (fan-out + merge) for large landscapes
+   - Spec: `specs/15-brain-research-backend.md`
+   - Done when:
+     - Brain can start a group job and produce per-target bundles
+     - Brain can merge bundles into a single “landscape” bundle + coverage gaps
+     - Offline tests cover deterministic merge from fixtures
+   - Verify: `nix develop -c cargo test -p brain`
+
 
 ## Completed
 
