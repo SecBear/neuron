@@ -20,8 +20,8 @@ use tokio::sync::RwLock;
 /// In-process orchestrator that dispatches to registered agents.
 ///
 /// Uses `Arc<dyn Operator>` for true concurrent dispatch via `tokio::spawn`.
-/// No durability, no workflow tracking. Suitable for development,
-/// testing, and single-process deployments.
+/// No durability, but tracks workflow signals in-memory for `signal`/`query`.
+/// Suitable for development, testing, and single-process deployments.
 pub struct LocalOrch {
     agents: HashMap<String, Arc<dyn Operator>>,
     workflow_signals: RwLock<HashMap<String, Vec<SignalPayload>>>,
