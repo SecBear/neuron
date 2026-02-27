@@ -10,11 +10,6 @@ Rules:
 
 ## Queue
 
-1. Add umbrella `neuron` crate with feature flags + prelude
-   - Spec: `specs/12-packaging-versioning-and-umbrella-crate.md`
-   - Done when:
-     - `neuron/` crate exists and re-exports the happy-path set behind features
-   - Verify: `nix develop -c cargo test`
 
 ## Completed
 
@@ -34,3 +29,7 @@ Rules:
 - 2026-02-27: Root README added (crate map + quickstart)
   - Spec: `specs/13-documentation-and-dx-parity.md`
   - File: `README.md`
+
+- 2026-02-27: Umbrella `neuron` crate added (features + prelude)
+  - Spec: `specs/12-packaging-versioning-and-umbrella-crate.md`
+  - Crate: `neuron/`

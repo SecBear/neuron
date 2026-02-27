@@ -880,6 +880,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "neuron"
+version = "0.1.0"
+dependencies = [
+ "layer0",
+ "neuron-context",
+ "neuron-env-local",
+ "neuron-hooks",
+ "neuron-mcp",
+ "neuron-op-react",
+ "neuron-op-single-shot",
+ "neuron-orch-kit",
+ "neuron-orch-local",
+ "neuron-provider-anthropic",
+ "neuron-provider-ollama",
+ "neuron-provider-openai",
+ "neuron-state-fs",
+ "neuron-state-memory",
+ "neuron-tool",
+ "neuron-turn",
+]
+
+[[package]]
 name = "neuron-auth"
 version = "0.1.0"
 dependencies = [
@@ -1233,6 +1255,7 @@ version = "0.0.0"
 dependencies = [
  "async-trait",
  "layer0",
+ "neuron",
  "neuron-context",
  "neuron-hooks",
  "neuron-op-react",
