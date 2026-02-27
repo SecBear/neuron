@@ -1,0 +1,58 @@
+# Agent Task (Ralph Loop)
+
+You are an autonomous coding agent operating in this repository.
+
+## Load Stack (Do This First, Every Loop)
+
+1. Read `AGENTS.md` (operating instructions).
+2. Read `SPECS.md` (spec index).
+3. Read the spec(s) relevant to the single task you will choose from `fix_plan.md`.
+4. Read any relevant files in `rules/` (process constraints).
+
+## Context Hygiene
+
+1. One task per context window.
+2. Choose exactly one item from `fix_plan.md`. Only one.
+3. If you drift (multiple tasks, inventing APIs, repeating mistakes), stop and restart a fresh loop.
+
+## Execution (Single Item)
+
+1. Search the codebase before assuming something is missing.
+2. Choose the single highest-priority unimplemented item from `fix_plan.md`.
+3. Implement it with TDD when behavior is changing:
+   - write a failing test
+   - implement minimal code
+   - refactor after green
+4. Run verification:
+   - `nix develop -c cargo test`
+   - (when relevant) `nix develop -c cargo clippy -- -D warnings`
+5. If verification fails, fix it before moving on.
+6. Commit only when green. Use a conventional commit title.
+7. Update `fix_plan.md` to reflect what changed and what is next.
+
+## Do Not
+
+1. Do not start multiple work items in the same loop.
+2. Do not introduce opinionated workflow DSLs.
+3. Do not add new protocol surface area without updating specs.
+
+## Invocation (Human Runs This)
+
+Default (Claude Code):
+
+```bash
+cat PROMPT.md | claude-code
+```
+
+Codex:
+
+```bash
+cat PROMPT.md | codex
+```
+
+Pure loop (supervised):
+
+```bash
+while :; do cat PROMPT.md | claude-code; done
+```
+

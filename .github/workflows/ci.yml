@@ -1,0 +1,33 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v27
+
+      - name: Nix Info
+        run: |
+          nix --version
+          nix show-config | rg -n "experimental-features|substituters|trusted-public-keys" || true
+
+      - name: Pre-Commit (treefmt)
+        run: nix develop -c pre-commit run --all-files
+
+      - name: Tests
+        run: nix develop -c cargo test
+
+      - name: Clippy
+        run: nix develop -c cargo clippy -- -D warnings
+

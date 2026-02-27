@@ -29,6 +29,13 @@ Use rules when:
 
 Rules should be small and composable. Avoid giant omnibus documents.
 
+## Loop (`PROMPT.md` + `fix_plan.md`)
+
+The loop is how we operationalize specs and rules:
+
+1. `PROMPT.md` is the deterministic instruction set for each iteration.
+2. `fix_plan.md` is the single queue of prioritized work items.
+
 ## Docs (`docs/`)
 
 Docs are explanations, rationale, and teaching materials. They are not requirements by default.
@@ -40,4 +47,3 @@ Use docs when:
 3. You are recording research or analysis.
 
 If a doc contains a requirement, it should be promoted into `specs/`.
-
