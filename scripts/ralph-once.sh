@@ -31,14 +31,12 @@ else
     fi
   else
     echo "[ralph] neither claude-code nor claude found on PATH"
-    echo "[ralph] install Claude Code, or run with: CODEX=1 ./scripts/ralph.sh"
+    echo "[ralph] install Claude Code, or run with: CODEX=1 ./scripts/ralph-once.sh"
     exit 1
   fi
 fi
 
 echo "[ralph] runner: ${runner_display}"
-echo "[ralph] ctrl-c to stop"
 
-while :; do
-  cat PROMPT.md | "${runner[@]}"
-done
+cat PROMPT.md | "${runner[@]}"
+
