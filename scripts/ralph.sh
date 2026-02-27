@@ -40,5 +40,10 @@ echo "[ralph] runner: ${runner_display}"
 echo "[ralph] ctrl-c to stop"
 
 while :; do
-  cat PROMPT.md | "${runner[@]}"
+  if [[ "${runner[0]}" == "claude" ]]; then
+    prompt="$(cat PROMPT.md)"
+    "${runner[@]}" "${prompt}"
+  else
+    cat PROMPT.md | "${runner[@]}"
+  fi
 done

@@ -38,5 +38,9 @@ fi
 
 echo "[ralph] runner: ${runner_display}"
 
-cat PROMPT.md | "${runner[@]}"
-
+if [[ "${runner[0]}" == "claude" ]]; then
+  prompt="$(cat PROMPT.md)"
+  "${runner[@]}" "${prompt}"
+else
+  cat PROMPT.md | "${runner[@]}"
+fi
