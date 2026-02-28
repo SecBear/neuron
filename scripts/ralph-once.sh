@@ -77,10 +77,10 @@ if [[ "${RALPH_STOP_ON_EMPTY:-1}" == "1" ]] && [[ -f ralph_queue.md ]]; then
   if grep -qE '^##[[:space:]]+Queue[[:space:]]*$' ralph_queue.md; then
     queue_lines="$(
       awk '
-        BEGIN { in=0 }
-        /^##[[:space:]]+Queue[[:space:]]*$/ { in=1; next }
-        in && /^##[[:space:]]+/ { exit }
-        in { print }
+        BEGIN { in_queue=0 }
+        /^##[[:space:]]+Queue[[:space:]]*$/ { in_queue=1; next }
+        in_queue && /^##[[:space:]]+/ { exit }
+        in_queue { print }
       ' ralph_queue.md | tr -d '\r'
     )"
     numbered="$(printf '%s\n' "${queue_lines}" | grep -E '^[[:space:]]*[0-9]+[[:space:]]*\\.' || true)"

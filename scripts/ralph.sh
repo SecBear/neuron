@@ -91,10 +91,10 @@ should_stop_on_empty_queue() {
   local queue_lines=""
   queue_lines="$(
     awk '
-      BEGIN { in=0 }
-      /^##[[:space:]]+Queue[[:space:]]*$/ { in=1; next }
-      in && /^##[[:space:]]+/ { exit }
-      in { print }
+      BEGIN { in_queue=0 }
+      /^##[[:space:]]+Queue[[:space:]]*$/ { in_queue=1; next }
+      in_queue && /^##[[:space:]]+/ { exit }
+      in_queue { print }
     ' "${file}" | tr -d '\r'
   )"
 
