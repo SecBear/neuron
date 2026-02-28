@@ -83,12 +83,12 @@ if [[ "${RALPH_STOP_ON_EMPTY:-1}" == "1" ]] && [[ -f ralph_queue.md ]]; then
         in_queue { print }
       ' ralph_queue.md | tr -d '\r'
     )"
-    numbered="$(printf '%s\n' "${queue_lines}" | grep -E '^[[:space:]]*[0-9]+[[:space:]]*\\.' || true)"
+    numbered="$(printf '%s\n' "${queue_lines}" | grep -E '^[[:space:]]*[0-9]+[[:space:]]*[.]' || true)"
     if [[ -z "${numbered}" ]]; then
       echo "[ralph] ralph_queue is empty; exiting"
       exit 0
     fi
-    if ! printf '%s\n' "${numbered}" | grep -qEv '^[[:space:]]*[0-9]+[[:space:]]*\\.[[:space:]]*\\(empty\\)[[:space:]]*$'; then
+    if ! printf '%s\n' "${numbered}" | grep -qEv '^[[:space:]]*[0-9]+[[:space:]]*[.][[:space:]]*[(]empty[)][[:space:]]*$'; then
       echo "[ralph] ralph_queue is empty; exiting"
       exit 0
     fi

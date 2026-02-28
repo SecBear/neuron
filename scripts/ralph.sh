@@ -99,12 +99,12 @@ should_stop_on_empty_queue() {
   )"
 
   local numbered=""
-  numbered="$(printf '%s\n' "${queue_lines}" | grep -E '^[[:space:]]*[0-9]+[[:space:]]*\\.' || true)"
+  numbered="$(printf '%s\n' "${queue_lines}" | grep -E '^[[:space:]]*[0-9]+[[:space:]]*[.]' || true)"
   if [[ -z "${numbered}" ]]; then
     return 0
   fi
 
-  if printf '%s\n' "${numbered}" | grep -qEv '^[[:space:]]*[0-9]+[[:space:]]*\\.[[:space:]]*\\(empty\\)[[:space:]]*$'; then
+  if printf '%s\n' "${numbered}" | grep -qEv '^[[:space:]]*[0-9]+[[:space:]]*[.][[:space:]]*[(]empty[)][[:space:]]*$'; then
     return 1
   fi
 
