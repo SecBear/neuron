@@ -255,13 +255,12 @@ mod tests {
     #[tokio::test]
     async fn signal_is_recorded() {
         let orch = LocalOrch::new();
-        orch
-            .signal(
-                &WorkflowId::new("wf1"),
-                layer0::effect::SignalPayload::new("test", serde_json::Value::Null),
-            )
-            .await
-            .unwrap();
+        orch.signal(
+            &WorkflowId::new("wf1"),
+            layer0::effect::SignalPayload::new("test", serde_json::Value::Null),
+        )
+        .await
+        .unwrap();
 
         let status = orch
             .query(

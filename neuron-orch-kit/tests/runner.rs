@@ -427,7 +427,10 @@ async fn runner_effect_pipeline_end_to_end() {
     assert_eq!(state.read_raw("k-pipeline").await, None);
     assert_eq!(
         state.ops().await,
-        vec!["write:k-pipeline".to_string(), "delete:k-pipeline".to_string()]
+        vec![
+            "write:k-pipeline".to_string(),
+            "delete:k-pipeline".to_string()
+        ]
     );
 
     // Signal is sent by runner via Orchestrator::signal and is observable.

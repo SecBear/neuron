@@ -109,10 +109,7 @@ async fn signal_is_recorded_and_visible_via_status_query() {
     orch.signal(&wf, signal).await.unwrap();
 
     let status = orch
-        .query(
-            &wf,
-            QueryPayload::new("status", serde_json::json!({})),
-        )
+        .query(&wf, QueryPayload::new("status", serde_json::json!({})))
         .await
         .unwrap();
     assert_eq!(status["workflow_id"], serde_json::json!("wf-1"));
@@ -146,10 +143,7 @@ async fn query_signals_returns_recorded_signal_history() {
         .unwrap();
     assert_eq!(result["workflow_id"], serde_json::json!("wf-1"));
     assert_eq!(result["signals"].as_array().unwrap().len(), 1);
-    assert_eq!(
-        result["signals"][0]["signal_type"],
-        serde_json::json!("b"),
-    );
+    assert_eq!(result["signals"][0]["signal_type"], serde_json::json!("b"),);
 }
 
 #[tokio::test]
@@ -162,10 +156,12 @@ async fn query_unknown_workflow_returns_not_found() {
         )
         .await;
     assert!(result.is_err());
-    assert!(result
-        .unwrap_err()
-        .to_string()
-        .contains("workflow not found"));
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("workflow not found")
+    );
 }
 
 // --- Object safety ---
