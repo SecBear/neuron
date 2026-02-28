@@ -76,10 +76,39 @@ should_stop_on_empty_queue() {
   if [[ "${RALPH_STOP_ON_EMPTY:-1}" != "1" ]]; then
     return 1
   fi
-  if [[ ! -f ralph_queue.md ]]; then
+
+  local file="ralph_queue.md"
+  if [[ ! -f "${file}" ]]; then
     return 1
   fi
-  grep -qE '^[[:space:]]*1[[:space:]]*\\.[[:space:]]*\\(empty\\)[[:space:]]*$' ralph_queue.md
+
+  # Consider the queue empty if there are no numbered items under "## Queue",
+  # or if the only numbered items are explicit "(empty)" markers.
+  if ! grep -qE '^##[[:space:]]+Queue[[:space:]]*$' "${file}"; then
+    return 1
+  fi
+
+  local queue_lines=""
+  queue_lines="$(
+    awk '
+      BEGIN { in=0 }
+      /^##[[:space:]]+Queue[[:space:]]*$/ { in=1; next }
+      in && /^##[[:space:]]+/ { exit }
+      in { print }
+    ' "${file}" | tr -d '\r'
+  )"
+
+  local numbered=""
+  numbered="$(printf '%s\n' "${queue_lines}" | grep -E '^[[:space:]]*[0-9]+[[:space:]]*\\.' || true)"
+  if [[ -z "${numbered}" ]]; then
+    return 0
+  fi
+
+  if printf '%s\n' "${numbered}" | grep -qEv '^[[:space:]]*[0-9]+[[:space:]]*\\.[[:space:]]*\\(empty\\)[[:space:]]*$'; then
+    return 1
+  fi
+
+  return 0
 }
 
 while :; do

@@ -72,9 +72,26 @@ fi
 echo "[ralph] runner: ${runner_display}"
 
 if [[ "${RALPH_STOP_ON_EMPTY:-1}" == "1" ]] && [[ -f ralph_queue.md ]]; then
-  if grep -qE '^[[:space:]]*1[[:space:]]*\\.[[:space:]]*\\(empty\\)[[:space:]]*$' ralph_queue.md; then
-    echo "[ralph] ralph_queue is empty; exiting"
-    exit 0
+  # Consider the queue empty if there are no numbered items under "## Queue",
+  # or if the only numbered items are explicit "(empty)" markers.
+  if grep -qE '^##[[:space:]]+Queue[[:space:]]*$' ralph_queue.md; then
+    queue_lines="$(
+      awk '
+        BEGIN { in=0 }
+        /^##[[:space:]]+Queue[[:space:]]*$/ { in=1; next }
+        in && /^##[[:space:]]+/ { exit }
+        in { print }
+      ' ralph_queue.md | tr -d '\r'
+    )"
+    numbered="$(printf '%s\n' "${queue_lines}" | grep -E '^[[:space:]]*[0-9]+[[:space:]]*\\.' || true)"
+    if [[ -z "${numbered}" ]]; then
+      echo "[ralph] ralph_queue is empty; exiting"
+      exit 0
+    fi
+    if ! printf '%s\n' "${numbered}" | grep -qEv '^[[:space:]]*[0-9]+[[:space:]]*\\.[[:space:]]*\\(empty\\)[[:space:]]*$'; then
+      echo "[ralph] ralph_queue is empty; exiting"
+      exit 0
+    fi
   fi
 fi
 
