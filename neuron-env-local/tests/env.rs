@@ -208,12 +208,16 @@ async fn resolves_injects_and_emits_events() {
     assert_eq!(audit[0].outcome, SecretAccessOutcome::Resolved);
 
     let observable = events.observable_events();
-    assert!(observable
-        .iter()
-        .any(|e| e.event_type == "environment.credential_resolved"));
-    assert!(observable
-        .iter()
-        .any(|e| e.event_type == "environment.credential_injected"));
+    assert!(
+        observable
+            .iter()
+            .any(|e| e.event_type == "environment.credential_resolved")
+    );
+    assert!(
+        observable
+            .iter()
+            .any(|e| e.event_type == "environment.credential_injected")
+    );
 
     let observable_json = serde_json::to_string(&observable).unwrap();
     assert!(!observable_json.contains(SECRET_VALUE));
@@ -260,9 +264,11 @@ async fn credential_failures_are_sanitized_and_audited() {
     let audit = events.secret_access_events();
     assert_eq!(audit.len(), 1);
     assert_eq!(audit[0].outcome, SecretAccessOutcome::Failed);
-    assert!(!audit[0]
-        .reason
-        .clone()
-        .unwrap_or_default()
-        .contains(LEAKED_SECRET));
+    assert!(
+        !audit[0]
+            .reason
+            .clone()
+            .unwrap_or_default()
+            .contains(LEAKED_SECRET)
+    );
 }
