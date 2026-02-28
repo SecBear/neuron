@@ -9,6 +9,8 @@ repository = "https://github.com/secbear/neuron"
 [dependencies]
 layer0 = { path = "../layer0" }
 async-trait = "0.1"
+neuron-secret = { path = "../neuron-secret" }
+serde_json = "1"
 
 [dev-dependencies]
 layer0 = { path = "../layer0", features = ["test-utils"] }

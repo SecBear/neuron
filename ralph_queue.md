@@ -10,15 +10,22 @@ Rules:
 
 ## Queue
 
-1. Implement credential resolution + injection + audit story in local mode
-   - Specs: `specs/08-environment-and-credentials.md`, `specs/10-secrets-auth-crypto.md`, `specs/09-hooks-lifecycle-and-governance.md`
-   - Done when:
-     - Local execution demonstrates a coherent pipeline: `SecretSource` resolution → environment injection → lifecycle/audit event emission
-     - Tests prove secret material does not leak into logs/errors by default (redaction + sanitized errors)
-   - Verify: `nix develop -c cargo test --workspace --all-targets`
+- No open items. Add the next highest-priority spec-backed task.
 
 
 ## Completed
+
+- 2026-02-28: Implement credential resolution + injection + audit story in local mode
+  - Specs: `specs/08-environment-and-credentials.md`, `specs/10-secrets-auth-crypto.md`, `specs/09-hooks-lifecycle-and-governance.md`
+  - Adds:
+    - `neuron-env-local` now supports optional `SecretResolver` wiring and credential injection for `EnvVar`/`File`/`Sidecar` delivery modes
+    - `LocalEnv` now emits both `SecretAccessEvent` (audit) and `ObservableEvent` (lifecycle) through a pluggable `EnvironmentEventSink`
+    - Credential resolution/injection failures are sanitized to avoid secret-material leakage in `EnvError::CredentialFailed` messages
+    - New integration coverage for end-to-end pipeline behavior and no-leak guarantees in `neuron-env-local/tests/env.rs`
+  - Verify:
+    - `nix develop -c cargo test --workspace --all-targets` (pass)
+    - `nix develop -c cargo clippy --workspace --all-targets -- -D warnings` (blocked by nix-daemon socket in sandbox)
+    - `cargo clippy --workspace --all-targets -- -D warnings` (pass)
 
 - 2026-02-27: Make orchestration “core complete” for composed systems
   - Specs: `specs/03-effects-and-execution-semantics.md`, `specs/05-orchestration-core.md`, `specs/06-composition-factory-and-glue.md`, `specs/11-testing-examples-and-backpressure.md`

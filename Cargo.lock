@@ -990,6 +990,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "layer0",
+ "neuron-secret",
  "serde_json",
  "tokio",
 ]
