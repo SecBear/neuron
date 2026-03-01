@@ -388,53 +388,49 @@ CORE/                         ← new repo, named whatever the crate is called
   validate.sh
 ```
 
-**Repo 2: neuron** (existing repo, evolves in place)
+**Workspace: neuron** (redesign/v2 — executed)
+
+> **Note:** The plan above has been executed. The two-repo approach was merged into
+> a single workspace on the `redesign/v2` branch. The actual workspace structure is:
+
 ```
-neuron/                       ← existing repo, unchanged initially
-  neuron-types/               ← stays, internal Protocol ① traits
-  neuron-loop/                ← stays, eventually: impl CORE::Turn for AgentLoop
-  neuron-context/             ← stays
-  neuron-tool/                ← stays
-  neuron-tool-macros/         ← stays
-  neuron-provider-anthropic/  ← stays
-  neuron-provider-openai/     ← stays
-  neuron-provider-ollama/     ← stays
-  neuron-mcp/                 ← stays
-  neuron-otel/                ← stays
-  neuron-runtime/             ← WILL BE broken apart (Phase 3+)
-    ↓ eventually becomes:
-    CORE-orch-local/          ← sub-agents → Orchestrator impl
-    CORE-state-memory/        ← sessions → StateStore impl
-    CORE-hooks-guardrail/     ← guardrails → Hook impl
-    CORE-env-local/           ← sandboxing → Environment impl
-  neuron/                     ← umbrella crate, stays
-  CLAUDE.md                   ← updated for Phase 3+
-```
-
-### Implementation order:
-
-1. Create the Layer 0 repo. Implement Phase 1-2 there. Pure traits + test impls.
-2. In neuron repo: Phase 3, add CORE as dependency to neuron-loop,
-   `impl Turn for AgentLoop`.
-3. In neuron repo or new crates: Phase 4+, build real implementations.
-
-### For the Claude Code handoff:
-
-Start Claude Code in the NEW Layer 0 repo directory, not in neuron.
-The first task is pure: create the trait crate. No neuron code needed.
-neuron integration comes in Phase 3.
-
-```bash
-mkdir CORE-NAME-HERE
-cd CORE-NAME-HERE
-git init
-# Copy in the three docs + CLAUDE.md
-# Then start Claude Code
-claude
+neuron/
+  layer0/                     ← Layer 0: protocol traits + message types
+  neuron-turn/                ← Layer 1: Turn provider abstraction
+  neuron-context/             ← Layer 1: conversation context
+  neuron-tool/                ← Layer 1: tool registry + middleware
+  neuron-mcp/                 ← Layer 1: MCP client integration
+  neuron-provider-anthropic/  ← Layer 1: Anthropic provider
+  neuron-provider-openai/     ← Layer 1: OpenAI provider
+  neuron-provider-ollama/     ← Layer 1: Ollama provider
+  neuron-op-react/            ← Layer 1: ReAct operator
+  neuron-op-single-shot/      ← Layer 1: single-shot operator
+  neuron-orch-local/          ← Layer 2: local orchestrator
+  neuron-orch-kit/            ← Layer 2: orchestration utilities
+  neuron-state-memory/        ← Layer 3: in-memory state store
+  neuron-state-fs/            ← Layer 3: filesystem state store
+  neuron-env-local/           ← Layer 4: local environment
+  neuron-secret/              ← Layer 4: secret trait
+  neuron-secret-env/          ← Layer 4: env-var secret backend
+  neuron-secret-vault/        ← Layer 4: Vault secret backend
+  neuron-secret-aws/          ← Layer 4: AWS secret backend
+  neuron-secret-gcp/          ← Layer 4: GCP secret backend
+  neuron-secret-keystore/     ← Layer 4: keystore secret backend
+  neuron-secret-k8s/          ← Layer 4: Kubernetes secret backend
+  neuron-auth/                ← Layer 4: auth trait
+  neuron-auth-static/         ← Layer 4: static auth
+  neuron-auth-file/           ← Layer 4: file-based auth
+  neuron-auth-oidc/           ← Layer 4: OIDC auth
+  neuron-auth-k8s/            ← Layer 4: Kubernetes auth
+  neuron-crypto/              ← Layer 4: crypto trait
+  neuron-crypto-vault/        ← Layer 4: Vault crypto backend
+  neuron-crypto-hardware/     ← Layer 4: hardware crypto backend
+  neuron-hooks/               ← Layer 5: hook registry
+  neuron-hook-security/       ← Layer 5: security hooks
+  neuron/                     ← Umbrella crate (re-exports)
 ```
 
-The CLAUDE.md in this repo points at HANDOFF.md. Claude Code reads it.
-Phase 1 begins. Neuron isn't involved until Phase 3.
+See `NEURON-REDESIGN-PLAN.md` for the full 6-layer architecture and design rationale.
 
 Don't touch neuron until Phase 1-2 are solid and published. The trait
 crate must be right before anything depends on it. If you start modifying
