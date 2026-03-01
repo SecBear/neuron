@@ -1,11 +1,14 @@
 [package]
 name = "neuron-secret-vault"
-version = "0.1.0"
+version = "0.4.0"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true
 description = "Stub secret resolver for HashiCorp Vault KV"
+readme = "README.md"
+categories = ["asynchronous", "authentication"]
+keywords = ["neuron", "ai", "agent", "vault", "secrets"]
 
 [dependencies]
 neuron-secret = { path = "../neuron-secret" }

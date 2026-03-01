@@ -731,7 +731,7 @@ dependencies = [
 
 [[package]]
 name = "layer0"
-version = "0.1.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "rust_decimal",
@@ -796,7 +796,7 @@ dependencies = [
 
 [[package]]
 name = "neuron"
-version = "0.1.0"
+version = "0.4.0"
 dependencies = [
  "layer0",
  "neuron-context",
@@ -818,7 +818,7 @@ dependencies = [
 
 [[package]]
 name = "neuron-auth"
-version = "0.1.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "layer0",
@@ -829,7 +829,7 @@ dependencies = [
 
 [[package]]
 name = "neuron-auth-file"
-version = "0.1.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "neuron-auth",
@@ -839,7 +839,7 @@ dependencies = [
 
 [[package]]
 name = "neuron-auth-k8s"
-version = "0.1.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "neuron-auth",
@@ -848,7 +848,7 @@ dependencies = [
 
 [[package]]
 name = "neuron-auth-oidc"
-version = "0.1.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "neuron-auth",
@@ -857,7 +857,7 @@ dependencies = [
 
 [[package]]
 name = "neuron-auth-static"
-version = "0.1.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "neuron-auth",
@@ -866,14 +866,14 @@ dependencies = [
 
 [[package]]
 name = "neuron-context"
-version = "0.1.0"
+version = "0.4.0"
 dependencies = [
  "neuron-turn",
 ]
 
 [[package]]
 name = "neuron-crypto"
-version = "0.1.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "layer0",
@@ -883,7 +883,7 @@ dependencies = [
 
 [[package]]
 name = "neuron-crypto-hardware"
-version = "0.1.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "neuron-crypto",
@@ -892,7 +892,7 @@ dependencies = [
 
 [[package]]
 name = "neuron-crypto-vault"
-version = "0.1.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "neuron-crypto",
@@ -901,7 +901,7 @@ dependencies = [
 
 [[package]]
 name = "neuron-env-local"
-version = "0.1.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "layer0",
@@ -912,7 +912,7 @@ dependencies = [
 
 [[package]]
 name = "neuron-hook-security"
-version = "0.1.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "layer0",
@@ -923,7 +923,7 @@ dependencies = [
 
 [[package]]
 name = "neuron-hooks"
-version = "0.1.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "layer0",
@@ -933,7 +933,7 @@ dependencies = [
 
 [[package]]
 name = "neuron-mcp"
-version = "0.1.0"
+version = "0.4.0"
 dependencies = [
  "neuron-tool",
  "rmcp",
@@ -945,7 +945,7 @@ dependencies = [
 
 [[package]]
 name = "neuron-op-react"
-version = "0.1.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "layer0",
@@ -959,7 +959,7 @@ dependencies = [
 
 [[package]]
 name = "neuron-op-single-shot"
-version = "0.1.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "layer0",
@@ -971,7 +971,7 @@ dependencies = [
 
 [[package]]
 name = "neuron-orch-kit"
-version = "0.1.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "layer0",
@@ -982,7 +982,7 @@ dependencies = [
 
 [[package]]
 name = "neuron-orch-local"
-version = "0.1.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "layer0",
@@ -992,7 +992,7 @@ dependencies = [
 
 [[package]]
 name = "neuron-provider-anthropic"
-version = "0.1.0"
+version = "0.4.0"
 dependencies = [
  "layer0",
  "neuron-context",
@@ -1010,7 +1010,7 @@ dependencies = [
 
 [[package]]
 name = "neuron-provider-ollama"
-version = "0.1.0"
+version = "0.4.0"
 dependencies = [
  "layer0",
  "neuron-context",
@@ -1029,7 +1029,7 @@ dependencies = [
 
 [[package]]
 name = "neuron-provider-openai"
-version = "0.1.0"
+version = "0.4.0"
 dependencies = [
  "layer0",
  "neuron-context",
@@ -1047,7 +1047,7 @@ dependencies = [
 
 [[package]]
 name = "neuron-secret"
-version = "0.1.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "layer0",
@@ -1059,7 +1059,7 @@ dependencies = [
 
 [[package]]
 name = "neuron-secret-aws"
-version = "0.1.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "layer0",
@@ -1070,7 +1070,7 @@ dependencies = [
 
 [[package]]
 name = "neuron-secret-env"
-version = "0.1.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "layer0",
@@ -1081,7 +1081,7 @@ dependencies = [
 
 [[package]]
 name = "neuron-secret-gcp"
-version = "0.1.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "layer0",
@@ -1092,7 +1092,7 @@ dependencies = [
 
 [[package]]
 name = "neuron-secret-k8s"
-version = "0.1.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "layer0",
@@ -1103,7 +1103,7 @@ dependencies = [
 
 [[package]]
 name = "neuron-secret-keystore"
-version = "0.1.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "layer0",
@@ -1113,7 +1113,7 @@ dependencies = [
 
 [[package]]
 name = "neuron-secret-vault"
-version = "0.1.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "layer0",
@@ -1124,7 +1124,7 @@ dependencies = [
 
 [[package]]
 name = "neuron-state-fs"
-version = "0.1.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "layer0",
@@ -1135,7 +1135,7 @@ dependencies = [
 
 [[package]]
 name = "neuron-state-memory"
-version = "0.1.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "layer0",
@@ -1145,7 +1145,7 @@ dependencies = [
 
 [[package]]
 name = "neuron-tool"
-version = "0.1.0"
+version = "0.4.0"
 dependencies = [
  "serde_json",
  "thiserror",
@@ -1154,7 +1154,7 @@ dependencies = [
 
 [[package]]
 name = "neuron-turn"
-version = "0.1.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "layer0",
