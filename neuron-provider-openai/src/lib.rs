@@ -345,10 +345,10 @@ fn extract_text(parts: &[ContentPart]) -> String {
 }
 
 fn parts_to_openai_content(parts: &[ContentPart]) -> OpenAIContent {
-    if parts.len() == 1 {
-        if let ContentPart::Text { text } = &parts[0] {
-            return OpenAIContent::Text(text.clone());
-        }
+    if parts.len() == 1
+        && let ContentPart::Text { text } = &parts[0]
+    {
+        return OpenAIContent::Text(text.clone());
     }
     OpenAIContent::Parts(
         parts

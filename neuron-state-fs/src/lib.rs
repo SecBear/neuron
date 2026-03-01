@@ -154,12 +154,11 @@ impl StateStore for FsStore {
             .await
             .map_err(|e| StateError::WriteFailed(e.to_string()))?
         {
-            if let Some(filename) = entry.file_name().to_str() {
-                if let Some(key) = filename_to_key(filename) {
-                    if key.starts_with(prefix) {
-                        keys.push(key);
-                    }
-                }
+            if let Some(filename) = entry.file_name().to_str()
+                && let Some(key) = filename_to_key(filename)
+                && key.starts_with(prefix)
+            {
+                keys.push(key);
             }
         }
         Ok(keys)

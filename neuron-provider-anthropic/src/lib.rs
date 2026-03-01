@@ -160,10 +160,10 @@ impl Provider for AnthropicProvider {
 }
 
 fn parts_to_anthropic_content(parts: &[ContentPart]) -> AnthropicContent {
-    if parts.len() == 1 {
-        if let ContentPart::Text { text } = &parts[0] {
-            return AnthropicContent::Text(text.clone());
-        }
+    if parts.len() == 1
+        && let ContentPart::Text { text } = &parts[0]
+    {
+        return AnthropicContent::Text(text.clone());
     }
     AnthropicContent::Blocks(parts.iter().map(content_part_to_anthropic_block).collect())
 }

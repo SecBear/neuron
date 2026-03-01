@@ -81,10 +81,10 @@ pub fn content_to_parts(content: &Content) -> Vec<ContentPart> {
 
 /// Convert internal `ContentPart`s to a layer0 `Content`.
 pub fn parts_to_content(parts: &[ContentPart]) -> Content {
-    if parts.len() == 1 {
-        if let ContentPart::Text { text } = &parts[0] {
-            return Content::Text(text.clone());
-        }
+    if parts.len() == 1
+        && let ContentPart::Text { text } = &parts[0]
+    {
+        return Content::Text(text.clone());
     }
     Content::Blocks(parts.iter().map(content_part_to_block).collect())
 }

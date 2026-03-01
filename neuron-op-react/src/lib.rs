@@ -569,40 +569,40 @@ impl<P: Provider + 'static> Operator for ReactOperator<P> {
                 ));
             }
 
-            if let Some(max_cost) = &config.max_cost {
-                if total_cost >= *max_cost {
-                    return Ok(Self::make_output(
-                        parts_to_content(&last_content),
-                        ExitReason::BudgetExhausted,
-                        self.build_metadata(
-                            total_tokens_in,
-                            total_tokens_out,
-                            total_cost,
-                            turns_used,
-                            tool_records,
-                            DurationMs::from(start.elapsed()),
-                        ),
-                        effects,
-                    ));
-                }
+            if let Some(max_cost) = &config.max_cost
+                && total_cost >= *max_cost
+            {
+                return Ok(Self::make_output(
+                    parts_to_content(&last_content),
+                    ExitReason::BudgetExhausted,
+                    self.build_metadata(
+                        total_tokens_in,
+                        total_tokens_out,
+                        total_cost,
+                        turns_used,
+                        tool_records,
+                        DurationMs::from(start.elapsed()),
+                    ),
+                    effects,
+                ));
             }
 
-            if let Some(max_duration) = &config.max_duration {
-                if start.elapsed() >= max_duration.to_std() {
-                    return Ok(Self::make_output(
-                        parts_to_content(&last_content),
-                        ExitReason::Timeout,
-                        self.build_metadata(
-                            total_tokens_in,
-                            total_tokens_out,
-                            total_cost,
-                            turns_used,
-                            tool_records,
-                            DurationMs::from(start.elapsed()),
-                        ),
-                        effects,
-                    ));
-                }
+            if let Some(max_duration) = &config.max_duration
+                && start.elapsed() >= max_duration.to_std()
+            {
+                return Ok(Self::make_output(
+                    parts_to_content(&last_content),
+                    ExitReason::Timeout,
+                    self.build_metadata(
+                        total_tokens_in,
+                        total_tokens_out,
+                        total_cost,
+                        turns_used,
+                        tool_records,
+                        DurationMs::from(start.elapsed()),
+                    ),
+                    effects,
+                ));
             }
 
             // 9. Hook: ExitCheck

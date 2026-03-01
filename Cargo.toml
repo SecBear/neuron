@@ -1,11 +1,12 @@
 [package]
 name = "neuron-workspace"
 version = "0.0.0"
-edition = "2021"
+edition = "2024"
+rust-version = "1.85"
 publish = false
 
 [workspace]
-resolver = "2"
+resolver = "3"
 members = [
   "neuron",
   "layer0",
@@ -43,7 +44,8 @@ members = [
 ]
 
 [workspace.package]
-edition = "2021"
+edition = "2024"
+rust-version = "1.85"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/secbear/neuron"
 homepage = "https://github.com/secbear/neuron"

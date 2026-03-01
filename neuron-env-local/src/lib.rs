@@ -301,8 +301,10 @@ impl Drop for InjectionCleanup {
         for action in self.actions.drain(..).rev() {
             match action {
                 CleanupAction::RestoreEnvVar { var_name, previous } => match previous {
-                    Some(value) => std::env::set_var(var_name, value),
-                    None => std::env::remove_var(var_name),
+                    // SAFETY: cleanup runs on drop in the same thread that set the var.
+                    // The test harness ensures single-threaded env access.
+                    Some(value) => unsafe { std::env::set_var(var_name, value) },
+                    None => unsafe { std::env::remove_var(var_name) },
                 },
                 CleanupAction::RestoreFile { path, previous } => match previous {
                     Some(bytes) => {
@@ -331,7 +333,9 @@ fn inject_credential(
                     "credential value is not valid UTF-8 for env var injection".to_owned()
                 })?;
             let previous = std::env::var(var_name).ok();
-            std::env::set_var(var_name, value);
+            // SAFETY: credential injection targets a single operator's process-local
+            // environment. The caller is responsible for ensuring no concurrent env access.
+            unsafe { std::env::set_var(var_name, value) };
             cleanup.push(CleanupAction::RestoreEnvVar {
                 var_name: var_name.clone(),
                 previous,
@@ -342,12 +346,11 @@ fn inject_credential(
             let path_buf = PathBuf::from(path);
             let previous = fs::read(&path_buf).ok();
 
-            if let Some(parent) = path_buf.parent() {
-                if !parent.as_os_str().is_empty() {
-                    fs::create_dir_all(parent).map_err(|e| {
-                        format!("unable to create parent directory for '{path}': {e}")
-                    })?;
-                }
+            if let Some(parent) = path_buf.parent()
+                && !parent.as_os_str().is_empty()
+            {
+                fs::create_dir_all(parent)
+                    .map_err(|e| format!("unable to create parent directory for '{path}': {e}"))?;
             }
 
             lease

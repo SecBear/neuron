@@ -174,7 +174,8 @@ impl EnvironmentEventSink for EventCollector {
 async fn resolves_injects_and_emits_events() {
     const VAR_NAME: &str = "NEURON_ENV_LOCAL_TEST_API_KEY";
     const SECRET_VALUE: &str = "super-secret-token";
-    std::env::remove_var(VAR_NAME);
+    // SAFETY: test-only; unique var name avoids cross-test interference.
+    unsafe { std::env::remove_var(VAR_NAME) };
 
     let resolver: Arc<dyn SecretResolver> = Arc::new(StubSecretResolver {
         result: Ok(SECRET_VALUE.as_bytes().to_vec()),

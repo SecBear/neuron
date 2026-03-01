@@ -58,7 +58,8 @@ mod tests {
 
     #[tokio::test]
     async fn resolves_set_env_var() {
-        std::env::set_var("NEURON_TEST_SECRET_ENV", "test-value-42");
+        // SAFETY: test-only; unique var name avoids cross-test interference.
+        unsafe { std::env::set_var("NEURON_TEST_SECRET_ENV", "test-value-42") };
         let resolver = EnvResolver;
         let source = SecretSource::Custom {
             provider: "env".into(),
@@ -66,12 +67,14 @@ mod tests {
         };
         let lease = resolver.resolve(&source).await.unwrap();
         lease.value.with_bytes(|b| assert_eq!(b, b"test-value-42"));
-        std::env::remove_var("NEURON_TEST_SECRET_ENV");
+        // SAFETY: test-only cleanup.
+        unsafe { std::env::remove_var("NEURON_TEST_SECRET_ENV") };
     }
 
     #[tokio::test]
     async fn rejects_missing_env_var() {
-        std::env::remove_var("NEURON_TEST_MISSING_VAR");
+        // SAFETY: test-only; unique var name avoids cross-test interference.
+        unsafe { std::env::remove_var("NEURON_TEST_MISSING_VAR") };
         let resolver = EnvResolver;
         let source = SecretSource::Custom {
             provider: "env".into(),
