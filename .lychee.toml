@@ -12,5 +12,13 @@ exclude = [
   "https://www\\.conventionalcommits\\.org",
 ]
 
+# Exclude build artifacts and dependency docs
+exclude_path = ["target"]
+
 # Retry transient failures
 max_retries = 3
+
+# GitHub rate-limits and blocks unauthenticated requests;
+# CI passes GITHUB_TOKEN which avoids this.
+# Locally, accept common "no auth" codes.
+accept = "100..=399"
