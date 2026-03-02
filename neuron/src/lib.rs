@@ -1,84 +1,73 @@
-#![doc = include_str!("../README.md")]
+#![deny(missing_docs)]
+//! # neuron — umbrella crate
+//!
+//! Provides a single import surface for the Neuron redesign (`redesign/v2`).
+//! Re-exports protocol and key implementations behind feature flags, plus a
+//! `prelude` for the happy path.
 
-// === Core blocks (always available) ===
-
-/// Shared types and traits — the lingua franca of all blocks.
-pub mod types {
-    pub use neuron_types::*;
-}
-
-/// Tool registry, middleware pipeline, and built-in middleware.
-pub mod tool {
-    pub use neuron_tool::*;
-}
-
-/// Context management — token counting, compaction strategies, persistent context.
-pub mod context {
-    pub use neuron_context::*;
-}
-
-/// The agentic while loop — composes provider + tools + context.
-pub mod r#loop {
-    pub use neuron_loop::*;
-}
-
-// === Optional provider blocks ===
-
-/// Anthropic Claude provider (Messages API, streaming, prompt caching).
-#[cfg(feature = "anthropic")]
-pub mod anthropic {
-    pub use neuron_provider_anthropic::*;
-}
-
-/// OpenAI provider (Chat Completions API, streaming, structured output).
-#[cfg(feature = "openai")]
-pub mod openai {
-    pub use neuron_provider_openai::*;
-}
-
-/// Ollama local provider (Chat API, NDJSON streaming).
-#[cfg(feature = "ollama")]
-pub mod ollama {
-    pub use neuron_provider_ollama::*;
-}
-
-// === Optional integration blocks ===
-
-/// Model Context Protocol integration (wraps rmcp).
+#[cfg(feature = "core")]
+pub use layer0;
+#[cfg(feature = "core")]
+pub use neuron_context;
+#[cfg(feature = "env-local")]
+pub use neuron_env_local;
+#[cfg(feature = "hooks")]
+pub use neuron_hooks;
 #[cfg(feature = "mcp")]
-pub mod mcp {
-    pub use neuron_mcp::*;
-}
+pub use neuron_mcp;
+#[cfg(feature = "op-react")]
+pub use neuron_op_react;
+#[cfg(feature = "op-single-shot")]
+pub use neuron_op_single_shot;
+#[cfg(feature = "orch-kit")]
+pub use neuron_orch_kit;
+#[cfg(feature = "orch-local")]
+pub use neuron_orch_local;
+#[cfg(feature = "provider-anthropic")]
+pub use neuron_provider_anthropic;
+#[cfg(feature = "provider-ollama")]
+pub use neuron_provider_ollama;
+#[cfg(feature = "provider-openai")]
+pub use neuron_provider_openai;
+#[cfg(feature = "state-fs")]
+pub use neuron_state_fs;
+#[cfg(feature = "state-memory")]
+pub use neuron_state_memory;
+#[cfg(feature = "core")]
+pub use neuron_tool;
+#[cfg(feature = "core")]
+pub use neuron_turn;
 
-/// Production runtime — sessions, sub-agents, guardrails, durability, sandboxing.
-#[cfg(feature = "runtime")]
-pub mod runtime {
-    pub use neuron_runtime::*;
-}
-
-/// OpenTelemetry instrumentation with GenAI semantic conventions.
-#[cfg(feature = "otel")]
-pub mod otel {
-    pub use neuron_otel::*;
-}
-
-// === Prelude — convenient imports for common usage ===
-
-/// Common imports for working with agent blocks.
+/// Happy-path imports for composing Neuron systems.
 pub mod prelude {
-    // Core types
-    pub use neuron_types::{
-        CompletionRequest, CompletionResponse, ContentBlock, ContentItem, Message, Provider, Role,
-        StopReason, SystemPrompt, TokenUsage, Tool, ToolContext, ToolDefinition, ToolDyn,
-        ToolError, ToolOutput,
+    #[cfg(feature = "core")]
+    pub use layer0::{
+        AgentId, Content, ContentBlock, Effect, Environment, ExitReason, Hook, HookAction,
+        HookContext, HookPoint, Operator, OperatorConfig, OperatorInput, OperatorOutput, Scope,
+        SessionId, StateReader, StateStore, WorkflowId,
     };
 
-    // Tool system
-    pub use neuron_tool::ToolRegistry;
+    #[cfg(feature = "hooks")]
+    pub use neuron_hooks::HookRegistry;
 
-    // Context strategies
-    pub use neuron_context::SlidingWindowStrategy;
+    #[cfg(feature = "core")]
+    pub use neuron_tool::{ToolDyn, ToolError, ToolRegistry};
 
-    // The loop
-    pub use neuron_loop::{AgentLoop, AgentLoopBuilder, AgentResult, LoopConfig};
+    #[cfg(feature = "core")]
+    pub use neuron_turn::provider::{Provider, ProviderError};
+
+    #[cfg(feature = "op-react")]
+    pub use neuron_op_react::{ReactConfig, ReactOperator};
+
+    #[cfg(feature = "op-single-shot")]
+    pub use neuron_op_single_shot::SingleShotOperator;
+
+    #[cfg(feature = "orch-kit")]
+    pub use neuron_orch_kit::{Kit, OrchestratedRunner};
+
+    #[cfg(feature = "state-memory")]
+    pub use neuron_state_memory::MemoryStore;
+
+    #[cfg(feature = "state-fs")]
+    pub use neuron_state_fs::FsStore;
 }

@@ -1,204 +1,123 @@
 # neuron
 
+> Composable async agentic AI framework for Rust
+
 [![crates.io](https://img.shields.io/crates/v/neuron.svg)](https://crates.io/crates/neuron)
 [![docs.rs](https://docs.rs/neuron/badge.svg)](https://docs.rs/neuron)
 [![license](https://img.shields.io/crates/l/neuron.svg)](LICENSE-MIT)
+[![book](https://img.shields.io/badge/book-secbear.github.io%2Fneuron-blue)](https://secbear.github.io/neuron)
 
-Rust library for production AI agents. Add one dependency, enable the features
-you need, and compose providers, tools, context strategies, and a runtime into
-agents that work.
+## Overview
 
-## Why neuron?
+`neuron` is the umbrella re-export crate for the neuron workspace. It provides a single
+dependency entry point for the most common combination of crates, controlled by feature flags.
 
-Most AI agent libraries are Python-first, framework-shaped, and opinionated.
-neuron is none of those.
+The framework is built on a **6-layer protocol model** where each layer is a Rust trait:
 
-- **Rust-native** — no Python interop, no runtime overhead
-- **Composable** — use one crate or all of them, no buy-in required
-- **Model-agnostic** — Anthropic, OpenAI, Ollama, or bring your own
-- **Context-aware** — sliding window, compaction, and token counting built in
-- **MCP-native** — first-class Model Context Protocol support
-- **No magic** — it's a while loop with tools attached, not a framework
-
-## High-Level Features
-
-- **Multi-provider LLM support** — Anthropic Claude, OpenAI GPT, Ollama local models, or implement the [`Provider`](https://docs.rs/neuron-types/latest/neuron_types/trait.Provider.html) trait for your own
-- **Composable tool middleware** — axum-style middleware pipeline for tool calls: logging, auth, rate limiting, retries
-- **Context compaction** — sliding window, tool result clearing, LLM summarization, and composite strategies to keep conversations within token limits
-- **Model Context Protocol** — full MCP client and server, stdio and HTTP transports, automatic tool bridging
-- **Input/output guardrails** — safety checks that run before input reaches the LLM or before output reaches the user, with tripwire semantics
-- **Sessions and sub-agents** — persist conversations, spawn isolated sub-agents with filtered tool sets and depth guards
-- **Durable execution** — wrap side effects for crash recovery via Temporal, Restate, or Inngest
-- **Streaming** — real-time token streaming with hook integration across all providers
-- **Usage limits** — `UsageLimits` on `LoopConfig` enforces token budget constraints; `LoopError::UsageLimitExceeded` when exceeded
-- **Tool timeouts** — `TimeoutMiddleware` wraps tool calls in `tokio::time::timeout` to prevent runaway execution
-- **Structured output validation** — `StructuredOutputValidator` validates tool input against JSON Schema, returning `ToolError::ModelRetry` for self-correction; `RetryLimitedValidator` adds a retry cap
-- **OpenTelemetry instrumentation** — `OtelHook` in `neuron-otel` emits `tracing` spans following GenAI semantic conventions with opt-in content capture
-
-## Installation
-
-```sh
-cargo add neuron                    # Anthropic provider included by default
-cargo add neuron --features full    # all providers + MCP + runtime
+```
+layer0: Operator | StateStore | Environment | Orchestrator | Hook | Observable
+         ↓           ↓             ↓               ↓          ↓        ↓
+      operators   state        credentials    workflows   middleware  events
 ```
 
-## Quick Start
+Every layer is independently replaceable. You can use the Anthropic provider with the OpenAI
+operator interface, swap in-memory state for filesystem state, plug in Vault secrets without
+changing your operator code, and so on.
 
-```rust,no_run
+## Quick start
+
+```toml
+[dependencies]
+neuron = { version = "0.4", features = ["op-react", "provider-anthropic", "state-memory", "env-local"] }
+tokio = { version = "1", features = ["full"] }
+```
+
+```rust
 use neuron::prelude::*;
-use neuron::anthropic::Anthropic;
+use std::sync::Arc;
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let provider = Anthropic::new("your-api-key").model("claude-sonnet-4-20250514");
-    let context = SlidingWindowStrategy::new(10, 100_000);
-    let tools = ToolRegistry::new();
+async fn main() -> anyhow::Result<()> {
+    let provider = AnthropicProvider::from_env()?;
+    let operator = ReactOperator::new(
+        Arc::new(provider),
+        Arc::new(ToolRegistry::new()),
+        Arc::new(HookRegistry::new()),
+    );
+    let env = LocalEnv::new(Arc::new(EnvResolver));
 
-    let mut agent = AgentLoop::builder(provider, context)
-        .system_prompt("You are a helpful assistant.")
-        .max_turns(10)
-        .tools(tools)
-        .build();
-
-    let ctx = ToolContext {
-        cwd: std::env::current_dir()?,
-        session_id: "demo".into(),
-        environment: Default::default(),
-        cancellation_token: Default::default(),
-        progress_reporter: None,
-    };
-    let result = agent.run_text("Hello!", &ctx).await?;
-    println!("{}", result.response);
+    let input = OperatorInput::new("What is 2 + 2?");
+    let output = operator.invoke(input, &env).await?;
+    println!("{}", output.content.as_text().unwrap_or_default());
     Ok(())
 }
 ```
 
-## Feature Flags
+## Feature flags
 
-| Feature | Enables | Default |
-|-----------|------------------------------------------|---------|
-| `anthropic` | `neuron::anthropic` (Anthropic Claude) | yes |
-| `openai` | `neuron::openai` (OpenAI GPT) | no |
-| `ollama` | `neuron::ollama` (Ollama local) | no |
-| `mcp` | `neuron::mcp` (Model Context Protocol) | no |
-| `runtime` | `neuron::runtime` (sessions, guardrails) | no |
-| `otel` | `neuron::otel` (OpenTelemetry instrumentation) | no |
-| `full` | All of the above | no |
+| Flag | Includes | Description |
+|------|----------|-------------|
+| `core` (default) | `layer0`, `neuron-context`, `neuron-tool`, `neuron-turn` | Protocol + wiring |
+| `hooks` (default) | `core` + `neuron-hooks` | Hook middleware |
+| `op-react` | `hooks` + `neuron-op-react` | ReAct loop operator |
+| `op-single-shot` | `hooks` + `neuron-op-single-shot` | Single-turn operator |
+| `mcp` | `core` + `neuron-mcp` | MCP bridge |
+| `orch-kit` | `core` + `neuron-orch-kit` | Orchestration wiring |
+| `orch-local` | `orch-kit` + `neuron-orch-local` | In-process orchestrator |
+| `env-local` | `core` + `neuron-env-local` | Local environment |
+| `state-memory` | `core` + `neuron-state-memory` | In-memory state store |
+| `state-fs` | `core` + `neuron-state-fs` | Filesystem state store |
+| `provider-anthropic` | `core` + `neuron-provider-anthropic` | Anthropic Claude |
+| `provider-openai` | `core` + `neuron-provider-openai` | OpenAI GPT |
+| `provider-ollama` | `core` + `neuron-provider-ollama` | Ollama local models |
+| `providers-all` | all three providers | All built-in providers |
 
-## Module Map
+## Workspace crates
 
-| Module | Underlying Crate | Contents |
-|-----------------|---------------------------|------------------------------------------|
-| `neuron::types` | `neuron-types` | Messages, traits, errors, streaming |
-| `neuron::tool` | `neuron-tool` | ToolRegistry, middleware pipeline |
-| `neuron::context`| `neuron-context` | Token counting, compaction strategies |
-| `neuron::r#loop` | `neuron-loop` | AgentLoop, LoopConfig, AgentResult |
-| `neuron::anthropic`| `neuron-provider-anthropic`| Anthropic client (feature-gated) |
-| `neuron::openai`| `neuron-provider-openai` | OpenAi client (feature-gated) |
-| `neuron::ollama`| `neuron-provider-ollama` | Ollama client (feature-gated) |
-| `neuron::mcp` | `neuron-mcp` | McpClient, McpToolBridge (feature-gated) |
-| `neuron::runtime`| `neuron-runtime` | Sessions, guardrails (feature-gated) |
-| `neuron::otel` | `neuron-otel` | OTel instrumentation (feature-gated) |
+The workspace is split into focused crates you can depend on individually:
 
-> **Note:** `loop` is a Rust keyword, so the loop module is accessed as
-> `neuron::r#loop`. In practice, import types directly from the prelude or
-> from `neuron_loop`.
+### Core protocol
+- [`layer0`](https://crates.io/crates/layer0) — foundational protocol traits (no implementations)
+- [`neuron-turn`](https://crates.io/crates/neuron-turn) — Provider trait + LLM types
+- [`neuron-tool`](https://crates.io/crates/neuron-tool) — Tool + ToolRegistry
+- [`neuron-context`](https://crates.io/crates/neuron-context) — context window strategies
 
-## Ecosystem
+### Operators
+- [`neuron-op-react`](https://crates.io/crates/neuron-op-react) — ReAct reasoning loop
+- [`neuron-op-single-shot`](https://crates.io/crates/neuron-op-single-shot) — single model call
 
-Each block is also available as a standalone crate:
+### Providers
+- [`neuron-provider-anthropic`](https://crates.io/crates/neuron-provider-anthropic) — Claude
+- [`neuron-provider-openai`](https://crates.io/crates/neuron-provider-openai) — GPT
+- [`neuron-provider-ollama`](https://crates.io/crates/neuron-provider-ollama) — Ollama
 
-| Crate | docs.rs |
-|-------|---------|
-| [`neuron-types`](https://docs.rs/neuron-types) | Core traits — Provider, Tool, ContextStrategy |
-| [`neuron-tool`](https://docs.rs/neuron-tool) | Tool registry with composable middleware |
-| [`neuron-tool-macros`](https://docs.rs/neuron-tool-macros) | `#[neuron_tool]` derive macro |
-| [`neuron-context`](https://docs.rs/neuron-context) | Token counting and compaction strategies |
-| [`neuron-loop`](https://docs.rs/neuron-loop) | Agentic while loop |
-| [`neuron-provider-anthropic`](https://docs.rs/neuron-provider-anthropic) | Anthropic Claude (Messages API, streaming, prompt caching) |
-| [`neuron-provider-openai`](https://docs.rs/neuron-provider-openai) | OpenAI GPT (Chat Completions API, streaming) |
-| [`neuron-provider-ollama`](https://docs.rs/neuron-provider-ollama) | Ollama (local NDJSON streaming) |
-| [`neuron-mcp`](https://docs.rs/neuron-mcp) | MCP client + server |
-| [`neuron-runtime`](https://docs.rs/neuron-runtime) | Sessions, sub-agents, guardrails, durability |
-| [`neuron-otel`](https://docs.rs/neuron-otel) | OTel instrumentation — GenAI semantic conventions |
+### Orchestration
+- [`neuron-orch-kit`](https://crates.io/crates/neuron-orch-kit) — wiring kit
+- [`neuron-orch-local`](https://crates.io/crates/neuron-orch-local) — in-process orchestrator
 
-## Comparison
+### Hooks & security
+- [`neuron-hooks`](https://crates.io/crates/neuron-hooks) — hook registry and middleware
+- [`neuron-hook-security`](https://crates.io/crates/neuron-hook-security) — redaction + DLP hooks
 
-How neuron compares to the two most established Rust alternatives:
+### State
+- [`neuron-state-memory`](https://crates.io/crates/neuron-state-memory) — in-memory store
+- [`neuron-state-fs`](https://crates.io/crates/neuron-state-fs) — filesystem store
 
-| Capability | neuron | Rig | genai |
-|---|---|---|---|
-| Crate independence | One crate per provider | All providers in `rig-core` | Single crate |
-| LLM providers | Anthropic, OpenAI, Ollama | Many | Many |
-| Tool middleware | Composable chain | None | None |
-| Context compaction | 4 strategies, token-aware | None | None |
-| MCP (full spec) | Client + server + bridge | Client (rmcp) | None |
-| Durable execution | `DurableContext` trait | None | None |
-| Guardrails / sandbox | `InputGuardrail`, `OutputGuardrail`, `PermissionPolicy`, `Sandbox` | None | None |
-| Sessions | `SessionStorage` trait + impls | None | None |
-| Vector stores / RAG | None | Many integrations | None |
-| Usage limits | `UsageLimits` token/request budget | None | None |
-| Tool timeouts | `TimeoutMiddleware` per-tool | None | None |
-| Structured output validation | `StructuredOutputValidator` with self-correction | None | None |
-| OpenTelemetry | GenAI semantic conventions (`neuron-otel`) | Full integration | None |
-| Embeddings | None | `EmbeddingModel` trait | Yes |
+### Environment & credentials
+- [`neuron-env-local`](https://crates.io/crates/neuron-env-local) — local environment
+- [`neuron-secret`](https://crates.io/crates/neuron-secret) — secret resolution traits
+- [`neuron-auth`](https://crates.io/crates/neuron-auth) — authentication traits
+- [`neuron-crypto`](https://crates.io/crates/neuron-crypto) — cryptographic traits
 
-**Where others lead today:** Rig has a larger provider and vector store
-ecosystem with an extensive example set. genai covers many providers in one
-ergonomic crate. neuron's architecture is ahead; the ecosystem is growing.
-
-## Prelude Contents
-
-The `neuron::prelude` module re-exports the most commonly used types:
-
-- `CompletionRequest`, `CompletionResponse`, `Message`, `Role`, `ContentBlock`,
-  `ContentItem`, `SystemPrompt`, `TokenUsage`, `StopReason` — conversation
-  primitives.
-- `Provider` — the LLM provider trait.
-- `Tool`, `ToolDyn`, `ToolDefinition`, `ToolContext`, `ToolOutput`,
-  `ToolError` — tool system types.
-- `ToolRegistry` — tool registration and dispatch.
-- `SlidingWindowStrategy` — context compaction.
-- `AgentLoop`, `AgentLoopBuilder`, `AgentResult`, `LoopConfig` — the agentic
-  loop.
-
-## Learning Path
-
-Run examples in this order to learn neuron incrementally:
-
-1. `neuron-provider-anthropic/examples/basic.rs` — single completion
-2. `neuron-provider-anthropic/examples/streaming.rs` — real-time token streaming
-3. `neuron-provider-anthropic/examples/context_management.rs` — server-side compaction
-4. `neuron-provider-openai/examples/basic.rs` — OpenAI provider usage
-5. `neuron-provider-openai/examples/embeddings.rs` — EmbeddingProvider with cosine similarity
-6. `neuron-provider-ollama/examples/basic.rs` — local model inference
-7. `neuron-tool/examples/custom_tool.rs` — define and register tools
-8. `neuron-tool/examples/derive_tool.rs` — `#[neuron_tool]` proc-macro
-9. `neuron-tool/examples/middleware.rs` — composable tool middleware
-10. `neuron-tool/examples/model_retry.rs` — ToolError::ModelRetry self-correction
-11. `neuron-loop/examples/agent_loop.rs` — multi-turn agent with tools (no API key)
-12. `neuron-loop/examples/multi_turn.rs` — conversation accumulation (no API key)
-13. `neuron-loop/examples/cancellation.rs` — CancellationToken stops loop cooperatively
-14. `neuron-loop/examples/parallel_tools.rs` — concurrent tool execution via join_all
-15. `neuron-context/examples/compaction.rs` — token counting and compaction
-16. `neuron/examples/full_agent.rs` — end-to-end production agent
-17. `neuron/examples/structured_output.rs` — JSON Schema output
-18. `neuron/examples/multi_provider.rs` — swap providers at runtime
-19. `neuron/examples/testing_agents.rs` — mock provider patterns for unit testing
-20. `neuron-runtime/examples/guardrails.rs` — input/output safety checks
-21. `neuron-runtime/examples/sessions.rs` — conversation persistence
-22. `neuron-runtime/examples/tracing_hook.rs` — structured tracing from hook events
-23. `neuron-runtime/examples/local_durable.rs` — passthrough durable context
-24. `neuron-runtime/examples/full_production.rs` — sessions + guardrails + tracing composed
-25. `neuron-mcp/examples/mcp_client.rs` — MCP server integration
-
-## Part of neuron
-
-This is the root crate of [neuron](https://github.com/secbear/neuron). For
-maximum independence, depend on individual block crates (`neuron-types`,
-`neuron-provider-anthropic`, etc.) directly.
+### MCP
+- [`neuron-mcp`](https://crates.io/crates/neuron-mcp) — Model Context Protocol bridge
 
 ## License
 
-Licensed under either of [Apache License, Version 2.0](LICENSE-APACHE) or
-[MIT License](LICENSE-MIT) at your option.
+`neuron` is dual-licensed under [MIT](LICENSE-MIT) and [Apache 2.0](LICENSE-APACHE).
+
+## Documentation
+
+- [Book (architecture + guides)](https://secbear.github.io/neuron)
+- [API docs (docs.rs)](https://docs.rs/neuron)
+- [GitHub](https://github.com/secbear/neuron)

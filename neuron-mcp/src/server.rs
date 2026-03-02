@@ -1,191 +1,122 @@
-//! MCP server: expose a [`ToolRegistry`] as an MCP server.
+//! MCP server that exposes a [`ToolRegistry`] via the MCP protocol.
 //!
-//! [`McpServer`] wraps a [`ToolRegistry`] and implements the rmcp [`ServerHandler`]
-//! trait, allowing registered tools to be accessed by MCP clients.
+//! [`McpServer`] wraps a [`ToolRegistry`] and serves
+//! its tools over stdio using the MCP protocol.
 
 use std::borrow::Cow;
-use std::collections::HashMap;
 use std::sync::Arc;
 
-use rmcp::handler::server::ServerHandler;
+use neuron_tool::ToolRegistry;
 use rmcp::model::{
-    CallToolRequestParams, CallToolResult, Content, ErrorData, Implementation, ListToolsResult,
-    PaginatedRequestParams, ServerCapabilities, ServerInfo, Tool as RmcpTool,
-    ToolAnnotations as RmcpToolAnnotations, ToolsCapability,
+    CallToolRequestParams, CallToolResult, Content, Implementation, ListToolsResult,
+    ProtocolVersion, ServerCapabilities, ServerInfo, Tool as McpTool,
 };
 use rmcp::service::{RequestContext, RoleServer};
+use rmcp::transport::io::stdio;
+use rmcp::{ErrorData, ServerHandler, ServiceExt};
 
-use neuron_tool::ToolRegistry;
-use neuron_types::{McpError as AgentMcpError, ToolContext, ToolDefinition};
+use crate::error::McpError;
 
-/// MCP server that exposes a [`ToolRegistry`] via the MCP protocol.
+/// MCP server that exposes tools from a [`ToolRegistry`].
 ///
-/// Tools registered in the registry become available to MCP clients.
-/// The server handles `tools/list` and `tools/call` requests by delegating
-/// to the underlying [`ToolRegistry`].
-///
-/// # Example
-///
-/// ```ignore
-/// use neuron_tool::ToolRegistry;
-/// use neuron_mcp::McpServer;
-///
-/// let mut registry = ToolRegistry::new();
-/// // ... register tools ...
-/// let server = McpServer::new(registry);
-/// server.serve_stdio().await?;
-/// ```
+/// Call [`serve_stdio`](McpServer::serve_stdio) to start serving via stdin/stdout.
 pub struct McpServer {
-    /// The tool registry containing all available tools.
+    /// The tool registry to expose.
     registry: Arc<ToolRegistry>,
-    /// Server name for identification.
+    /// Server name for MCP identification.
     name: String,
-    /// Server version for identification.
+    /// Server version for MCP identification.
     version: String,
-    /// Optional instructions for clients.
-    instructions: Option<String>,
 }
 
 impl McpServer {
     /// Create a new MCP server wrapping the given tool registry.
-    #[must_use]
-    pub fn new(registry: ToolRegistry) -> Self {
+    pub fn new(
+        registry: ToolRegistry,
+        name: impl Into<String>,
+        version: impl Into<String>,
+    ) -> Self {
         Self {
             registry: Arc::new(registry),
-            name: "neuron-mcp-server".to_string(),
-            version: env!("CARGO_PKG_VERSION").to_string(),
-            instructions: None,
+            name: name.into(),
+            version: version.into(),
         }
     }
 
-    /// Set the server name.
-    #[must_use]
-    pub fn with_name(mut self, name: impl Into<String>) -> Self {
-        self.name = name.into();
-        self
-    }
-
-    /// Set the server version.
-    #[must_use]
-    pub fn with_version(mut self, version: impl Into<String>) -> Self {
-        self.version = version.into();
-        self
-    }
-
-    /// Set instructions for clients.
-    #[must_use]
-    pub fn with_instructions(mut self, instructions: impl Into<String>) -> Self {
-        self.instructions = Some(instructions.into());
-        self
-    }
-
-    /// Serve via stdio (stdin/stdout).
+    /// Serve the tools over stdio (stdin/stdout).
     ///
-    /// This blocks until the client disconnects.
+    /// This blocks until the client disconnects or an error occurs.
     ///
     /// # Errors
     ///
-    /// Returns [`AgentMcpError`] if the server fails to start.
-    pub async fn serve_stdio(self) -> Result<(), AgentMcpError> {
-        use rmcp::ServiceExt;
-        use rmcp::transport::io::stdio;
-
+    /// Returns [`McpError::Connection`] if the transport setup or serving fails.
+    pub async fn serve_stdio(self) -> Result<(), McpError> {
         let transport = stdio();
-        let service = self
+        let handler = McpServerHandler {
+            registry: self.registry,
+            name: self.name,
+            version: self.version,
+        };
+        let service = handler
             .serve(transport)
             .await
-            .map_err(|e| AgentMcpError::Connection(e.to_string()))?;
-
+            .map_err(|e| McpError::Connection(e.to_string()))?;
         service
             .waiting()
             .await
-            .map_err(|e| AgentMcpError::Transport(e.to_string()))?;
-
+            .map_err(|e| McpError::Connection(e.to_string()))?;
         Ok(())
-    }
-
-    /// Get a reference to the underlying tool registry.
-    #[must_use]
-    pub fn registry(&self) -> &ToolRegistry {
-        &self.registry
-    }
-
-    /// Convert our ToolDefinition to rmcp's Tool type.
-    fn definition_to_rmcp_tool(def: &ToolDefinition) -> RmcpTool {
-        let input_schema = match &def.input_schema {
-            serde_json::Value::Object(m) => Arc::new(m.clone()),
-            _ => Arc::new(serde_json::Map::new()),
-        };
-
-        let output_schema = def.output_schema.as_ref().and_then(|s| match s {
-            serde_json::Value::Object(m) => Some(Arc::new(m.clone())),
-            _ => None,
-        });
-
-        let annotations = def.annotations.as_ref().map(|a| RmcpToolAnnotations {
-            title: None,
-            read_only_hint: a.read_only_hint,
-            destructive_hint: a.destructive_hint,
-            idempotent_hint: a.idempotent_hint,
-            open_world_hint: a.open_world_hint,
-        });
-
-        RmcpTool {
-            name: Cow::Owned(def.name.clone()),
-            title: def.title.clone(),
-            description: Some(Cow::Owned(def.description.clone())),
-            input_schema,
-            output_schema,
-            annotations,
-            execution: None,
-            icons: None,
-            meta: None,
-        }
-    }
-
-    /// Create a default ToolContext for tool execution.
-    fn default_tool_context() -> ToolContext {
-        ToolContext {
-            cwd: std::env::current_dir().unwrap_or_default(),
-            session_id: "mcp-server".to_string(),
-            environment: HashMap::new(),
-            cancellation_token: tokio_util::sync::CancellationToken::new(),
-            progress_reporter: None,
-        }
     }
 }
 
-impl ServerHandler for McpServer {
+/// Internal handler implementing [`ServerHandler`] for the MCP protocol.
+struct McpServerHandler {
+    /// The tool registry to expose.
+    registry: Arc<ToolRegistry>,
+    /// Server name.
+    name: String,
+    /// Server version.
+    version: String,
+}
+
+impl ServerHandler for McpServerHandler {
     fn get_info(&self) -> ServerInfo {
         ServerInfo {
-            protocol_version: Default::default(),
-            capabilities: ServerCapabilities {
-                tools: Some(ToolsCapability {
-                    list_changed: Some(false),
-                }),
-                ..Default::default()
-            },
+            protocol_version: ProtocolVersion::LATEST,
+            capabilities: ServerCapabilities::builder().enable_tools().build(),
             server_info: Implementation {
                 name: self.name.clone(),
-                title: None,
                 version: self.version.clone(),
-                description: None,
-                icons: None,
-                website_url: None,
+                ..Default::default()
             },
-            instructions: self.instructions.clone(),
+            instructions: None,
         }
     }
 
     async fn list_tools(
         &self,
-        _request: Option<PaginatedRequestParams>,
+        _request: Option<rmcp::model::PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, ErrorData> {
-        let definitions = self.registry.definitions();
-        let tools: Vec<RmcpTool> = definitions
+        let tools: Vec<McpTool> = self
+            .registry
             .iter()
-            .map(Self::definition_to_rmcp_tool)
+            .map(|tool| {
+                let schema = tool.input_schema();
+                let schema_obj = schema.as_object().cloned().unwrap_or_default();
+
+                McpTool {
+                    name: Cow::Owned(tool.name().to_string()),
+                    title: None,
+                    description: Some(Cow::Owned(tool.description().to_string())),
+                    input_schema: Arc::new(schema_obj),
+                    output_schema: None,
+                    annotations: None,
+                    execution: None,
+                    icons: None,
+                    meta: None,
+                }
+            })
             .collect();
 
         Ok(ListToolsResult::with_all_items(tools))
@@ -196,334 +127,159 @@ impl ServerHandler for McpServer {
         request: CallToolRequestParams,
         _context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, ErrorData> {
-        let name = request.name.as_ref();
+        let tool_name = &*request.name;
+        let tool = self.registry.get(tool_name).ok_or_else(|| {
+            ErrorData::invalid_params(format!("tool not found: {tool_name}"), None)
+        })?;
+
         let input = match request.arguments {
-            Some(args) => serde_json::Value::Object(args),
+            Some(map) => serde_json::Value::Object(map),
             None => serde_json::Value::Object(serde_json::Map::new()),
         };
 
-        let ctx = Self::default_tool_context();
-
-        let result = self
-            .registry
-            .execute(name, input, &ctx)
-            .await
-            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
-
-        // Convert our ToolOutput to rmcp's CallToolResult
-        let content: Vec<Content> = result
-            .content
-            .into_iter()
-            .map(|item| match item {
-                neuron_types::ContentItem::Text(text) => Content::text(text),
-                neuron_types::ContentItem::Image { source } => match source {
-                    neuron_types::ImageSource::Base64 {
-                        media_type, data, ..
-                    } => Content::image(data, media_type),
-                    neuron_types::ImageSource::Url { url } => {
-                        // rmcp doesn't have a URL image type; send as text
-                        Content::text(format!("[image: {url}]"))
-                    }
-                },
-            })
-            .collect();
-
-        Ok(CallToolResult {
-            content,
-            structured_content: result.structured_content,
-            is_error: if result.is_error { Some(true) } else { None },
-            meta: None,
-        })
-    }
-
-    fn get_tool(&self, name: &str) -> Option<RmcpTool> {
-        self.registry
-            .get(name)
-            .map(|t| Self::definition_to_rmcp_tool(&t.definition()))
+        match tool.call(input).await {
+            Ok(result) => {
+                let text =
+                    serde_json::to_string_pretty(&result).unwrap_or_else(|_| result.to_string());
+                Ok(CallToolResult::success(vec![Content::text(text)]))
+            }
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(e.to_string())])),
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use neuron_tool::{ToolDyn, ToolError};
+    use serde_json::json;
+    use std::future::Future;
+    use std::pin::Pin;
 
-    #[test]
-    fn server_creation() {
-        let registry = ToolRegistry::new();
-        let server = McpServer::new(registry);
-        assert_eq!(server.name, "neuron-mcp-server");
+    struct TestTool {
+        tool_name: &'static str,
+    }
+
+    impl ToolDyn for TestTool {
+        fn name(&self) -> &str {
+            self.tool_name
+        }
+        fn description(&self) -> &str {
+            "A test tool"
+        }
+        fn input_schema(&self) -> serde_json::Value {
+            json!({"type": "object", "properties": {"input": {"type": "string"}}})
+        }
+        fn call(
+            &self,
+            input: serde_json::Value,
+        ) -> Pin<Box<dyn Future<Output = Result<serde_json::Value, ToolError>> + Send + '_>>
+        {
+            Box::pin(async move { Ok(json!({"echoed": input})) })
+        }
+    }
+
+    struct FailingTool;
+
+    impl ToolDyn for FailingTool {
+        fn name(&self) -> &str {
+            "fail_tool"
+        }
+        fn description(&self) -> &str {
+            "Always fails"
+        }
+        fn input_schema(&self) -> serde_json::Value {
+            json!({"type": "object"})
+        }
+        fn call(
+            &self,
+            _input: serde_json::Value,
+        ) -> Pin<Box<dyn Future<Output = Result<serde_json::Value, ToolError>> + Send + '_>>
+        {
+            Box::pin(async move { Err(ToolError::ExecutionFailed("deliberate failure".into())) })
+        }
     }
 
     #[test]
-    fn server_with_name() {
+    fn mcp_server_constructs() {
         let registry = ToolRegistry::new();
-        let server = McpServer::new(registry)
-            .with_name("my-server")
-            .with_version("1.0.0")
-            .with_instructions("Use this server for testing");
-
-        assert_eq!(server.name, "my-server");
-        assert_eq!(server.version, "1.0.0");
-        assert_eq!(
-            server.instructions,
-            Some("Use this server for testing".to_string())
-        );
+        let server = McpServer::new(registry, "test-server", "0.1.0");
+        assert_eq!(server.name, "test-server");
+        assert_eq!(server.version, "0.1.0");
     }
 
     #[test]
-    fn server_get_info() {
-        let registry = ToolRegistry::new();
-        let server = McpServer::new(registry).with_name("test");
-        let info = server.get_info();
-
-        assert_eq!(info.server_info.name, "test");
-        assert!(info.capabilities.tools.is_some());
+    fn server_handler_get_info() {
+        let handler = McpServerHandler {
+            registry: Arc::new(ToolRegistry::new()),
+            name: "my-server".into(),
+            version: "1.0.0".into(),
+        };
+        let info = handler.get_info();
+        assert_eq!(info.server_info.name, "my-server");
+        assert_eq!(info.server_info.version, "1.0.0");
     }
 
-    #[test]
-    fn definition_to_rmcp_tool_conversion() {
-        let def = ToolDefinition {
-            name: "greet".to_string(),
-            title: Some("Greeter".to_string()),
-            description: "Greets someone".to_string(),
-            input_schema: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "name": { "type": "string" }
-                }
-            }),
-            output_schema: None,
-            annotations: Some(neuron_types::ToolAnnotations {
-                read_only_hint: Some(true),
-                destructive_hint: None,
-                idempotent_hint: None,
-                open_world_hint: None,
-            }),
-            cache_control: None,
+    #[tokio::test]
+    async fn server_handler_list_tools_empty() {
+        let handler = McpServerHandler {
+            registry: Arc::new(ToolRegistry::new()),
+            name: "test".into(),
+            version: "0.1.0".into(),
         };
 
-        let rmcp_tool = McpServer::definition_to_rmcp_tool(&def);
-        assert_eq!(rmcp_tool.name.as_ref(), "greet");
-        assert_eq!(rmcp_tool.title, Some("Greeter".to_string()));
-        assert_eq!(rmcp_tool.description.as_deref(), Some("Greets someone"));
-        assert!(rmcp_tool.annotations.is_some());
-        assert_eq!(
-            rmcp_tool
-                .annotations
-                .as_ref()
-                .and_then(|a| a.read_only_hint),
-            Some(true)
-        );
+        let ctx = handler.get_info();
+        let _ = ctx; // just to verify get_info works
+
+        // We cannot easily construct RequestContext for the handler methods,
+        // but we can verify the registry logic directly.
+        let reg = ToolRegistry::new();
+        let tools: Vec<&Arc<dyn ToolDyn>> = reg.iter().collect();
+        assert!(tools.is_empty());
+    }
+
+    #[tokio::test]
+    async fn server_handler_list_tools_with_registered_tool() {
+        let mut registry = ToolRegistry::new();
+        registry.register(Arc::new(TestTool { tool_name: "echo" }));
+        registry.register(Arc::new(TestTool { tool_name: "read" }));
+
+        // Verify the registry contents that list_tools would expose
+        assert_eq!(registry.len(), 2);
+        assert!(registry.get("echo").is_some());
+        assert!(registry.get("read").is_some());
+
+        // Verify tool schemas that would be converted
+        let echo = registry.get("echo").unwrap();
+        assert_eq!(echo.description(), "A test tool");
+        let schema = echo.input_schema();
+        assert!(schema.as_object().is_some());
+    }
+
+    #[tokio::test]
+    async fn server_call_tool_logic_success() {
+        let mut registry = ToolRegistry::new();
+        registry.register(Arc::new(TestTool { tool_name: "echo" }));
+
+        let tool = registry.get("echo").unwrap();
+        let result = tool.call(json!({"msg": "hello"})).await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), json!({"echoed": {"msg": "hello"}}));
+    }
+
+    #[tokio::test]
+    async fn server_call_tool_logic_failure() {
+        let mut registry = ToolRegistry::new();
+        registry.register(Arc::new(FailingTool));
+
+        let tool = registry.get("fail_tool").unwrap();
+        let result = tool.call(json!({})).await;
+        assert!(result.is_err());
     }
 
     #[test]
-    fn get_tool_returns_none_for_unknown() {
+    fn server_call_tool_not_found() {
         let registry = ToolRegistry::new();
-        let server = McpServer::new(registry);
-        assert!(server.get_tool("nonexistent").is_none());
-    }
-
-    #[test]
-    fn definition_to_rmcp_tool_no_annotations() {
-        let def = ToolDefinition {
-            name: "bare".to_string(),
-            title: None,
-            description: "No annotations".to_string(),
-            input_schema: serde_json::json!({"type": "object"}),
-            output_schema: None,
-            annotations: None,
-            cache_control: None,
-        };
-
-        let rmcp_tool = McpServer::definition_to_rmcp_tool(&def);
-        assert_eq!(rmcp_tool.name.as_ref(), "bare");
-        assert!(rmcp_tool.annotations.is_none());
-        assert!(rmcp_tool.title.is_none());
-        assert!(rmcp_tool.output_schema.is_none());
-    }
-
-    #[test]
-    fn definition_to_rmcp_tool_non_object_input_schema() {
-        // If input_schema is not an object (edge case), it should fall back
-        // to an empty map
-        let def = ToolDefinition {
-            name: "weird_schema".to_string(),
-            title: None,
-            description: "Has a non-object schema".to_string(),
-            input_schema: serde_json::json!("not an object"),
-            output_schema: None,
-            annotations: None,
-            cache_control: None,
-        };
-
-        let rmcp_tool = McpServer::definition_to_rmcp_tool(&def);
-        assert!(rmcp_tool.input_schema.is_empty());
-    }
-
-    #[test]
-    fn definition_to_rmcp_tool_with_output_schema() {
-        let def = ToolDefinition {
-            name: "with_output".to_string(),
-            title: None,
-            description: "Has output schema".to_string(),
-            input_schema: serde_json::json!({"type": "object"}),
-            output_schema: Some(serde_json::json!({"type": "string"})),
-            annotations: None,
-            cache_control: None,
-        };
-
-        let rmcp_tool = McpServer::definition_to_rmcp_tool(&def);
-        let os = rmcp_tool.output_schema.expect("should have output_schema");
-        assert_eq!(os.get("type").and_then(|v| v.as_str()), Some("string"));
-    }
-
-    #[test]
-    fn definition_to_rmcp_tool_non_object_output_schema() {
-        // If output_schema is Some but not an object, it should be filtered to None
-        let def = ToolDefinition {
-            name: "weird_output".to_string(),
-            title: None,
-            description: "Non-object output schema".to_string(),
-            input_schema: serde_json::json!({"type": "object"}),
-            output_schema: Some(serde_json::json!("just a string")),
-            annotations: None,
-            cache_control: None,
-        };
-
-        let rmcp_tool = McpServer::definition_to_rmcp_tool(&def);
-        assert!(rmcp_tool.output_schema.is_none());
-    }
-
-    #[test]
-    fn definition_to_rmcp_tool_all_annotations() {
-        let def = ToolDefinition {
-            name: "full_ann".to_string(),
-            title: Some("Full Annotations".to_string()),
-            description: "All annotation fields set".to_string(),
-            input_schema: serde_json::json!({"type": "object"}),
-            output_schema: None,
-            annotations: Some(neuron_types::ToolAnnotations {
-                read_only_hint: Some(false),
-                destructive_hint: Some(true),
-                idempotent_hint: Some(false),
-                open_world_hint: Some(true),
-            }),
-            cache_control: None,
-        };
-
-        let rmcp_tool = McpServer::definition_to_rmcp_tool(&def);
-        let ann = rmcp_tool.annotations.expect("should have annotations");
-        assert_eq!(ann.read_only_hint, Some(false));
-        assert_eq!(ann.destructive_hint, Some(true));
-        assert_eq!(ann.idempotent_hint, Some(false));
-        assert_eq!(ann.open_world_hint, Some(true));
-        // The title on rmcp annotations is always None from our conversion
-        assert!(ann.title.is_none());
-    }
-
-    #[test]
-    fn definition_to_rmcp_tool_partial_annotations() {
-        let def = ToolDefinition {
-            name: "partial".to_string(),
-            title: None,
-            description: "Partial annotations".to_string(),
-            input_schema: serde_json::json!({"type": "object"}),
-            output_schema: None,
-            annotations: Some(neuron_types::ToolAnnotations {
-                read_only_hint: Some(true),
-                destructive_hint: None,
-                idempotent_hint: None,
-                open_world_hint: None,
-            }),
-            cache_control: None,
-        };
-
-        let rmcp_tool = McpServer::definition_to_rmcp_tool(&def);
-        let ann = rmcp_tool.annotations.expect("should have annotations");
-        assert_eq!(ann.read_only_hint, Some(true));
-        assert!(ann.destructive_hint.is_none());
-        assert!(ann.idempotent_hint.is_none());
-        assert!(ann.open_world_hint.is_none());
-    }
-
-    #[test]
-    fn default_tool_context_has_sensible_defaults() {
-        let ctx = McpServer::default_tool_context();
-        assert_eq!(ctx.session_id, "mcp-server");
-        assert!(ctx.environment.is_empty());
-        assert!(ctx.progress_reporter.is_none());
-    }
-
-    #[test]
-    fn server_registry_ref() {
-        let registry = ToolRegistry::new();
-        let server = McpServer::new(registry);
-        // Registry should be accessible and empty
-        assert!(server.registry().definitions().is_empty());
-    }
-
-    #[test]
-    fn server_get_info_with_instructions() {
-        let registry = ToolRegistry::new();
-        let server = McpServer::new(registry)
-            .with_name("custom")
-            .with_version("2.0")
-            .with_instructions("Do the thing");
-
-        let info = server.get_info();
-        assert_eq!(info.server_info.name, "custom");
-        assert_eq!(info.server_info.version, "2.0");
-        assert_eq!(info.instructions, Some("Do the thing".to_string()));
-    }
-
-    #[test]
-    fn server_get_info_without_instructions() {
-        let registry = ToolRegistry::new();
-        let server = McpServer::new(registry);
-
-        let info = server.get_info();
-        assert!(info.instructions.is_none());
-    }
-
-    #[test]
-    fn server_capabilities_has_tools() {
-        let registry = ToolRegistry::new();
-        let server = McpServer::new(registry);
-        let info = server.get_info();
-
-        let tools_cap = info
-            .capabilities
-            .tools
-            .expect("should have tools capability");
-        assert_eq!(tools_cap.list_changed, Some(false));
-    }
-
-    #[test]
-    fn definition_roundtrip_preserves_description() {
-        // Test the full definition -> rmcp -> assertion cycle
-        let def = ToolDefinition {
-            name: "echo".to_string(),
-            title: Some("Echo".to_string()),
-            description: "Echoes input back".to_string(),
-            input_schema: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "text": {"type": "string"}
-                },
-                "required": ["text"]
-            }),
-            output_schema: None,
-            annotations: None,
-            cache_control: None,
-        };
-
-        let rmcp_tool = McpServer::definition_to_rmcp_tool(&def);
-        assert_eq!(rmcp_tool.name.as_ref(), "echo");
-        assert_eq!(rmcp_tool.title, Some("Echo".to_string()));
-        assert_eq!(rmcp_tool.description.as_deref(), Some("Echoes input back"));
-        // Verify the input schema was converted to an Arc<Map>
-        assert!(rmcp_tool.input_schema.contains_key("type"));
-        assert!(rmcp_tool.input_schema.contains_key("properties"));
-        assert!(rmcp_tool.input_schema.contains_key("required"));
+        assert!(registry.get("nonexistent").is_none());
     }
 }

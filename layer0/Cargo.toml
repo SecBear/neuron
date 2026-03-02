@@ -1,0 +1,26 @@
+[package]
+name = "layer0"
+version = "0.4.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Protocol traits for composable agentic AI systems"
+readme = "README.md"
+categories = ["asynchronous", "rust-patterns"]
+keywords = ["neuron", "ai", "agent", "async", "protocol"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+async-trait = "0.1"
+thiserror = "2"
+rust_decimal = { version = "1", features = ["serde-str"] }
+tokio = { version = "1", features = ["rt"], optional = true }
+
+[features]
+default = []
+test-utils = ["tokio"]
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

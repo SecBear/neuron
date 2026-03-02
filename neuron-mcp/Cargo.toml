@@ -1,33 +1,28 @@
 [package]
 name = "neuron-mcp"
-version = "0.3.0"
+version = "0.4.0"
 edition.workspace = true
-rust-version.workspace = true
-description = "Model Context Protocol (MCP) client and server in Rust — stdio, HTTP transports, and bridging to the Tool trait"
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true
-documentation = "https://docs.rs/neuron-mcp"
-keywords = ["ai", "agent", "mcp", "llm", "tools"]
-categories = ["science", "api-bindings"]
-exclude = ["CLAUDE.md"]
+description = "MCP client and server bridging MCP tools with neuron ToolRegistry"
+readme = "README.md"
+categories = ["asynchronous", "network-programming"]
+keywords = ["neuron", "ai", "agent", "mcp", "model-context"]
 
 [dependencies]
-neuron-types.workspace = true
-neuron-tool.workspace = true
+neuron-tool = { path = "../neuron-tool", version = "0.4.0" }
 rmcp = { version = "0.16", features = [
   "client",
   "server",
-  "transport-io",
   "transport-child-process",
-  "transport-streamable-http-client",
+  "transport-io",
   "transport-streamable-http-client-reqwest",
 ] }
-serde.workspace = true
-serde_json.workspace = true
-tokio = { workspace = true, features = ["process"] }
-tokio-util.workspace = true
-tracing.workspace = true
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["process", "io-std"] }
 
 [dev-dependencies]
-tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

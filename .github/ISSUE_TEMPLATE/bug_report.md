@@ -6,11 +6,11 @@ labels: bug
 
 ## Crate
 
-Which crate is affected? (e.g., neuron-types, neuron-loop)
+Which crate is affected? (e.g., layer0, neuron-tool, neuron-orch-local, neuron-provider-anthropic)
 
 ## Version
 
-What version are you using? (`cargo tree -p neuron-types` to check)
+What version are you using? (`cargo tree -p neuron` to check)
 
 ## Description
 

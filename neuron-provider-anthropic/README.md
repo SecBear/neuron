@@ -1,120 +1,52 @@
 # neuron-provider-anthropic
 
+> Anthropic Claude API provider for neuron
+
 [![crates.io](https://img.shields.io/crates/v/neuron-provider-anthropic.svg)](https://crates.io/crates/neuron-provider-anthropic)
 [![docs.rs](https://docs.rs/neuron-provider-anthropic/badge.svg)](https://docs.rs/neuron-provider-anthropic)
 [![license](https://img.shields.io/crates/l/neuron-provider-anthropic.svg)](LICENSE-MIT)
 
-Anthropic Claude provider for the neuron agent blocks ecosystem. Implements the
-[`Provider`](https://docs.rs/neuron-types/latest/neuron_types/trait.Provider.html)
-trait from `neuron-types` against the Anthropic Messages API,
-supporting both synchronous completions and server-sent event (SSE) streaming.
+## Overview
 
-The default model is `claude-sonnet-4-20250514`. The default base URL is
-`https://api.anthropic.com`. Both can be overridden with the builder API.
+`neuron-provider-anthropic` implements the `Provider` trait from
+[`neuron-turn`](../neuron-turn) for the
+[Anthropic Messages API](https://docs.anthropic.com/en/api/messages). It handles request
+serialization, response parsing, tool call routing, and cost accounting for Claude models.
 
-## Installation
-
-```sh
-cargo add neuron-provider-anthropic
-```
-
-## Key Types
-
-- `Anthropic` -- client struct with builder methods (`new`, `from_env`, `model`,
-  `base_url`). Implements `Provider` from `neuron-types`.
-- `ProviderError` -- re-exported error type for all provider failures (auth,
-  rate limit, server errors).
-- `StreamHandle` -- returned by `complete_stream`, yields `StreamEvent` items
-  as the model generates content.
-
-## Features
-
-- Full content block mapping: text, tool use, tool results, images, thinking, compaction.
-- Server-side context management via `ContextManagement` request field.
-- Per-iteration token tracking via `UsageIteration` during compaction.
-- Prompt caching via `CacheControl` on messages and system prompts.
-- `ToolChoice` support: `Auto`, `Any`, `Required`, `Specific(name)`.
-- SSE streaming parsed from raw byte stream (no external SSE library).
+Supports: `claude-opus-4`, `claude-sonnet-4`, `claude-haiku-3-5`, and any future model
+accepted by the Messages API.
 
 ## Usage
 
-```rust,no_run
-use neuron_provider_anthropic::Anthropic;
-use neuron_types::{CompletionRequest, Message, Provider, SystemPrompt};
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // From an explicit API key
-    let provider = Anthropic::new("sk-ant-...")
-        .model("claude-sonnet-4-20250514");
-
-    // Or from the ANTHROPIC_API_KEY environment variable
-    let provider = Anthropic::from_env()?;
-
-    let request = CompletionRequest {
-        messages: vec![Message::user("What is 2 + 2?")],
-        system: Some(SystemPrompt::Text("You are a helpful assistant.".into())),
-        max_tokens: Some(1024),
-        ..Default::default()
-    };
-
-    let response = provider.complete(request).await?;
-
-    for block in &response.message.content {
-        println!("{block:?}");
-    }
-    Ok(())
-}
+```toml
+[dependencies]
+neuron-provider-anthropic = "0.4"
+neuron-turn = "0.4"
 ```
 
-### Extended thinking
+### Setup
 
-Enable Claude's extended thinking to let the model reason before responding:
+Set `ANTHROPIC_API_KEY` in your environment (or inject via `neuron-env-local`).
 
-```rust,ignore
-use neuron_types::{CompletionRequest, ThinkingConfig};
+```rust
+use neuron_provider_anthropic::AnthropicProvider;
+use neuron_turn::Provider;
 
-let request = CompletionRequest {
-    thinking: Some(ThinkingConfig::Enabled { budget_tokens: 10_000 }),
-    ..Default::default()
-};
-// The response will include ContentBlock::Thinking blocks with the model's reasoning
+let provider = AnthropicProvider::from_env()?;
+// Use provider with ReactOperator or SingleShotOperator
 ```
 
-### Server-side context management
+### Custom base URL (proxy / testing)
 
-Anthropic supports server-side context compaction. Set the `context_management`
-field on `CompletionRequest` to enable it. When the server compacts, the response
-includes `StopReason::Compaction` and `ContentBlock::Compaction` — the agent loop
-continues automatically on the next iteration.
-
-Per-iteration token usage is available in `TokenUsage.iterations`:
-
-```rust,ignore
-use neuron_types::{CompletionRequest, ContextManagement, ContextEdit};
-
-let request = CompletionRequest {
-    context_management: Some(ContextManagement {
-        edits: vec![ContextEdit::Compact {
-            strategy: "compact_20260112".into(),
-        }],
-    }),
-    ..Default::default()
-};
+```rust
+let provider = AnthropicProvider::builder()
+    .api_key("sk-ant-...")
+    .base_url("https://my-proxy/anthropic")
+    .model("claude-sonnet-4-5")
+    .build()?;
 ```
 
-### Error handling
+## Part of the neuron workspace
 
-Each provider defines its own `ProviderError` type. If you're using multiple
-providers, pattern-match on the specific provider's error rather than expecting
-a shared error type across providers.
-
-## Part of neuron
-
-This crate is one block in the [neuron](https://github.com/secbear/neuron)
-composable agent toolkit. It depends only on `neuron-types`.
-
-## License
-
-Licensed under either of [Apache License, Version 2.0](LICENSE-APACHE) or
-[MIT License](LICENSE-MIT) at your option.
+[neuron](https://github.com/secbear/neuron) is a composable async agentic AI framework for Rust.
+See the [book](https://secbear.github.io/neuron) for architecture and guides.

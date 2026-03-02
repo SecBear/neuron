@@ -1,48 +1,68 @@
 [package]
 name = "neuron"
-version = "0.3.0"
+version = "0.4.0"
 edition.workspace = true
-rust-version.workspace = true
-description = "Rust library for production AI agents — composable tool middleware, context compaction, MCP, sessions, and guardrails"
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true
-documentation = "https://docs.rs/neuron"
-keywords = ["ai", "agent", "llm", "tools", "mcp"]
-categories = ["science", "asynchronous"]
-exclude = ["tests/HUMAN.md"]
+description = "Composable async agentic AI framework for Rust"
+readme = "README.md"
+categories = ["asynchronous"]
+keywords = ["neuron", "ai", "agent", "async", "framework"]
 
-[features]
-default = ["anthropic"]
-anthropic = ["dep:neuron-provider-anthropic"]
-openai = ["dep:neuron-provider-openai"]
-ollama = ["dep:neuron-provider-ollama"]
-mcp = ["dep:neuron-mcp"]
-runtime = ["dep:neuron-runtime"]
-otel = ["dep:neuron-otel"]
-full = ["anthropic", "openai", "ollama", "mcp", "runtime", "otel"]
+[lib]
+path = "src/lib.rs"
 
 [dependencies]
-neuron-types.workspace = true
-neuron-tool.workspace = true
-neuron-context.workspace = true
-neuron-loop.workspace = true
-neuron-provider-anthropic = { workspace = true, optional = true }
-neuron-provider-openai = { workspace = true, optional = true }
-neuron-provider-ollama = { workspace = true, optional = true }
-neuron-mcp = { workspace = true, optional = true }
-neuron-runtime = { workspace = true, optional = true }
-neuron-otel = { workspace = true, optional = true }
+layer0 = { path = "../layer0", optional = true, version = "0.4.0" }
+neuron-context = { path = "../neuron-context", optional = true, version = "0.4.0" }
+neuron-hooks = { path = "../neuron-hooks", optional = true, version = "0.4.0" }
+neuron-mcp = { path = "../neuron-mcp", optional = true, version = "0.4.0" }
+neuron-op-react = { path = "../neuron-op-react", optional = true, version = "0.4.0" }
+neuron-op-single-shot = { path = "../neuron-op-single-shot", optional = true, version = "0.4.0" }
+neuron-orch-kit = { path = "../neuron-orch-kit", optional = true, version = "0.4.0" }
+neuron-orch-local = { path = "../neuron-orch-local", optional = true, version = "0.4.0" }
+neuron-env-local = { path = "../neuron-env-local", optional = true, version = "0.4.0" }
+neuron-provider-anthropic = { path = "../neuron-provider-anthropic", optional = true, version = "0.4.0" }
+neuron-provider-ollama = { path = "../neuron-provider-ollama", optional = true, version = "0.4.0" }
+neuron-provider-openai = { path = "../neuron-provider-openai", optional = true, version = "0.4.0" }
+neuron-state-fs = { path = "../neuron-state-fs", optional = true, version = "0.4.0" }
+neuron-state-memory = { path = "../neuron-state-memory", optional = true, version = "0.4.0" }
+neuron-tool = { path = "../neuron-tool", optional = true, version = "0.4.0" }
+neuron-turn = { path = "../neuron-turn", optional = true, version = "0.4.0" }
 
-[dev-dependencies]
-tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
-tokio-util.workspace = true
-futures.workspace = true
-serde.workspace = true
-serde_json.workspace = true
-schemars.workspace = true
-thiserror.workspace = true
+[features]
+default = ["core", "hooks"]
 
-[[example]]
-name = "multi_provider"
-required-features = ["openai"]
+# Protocol + core wiring
+core = [
+  "dep:layer0",
+  "dep:neuron-context",
+  "dep:neuron-tool",
+  "dep:neuron-turn",
+]
+hooks = ["core", "dep:neuron-hooks"]
+
+# Tooling / integration
+mcp = ["core", "dep:neuron-mcp"]
+
+# Operators
+op-react = ["hooks", "dep:neuron-op-react"]
+op-single-shot = ["hooks", "dep:neuron-op-single-shot"]
+
+# Orchestration implementations
+orch-kit = ["core", "dep:neuron-orch-kit"]
+orch-local = ["orch-kit", "dep:neuron-orch-local"]
+
+# Environment implementations
+env-local = ["core", "dep:neuron-env-local"]
+
+# State backends
+state-memory = ["core", "dep:neuron-state-memory"]
+state-fs = ["core", "dep:neuron-state-fs"]
+
+# Providers
+provider-openai = ["core", "dep:neuron-provider-openai"]
+provider-anthropic = ["core", "dep:neuron-provider-anthropic"]
+provider-ollama = ["core", "dep:neuron-provider-ollama"]
+providers-all = ["provider-openai", "provider-anthropic", "provider-ollama"]

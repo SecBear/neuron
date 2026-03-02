@@ -1,60 +1,34 @@
 # Introduction
 
-**neuron** provides composable building blocks for AI agents in Rust. Each block
-is an independent crate, versioned and published separately. Pull one block
-without buying the whole stack.
+**neuron** is a composable agentic AI architecture implemented as a Rust workspace. It provides the building blocks for constructing agentic systems -- from a single LLM call with tool use, to multi-agent orchestration with durable execution, state persistence, and environment isolation.
 
-## Philosophy: serde, not serde_json
+## What neuron is
 
-neuron is to agent frameworks what `serde` is to `serde_json`. It defines traits
-(`Provider`, `Tool`, `ContextStrategy`) and provides foundational implementations.
-An SDK layer composes these blocks into opinionated workflows.
+neuron is a set of Rust crates organized into six architectural layers:
 
-Every Rust and Python agent framework converges on the same ~300-line while loop.
-The differentiation is never the loop — it's the blocks around it: context
-management, tool pipelines, durability, runtime. Nobody ships those blocks
-independently. That's the gap neuron fills.
+- **Layer 0** defines the stability contract: four protocol traits and two cross-cutting interfaces that every other layer builds on. These traits almost never change.
+- **Layers 1--5** provide swappable implementations of those protocols: providers (Anthropic, OpenAI, Ollama), operators (ReAct loops, single-shot), orchestration, state persistence, environment isolation, and hook-based observation.
 
-## What's Included
+The result is a system where you pick the implementations you need and compose them. A local development setup and a globally distributed production deployment use the same trait boundaries -- the only difference is which implementations back each protocol.
 
-neuron ships the following crates:
+## What neuron is not
 
-| Crate | Purpose |
-|-------|---------|
-| `neuron-types` | Core traits and types — `Provider`, `Tool`, `ContextStrategy`, `Message` |
-| `neuron-provider-anthropic` | Anthropic Messages API (streaming, tool use, server-side compaction) |
-| `neuron-provider-openai` | OpenAI Chat Completions + Embeddings API |
-| `neuron-provider-ollama` | Ollama local inference API |
-| `neuron-tool` | `ToolRegistry` with composable middleware pipeline |
-| `neuron-tool-macros` | `#[neuron_tool]` derive macro |
-| `neuron-context` | Compaction strategies, token counting, system prompt injection |
-| `neuron-loop` | Configurable `AgentLoop` with streaming, cancellation, parallel tools |
-| `neuron-mcp` | Model Context Protocol client and server (stdio + Streamable HTTP) |
-| `neuron-runtime` | Sessions, guardrails, `TracingHook`, `GuardrailHook`, `DurableContext` |
-| `neuron-otel` | OpenTelemetry instrumentation with GenAI semantic conventions (`gen_ai.*` spans) |
-| `neuron` | Umbrella crate with feature flags for all of the above |
+neuron is not a framework. There is no runtime you boot, no configuration DSL, no workflow engine. It is a collection of crates with well-defined trait boundaries. You compose them in your own application code.
 
-## Who Is This For?
+neuron is not an LLM wrapper library. While it includes provider implementations for making LLM calls, the architecture is designed around the full lifecycle of agentic systems: reasoning loops, tool execution, state management, multi-agent composition, security hooks, and environment isolation.
 
-- **Rust developers** building AI-powered applications who want control over
-  each layer of the stack
-- **Framework authors** who need well-tested building blocks to compose into
-  higher-level abstractions
-- **AI agents** (like Claude Code) that need to understand, evaluate, and work
-  with the codebase
+## Key properties
 
-## What neuron Is NOT
+- **Provider-agnostic.** The `Provider` trait abstracts over Anthropic, OpenAI, and Ollama. Adding a new provider means implementing one trait.
+- **Object-safe protocol boundaries.** All Layer 0 traits work behind `Box<dyn Trait>` and are `Send + Sync`. You can compose implementations at runtime without generics leaking through your entire application.
+- **Trait-based composition.** Every protocol (operator execution, orchestration, state, environment) is a trait. Swap implementations without changing calling code.
+- **Precise cost tracking.** All monetary values use `rust_decimal::Decimal`, avoiding floating-point accumulation errors across thousands of LLM calls.
+- **Serializable boundaries.** All protocol messages (`OperatorInput`, `OperatorOutput`, effects, signals) implement `Serialize + Deserialize`. An in-process function call and a cross-network RPC use the same types.
 
-neuron is the layer below frameworks. It does not provide:
+## License
 
-- CLI, TUI, or GUI applications
-- Opinionated agent framework (compose one from the blocks)
-- RAG pipeline (use the `EmbeddingProvider` trait with your own retrieval)
-- Workflow engine (integrate with Temporal/Restate via `DurableContext`)
-- Retry middleware (use tower or your durable engine's retry policy)
+neuron is dual-licensed under MIT and Apache-2.0, following the Rust ecosystem convention.
 
-## Next Steps
+## Source code
 
-- [Installation](getting-started/installation.md) — add neuron to your project
-- [Quickstart](getting-started/quickstart.md) — build your first agent in 50 lines
-- [Core Concepts](getting-started/concepts.md) — understand the five key abstractions
+The source code is hosted at [github.com/secbear/neuron](https://github.com/secbear/neuron).

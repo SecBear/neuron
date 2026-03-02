@@ -1,234 +1,72 @@
 # Design Decisions
 
-neuron's architecture reflects a set of deliberate trade-offs. This page
-explains the key decisions and the reasoning behind them.
+This page summarizes the key architectural decisions in neuron and the reasoning behind each one. For the full design space (all 23 architectural decisions every agentic system must make), see `docs/architecture/agentic-decision-map-v3.md` in the repository.
 
-## "serde, not serde_json"
+## Why `#[async_trait]` instead of native async traits
 
-neuron is a library of building blocks, not a framework.
+**Decision:** All Layer 0 protocol traits use `#[async_trait]` (heap-allocated futures). Internal traits in Layer 1 (like `Provider`) use RPITIT (native async, zero-cost).
 
-The `serde` crate defines the `Serialize` and `Deserialize` traits.
-`serde_json` implements them for JSON. neuron follows the same pattern:
-`neuron-types` defines the `Provider`, `Tool`, and `ContextStrategy` traits.
-Provider crates (`neuron-provider-anthropic`, `neuron-provider-openai`, etc.)
-implement them.
+**Reasoning:** As of Rust edition 2021, `async fn` in traits is stabilized, but `async fn` in `dyn Trait` is not. Layer 0 traits *must* be object-safe because the entire composition model depends on `Box<dyn Operator>`, `Arc<dyn StateStore>`, etc. The `async_trait` macro provides this by boxing the returned future.
 
-This means you can pull in a single block -- say, `neuron-tool` for the tool
-registry and middleware pipeline -- without buying into an opinionated agent
-framework. You compose the blocks yourself, or use a framework built on top.
+Internal traits like `Provider` are never used behind `dyn` -- they are used as generic type parameters (`ReactOperator<P: Provider>`). These can use RPITIT for zero-cost abstraction. The object-safe boundary is the `Operator` trait, which is the protocol boundary.
 
-**The scope test:** If removing a feature forces every user to reimplement 200+
-lines of non-trivial code (type erasure, middleware chaining, protocol
-handling), it belongs in neuron. If removing it forces 20-50 lines of
-straightforward composition, it belongs in an SDK layer above.
+**Future:** When Rust stabilizes `async fn in dyn Trait` with `Send` bounds, the Layer 0 traits will migrate to native async. This will be a breaking change in a minor version before v1.0.
 
-## Block decomposition: one crate, one concern
+## Why `serde_json::Value` for state values
 
-Each crate owns exactly one concern:
+**Decision:** `StateStore` stores `serde_json::Value`, not generic `T: Serialize`.
 
-| Crate | Concern |
-|-------|---------|
-| `neuron-types` | Types and trait definitions (zero logic) |
-| `neuron-provider-anthropic` | Anthropic API implementation |
-| `neuron-provider-openai` | OpenAI API implementation |
-| `neuron-provider-ollama` | Ollama (local models) implementation |
-| `neuron-tool` | Tool registry, type erasure, middleware |
-| `neuron-mcp` | MCP protocol bridge (wraps rmcp) |
-| `neuron-context` | Context compaction strategies |
-| `neuron-loop` | The agentic while-loop |
-| `neuron-runtime` | Sessions, guardrails, durability |
-| `neuron` | Umbrella re-export |
+**Reasoning:** A generic `T` would destroy object safety. `StateStore` must work as `dyn StateStore` because orchestrators, environments, and operators all share a state store through trait objects. Making the trait generic over the value type would require callers to agree on concrete types at compile time, defeating the purpose of dynamic composition.
 
-Crates depend only on `neuron-types` and the crates directly below them in the
-dependency graph. No circular dependencies. Adding a new provider never touches
-the tool system. Adding a new compaction strategy never touches the loop.
+`serde_json::Value` is the universal interchange format for agentic systems. Every LLM API speaks JSON. Every tool accepts and returns JSON. The cost (no compile-time schema checking) is acceptable because state data crosses process boundaries, is persisted to disk, and may be read by different versions of the code.
 
-## Provider-per-crate (the serde pattern)
+## Why `rust_decimal::Decimal` for cost tracking
 
-The `Provider` trait lives in `neuron-types`. Each cloud API gets its own crate:
+**Decision:** All monetary values (`OperatorMetadata.cost`, `OperatorConfig.max_cost`, `HookContext.cost`) use `rust_decimal::Decimal`.
 
-```rust,ignore
-// neuron-types/src/traits.rs
-pub trait Provider: Send + Sync {
-    fn complete(
-        &self,
-        request: CompletionRequest,
-    ) -> impl Future<Output = Result<CompletionResponse, ProviderError>> + Send;
+**Reasoning:** Floating-point accumulation errors are real when tracking spend across thousands of LLM calls. `f64` introduces rounding errors that compound over time. A system that runs 10,000 model calls per day, each costing fractions of a cent, needs exact arithmetic to produce accurate cost reports and enforce budgets precisely.
 
-    fn complete_stream(
-        &self,
-        request: CompletionRequest,
-    ) -> impl Future<Output = Result<StreamHandle, ProviderError>> + Send;
-}
-```
+`Decimal` adds one dependency to Layer 0 but eliminates an entire class of bugs.
 
-The trait is intentionally not object-safe (it uses RPITIT). You compose with
-generics (`fn run<P: Provider>(provider: &P)`), which gives the compiler full
-visibility for optimization.
+## Why four protocols plus two interfaces
 
-Why not a single provider crate with feature flags? Because provider APIs evolve
-independently. An Anthropic-specific feature (prompt caching, extended thinking)
-should not force a recompile of OpenAI code. Separate crates give you separate
-version timelines.
+**Decision:** The architecture has four protocol traits (`Operator`, `Orchestrator`, `StateStore`, `Environment`) and two cross-cutting interfaces (`Hook`, lifecycle events).
 
-## Message structure: flat struct over variant-per-role
+**Reasoning:** The four protocols are orthogonal concerns that compose independently:
 
-neuron uses a flat `Message` struct:
+1. **Operator** -- What happens in a single agent cycle (reasoning + acting).
+2. **Orchestrator** -- How multiple agents compose (topology + durability).
+3. **State** -- How data persists (storage backend).
+4. **Environment** -- Where code runs (isolation + credentials).
 
-```rust,ignore
-pub struct Message {
-    pub role: Role,
-    pub content: Vec<ContentBlock>,
-}
-```
+These were derived from analyzing 23 architectural decisions that every agentic system must make. The four protocols cover all 23 decisions without overlap. Reducing to three protocols (by merging state into environment, or orchestration into operator) creates coupling where orthogonal concerns should be independent. Expanding to five or more protocols creates distinctions without meaningful boundaries.
 
-The alternative -- one enum variant per role (`UserMessage`, `AssistantMessage`,
-`SystemMessage`) -- creates a combinatorial explosion of conversion code. Rig
-uses the variant-per-role approach and needs roughly 300 lines of conversion
-logic per provider. The flat struct maps naturally to every provider API we
-studied (Anthropic, OpenAI, Ollama) with minimal translation.
+The two interfaces (hooks and lifecycle events) are *cross-cutting* -- they span multiple protocols and cannot be owned by any single one. A budget event involves the operator (which tracks cost), the hook (which observes it), and the orchestrator (which reacts to it). Making this a method on any single trait would couple unrelated protocols.
 
-## Tool middleware: axum's `from_fn`, not tower's Service/Layer
+## Why edition 2021
 
-The tool middleware pipeline uses a callback-based pattern identical to axum's
-`middleware::from_fn`:
+**Decision:** The workspace uses Rust edition 2021, not 2024.
 
-```rust,ignore
-async fn logging_middleware(
-    tool_name: &str,
-    input: serde_json::Value,
-    ctx: &ToolContext,
-    next: ToolMiddlewareNext<'_>,
-) -> Result<ToolOutput, ToolError> {
-    println!("calling {tool_name}");
-    let result = next.run(tool_name, input, ctx).await;
-    println!("result: {result:?}");
-    result
-}
-```
+**Reasoning:** Edition 2021 provides the widest compatibility with the Rust ecosystem. The crate's dependencies (`serde`, `async-trait`, `thiserror`, `tokio`, `reqwest`) all target edition 2021. Using 2024 would provide marginal benefits (some syntax improvements) while potentially creating friction for downstream consumers.
 
-tower's `Service` and `Layer` traits are designed for high-throughput
-request/response pipelines where the overhead of trait objects and `Pin<Box<...>>`
-matters. Tool calls happen at most a few times per LLM turn. The axum-style
-callback is simpler to write, simpler to read, and validated by the tokio team
-for exactly this kind of middleware.
+## Why `#[non_exhaustive]` on all enums and structs
 
-## DurableContext wraps side effects, not just observes them
+**Decision:** All public enums (`ExitReason`, `TriggerType`, `HookPoint`, `HookAction`, etc.) and structs (`OperatorInput`, `OperatorOutput`, `OperatorConfig`, etc.) in Layer 0 are marked `#[non_exhaustive]`.
 
-Early designs had a single `DurabilityHook` that observed LLM calls and tool
-executions. This fails for Temporal replay: an observation hook cannot prevent
-a side effect from re-executing during replay.
+**Reasoning:** Layer 0 is the stability contract. Adding a variant to an enum or a field to a struct should not be a breaking change. `#[non_exhaustive]` forces downstream code to handle unknown variants (with `_ =>` arms) and prevents struct literal construction (forcing use of constructors or builder methods). This gives Layer 0 the freedom to evolve without breaking every implementation.
 
-The solution is `DurableContext`, which **wraps** side effects:
+## Why operators declare effects instead of executing them
 
-```rust,ignore
-pub trait DurableContext: Send + Sync {
-    fn execute_llm_call(
-        &self,
-        request: CompletionRequest,
-        options: ActivityOptions,
-    ) -> impl Future<Output = Result<CompletionResponse, DurableError>> + Send;
+**Decision:** `OperatorOutput.effects` contains `Vec<Effect>` -- the operator declares side-effects but does not execute them.
 
-    fn execute_tool(
-        &self,
-        tool_name: &str,
-        input: serde_json::Value,
-        ctx: &ToolContext,
-        options: ActivityOptions,
-    ) -> impl Future<Output = Result<ToolOutput, DurableError>> + Send;
-}
-```
+**Reasoning:** The same operator code must work in radically different execution contexts. An operator running in-process has its effects executed immediately by the caller. An operator running inside a Temporal activity has its effects serialized and executed by the workflow engine. If the operator executed effects directly, it would be coupled to its execution context.
 
-When a `DurableContext` is present, the agentic loop calls through it instead of
-directly calling the provider or tools. The durable engine (Temporal, Restate,
-Inngest) can journal the result, and on replay, return the journaled result
-without re-executing the side effect.
+The effect declaration pattern makes operators pure functions over data: input in, output + effects out. The calling layer decides execution semantics.
 
-A separate `ObservabilityHook` trait handles logging, metrics, and telemetry.
-It returns `HookAction` (Continue, Skip, or Terminate) but does not wrap
-execution.
+## Why the Provider trait is not object-safe
 
-## RPITIT native async traits
+**Decision:** The `Provider` trait (in `neuron-turn`) uses RPITIT and is not object-safe. It is never used behind `dyn Provider`.
 
-neuron uses Rust 2024 edition with native `impl Future` return types in traits
-(RPITIT). There is no `#[async_trait]` anywhere in the codebase:
+**Reasoning:** Provider implementations are performance-critical -- they make HTTP calls to LLM APIs. The zero-cost abstraction of RPITIT (no heap allocation for the future) is worth the restriction of not using `dyn Provider`. The object-safe boundary is one layer up: `ReactOperator<P: Provider>` implements `dyn Operator`. The generic type parameter is erased at the protocol boundary.
 
-```rust,ignore
-pub trait Provider: Send + Sync {
-    fn complete(
-        &self,
-        request: CompletionRequest,
-    ) -> impl Future<Output = Result<CompletionResponse, ProviderError>> + Send;
-}
-```
-
-This avoids the heap allocation that `#[async_trait]` forces (one `Box::pin`
-per call). The trade-off is that these traits are not object-safe -- you must
-use generics, not `dyn Provider`. For type-erased dispatch, neuron provides
-`ToolDyn` with an explicit `Box::pin` at the erasure boundary only.
-
-## ToolError::ModelRetry for self-correction
-
-Adopted from Pydantic AI's pattern, `ModelRetry` lets a tool tell the model
-to try again with different arguments:
-
-```rust,ignore
-pub enum ToolError {
-    NotFound(String),
-    InvalidInput(String),
-    ExecutionFailed(Box<dyn std::error::Error + Send + Sync>),
-    PermissionDenied(String),
-    Cancelled,
-    ModelRetry(String),  // <-- hint for the model
-}
-```
-
-When a tool returns `ModelRetry("date must be in YYYY-MM-DD format")`, the
-loop does **not** propagate this as an error. Instead, it converts the hint into
-an error tool result and sends it back to the model. The model sees the hint,
-adjusts its arguments, and calls the tool again.
-
-This keeps self-correction logic out of the tool implementation. The tool just
-says "try again, here's why" and the loop handles the retry protocol.
-
-## Server-side context compaction
-
-The Anthropic API supports server-side context management: the client sends a
-`context_management` field, and the server may respond with
-`StopReason::Compaction` plus a `ContentBlock::Compaction` summary.
-
-neuron models this with dedicated types:
-
-```rust,ignore
-pub struct ContextManagement {
-    pub edits: Vec<ContextEdit>,
-}
-
-pub enum ContextEdit {
-    Compact { strategy: String },
-}
-
-pub enum StopReason {
-    EndTurn,
-    ToolUse,
-    MaxTokens,
-    StopSequence,
-    ContentFilter,
-    Compaction,  // <-- server compacted context
-}
-
-pub enum ContentBlock {
-    // ...
-    Compaction { content: String },
-}
-```
-
-When the loop receives `StopReason::Compaction`, it continues automatically --
-the server has already compacted the context, and the response contains the
-compaction summary. Token usage during compaction is tracked per-iteration via
-`UsageIteration`.
-
-This is distinct from client-side compaction (the `ContextStrategy` trait),
-which the loop manages locally. Both can coexist: the provider handles
-server-side compaction transparently, while the context strategy handles
-client-side compaction when needed.
+This is the general pattern: internal implementation traits can be generic and non-object-safe for performance. Protocol traits must be object-safe for composition. The bridge between them is a concrete type that is generic internally but implements an object-safe trait externally.

@@ -1,31 +1,24 @@
 # Summary
 
-[Introduction](introduction.md)
-
-# Getting Started
-
-- [Installation](getting-started/installation.md)
-- [Quickstart](getting-started/quickstart.md)
-- [Core Concepts](getting-started/concepts.md)
-
-# Guides
-
-- [Tools](guides/tools.md)
-- [Context Management](guides/context.md)
-- [Providers](guides/providers.md)
-- [The Agent Loop](guides/loop.md)
-- [MCP Integration](guides/mcp.md)
-- [Runtime](guides/runtime.md)
-- [Embeddings](guides/embeddings.md)
-- [Testing Agents](guides/testing.md)
-- [Observability](guides/observability.md)
-
-# Architecture
-
-- [Design Decisions](architecture/design-decisions.md)
-- [Dependency Graph](architecture/dependency-graph.md)
-- [Comparison](architecture/comparison.md)
-
-# Reference
-
-- [Error Handling](reference/error-handling.md)
+- [Introduction](introduction.md)
+- [Getting Started](getting-started/README.md)
+  - [Installation](getting-started/installation.md)
+  - [Quickstart](getting-started/quickstart.md)
+  - [Core Concepts](getting-started/concepts.md)
+- [Architecture](architecture/README.md)
+  - [The 6-Layer Model](architecture/layers.md)
+  - [Protocol Traits](architecture/protocol-traits.md)
+  - [Design Decisions](architecture/design-decisions.md)
+  - [Dependency Graph](architecture/dependency-graph.md)
+- [Guides](guides/README.md)
+  - [Providers](guides/providers.md)
+  - [Tools](guides/tools.md)
+  - [Operators](guides/operators.md)
+  - [State](guides/state.md)
+  - [Orchestration](guides/orchestration.md)
+  - [Hooks](guides/hooks.md)
+  - [MCP](guides/mcp.md)
+  - [Testing](guides/testing.md)
+- [Reference](reference/README.md)
+  - [Crate Map](reference/crate-map.md)
+  - [Error Handling](reference/error-handling.md)

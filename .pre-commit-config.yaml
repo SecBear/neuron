@@ -1,0 +1,33 @@
+repos:
+  - repo: local
+    hooks:
+      - id: treefmt
+        name: treefmt
+        entry: treefmt --fail-on-change
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+
+      - id: clippy
+        name: clippy
+        entry: cargo clippy --workspace --all-features -- -D warnings
+        language: system
+        pass_filenames: false
+        types: [rust]
+        stages: [pre-commit]
+
+      - id: cargo-test
+        name: cargo test
+        entry: cargo test --workspace
+        language: system
+        pass_filenames: false
+        types: [rust]
+        stages: [pre-push]
+
+      - id: cargo-doc
+        name: cargo doc
+        entry: cargo doc --workspace --no-deps
+        language: system
+        pass_filenames: false
+        types: [rust]
+        stages: [pre-push]

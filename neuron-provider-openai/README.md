@@ -1,101 +1,52 @@
 # neuron-provider-openai
 
-OpenAI provider for the neuron agent blocks ecosystem. Implements the `Provider`
-and `EmbeddingProvider` traits from `neuron-types` against the OpenAI Chat
-Completions and Embeddings APIs, supporting synchronous completions, server-sent
-event (SSE) streaming, and text embeddings.
+> OpenAI API provider for neuron
 
-The default completion model is `gpt-4o`. The default embedding model is
-`text-embedding-3-small`. The default base URL is `https://api.openai.com`.
-All can be overridden with the builder API. The `base_url` override also makes
-this client usable with Azure OpenAI and compatible third-party endpoints.
+[![crates.io](https://img.shields.io/crates/v/neuron-provider-openai.svg)](https://crates.io/crates/neuron-provider-openai)
+[![docs.rs](https://docs.rs/neuron-provider-openai/badge.svg)](https://docs.rs/neuron-provider-openai)
+[![license](https://img.shields.io/crates/l/neuron-provider-openai.svg)](LICENSE-MIT)
 
-## Key Types
+## Overview
 
-- `OpenAi` -- client struct with builder methods (`new`, `model`, `base_url`,
-  `organization`). Implements `Provider` and `EmbeddingProvider` from `neuron-types`.
-- `ProviderError` -- re-exported error type for provider failures.
-- `EmbeddingError` -- re-exported error type for embedding failures.
-- `EmbeddingRequest`, `EmbeddingResponse` -- re-exported embedding types.
-- `StreamHandle` -- returned by `complete_stream`, yields `StreamEvent` items
-  as the model generates tokens.
+`neuron-provider-openai` implements the `Provider` trait from
+[`neuron-turn`](../neuron-turn) for the
+[OpenAI Chat Completions API](https://platform.openai.com/docs/api-reference/chat). It handles
+request serialization, streaming-free response parsing, tool call routing, and cost accounting
+for GPT models.
 
-## Features
-
-- Full message mapping: text, tool calls, tool results, images.
-- Organization header support for multi-org OpenAI accounts.
-- `ToolChoice` support: `Auto`, `Any`, `Required`, `Specific(name)`.
-- SSE streaming parsed from raw byte stream with `data: [DONE]` sentinel
-  handling.
-- Usage statistics included in streaming responses via `stream_options`.
-- `EmbeddingProvider` support for generating text embeddings with optional
-  dimension control.
+Supports: `gpt-4o`, `gpt-4o-mini`, `gpt-4-turbo`, `o1`, `o3-mini`, and any model that
+speaks the Chat Completions protocol (including many open-source proxies).
 
 ## Usage
 
-### Completions
-
-```rust,no_run
-use neuron_provider_openai::OpenAi;
-use neuron_types::{CompletionRequest, ContentBlock, Message, Provider, Role, SystemPrompt};
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let provider = OpenAi::new("sk-...")
-        .model("gpt-4o")
-        .organization("org-...");
-
-    let request = CompletionRequest {
-        messages: vec![Message {
-            role: Role::User,
-            content: vec![ContentBlock::Text("Explain Rust's ownership model.".into())],
-        }],
-        system: Some(SystemPrompt::Text("You are a helpful assistant.".into())),
-        max_tokens: Some(1024),
-        ..Default::default()
-    };
-
-    let response = provider.complete(request).await?;
-
-    for block in &response.message.content {
-        println!("{block:?}");
-    }
-    Ok(())
-}
+```toml
+[dependencies]
+neuron-provider-openai = "0.4"
+neuron-turn = "0.4"
 ```
 
-### Embeddings
+### Setup
 
-```rust,no_run
-use neuron_provider_openai::OpenAi;
-use neuron_types::{EmbeddingProvider, EmbeddingRequest};
+Set `OPENAI_API_KEY` in your environment (or inject via `neuron-env-local`).
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let provider = OpenAi::new("sk-...");
+```rust
+use neuron_provider_openai::OpenAIProvider;
 
-    let request = EmbeddingRequest {
-        input: vec!["Hello world".to_string(), "Rust is great".to_string()],
-        dimensions: Some(256),
-        ..Default::default()
-    };
-
-    let response = provider.embed(request).await?;
-
-    println!("Model: {}", response.model);
-    println!("Embeddings: {} vectors", response.embeddings.len());
-    println!("Dimensions: {}", response.embeddings[0].len());
-    println!("Usage: {} tokens", response.usage.total_tokens);
-    Ok(())
-}
+let provider = OpenAIProvider::from_env()?;
+// Use provider with ReactOperator or SingleShotOperator
 ```
 
-## Part of neuron
+### OpenAI-compatible endpoints (Ollama, vLLM, LM Studio, etc.)
 
-This crate is one block in the [neuron](https://github.com/secbear/neuron)
-composable agent toolkit. It depends only on `neuron-types`.
+```rust
+let provider = OpenAIProvider::builder()
+    .api_key("not-needed")
+    .base_url("http://localhost:11434/v1")
+    .model("llama3.2")
+    .build()?;
+```
 
-## License
+## Part of the neuron workspace
 
-Licensed under either of [Apache License, Version 2.0](LICENSE-APACHE) or
-[MIT License](LICENSE-MIT) at your option.
+[neuron](https://github.com/secbear/neuron) is a composable async agentic AI framework for Rust.
+See the [book](https://secbear.github.io/neuron) for architecture and guides.

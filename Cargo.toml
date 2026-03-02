@@ -1,67 +1,77 @@
+[package]
+name = "neuron-workspace"
+version = "0.4.0"
+edition = "2024"
+rust-version = "1.85"
+publish = false
+
 [workspace]
 resolver = "3"
 members = [
-  "neuron-types",
-  "neuron-tool-macros",
+  "neuron",
+  "layer0",
+  "neuron-state-memory",
+  "neuron-state-fs",
+  "neuron-env-local",
+  "neuron-orch-local",
+  "neuron-orch-kit",
+  "neuron-hooks",
   "neuron-tool",
+  "neuron-turn",
+  "neuron-op-react",
+  "neuron-op-single-shot",
   "neuron-context",
-  "neuron-loop",
   "neuron-provider-anthropic",
   "neuron-provider-openai",
   "neuron-provider-ollama",
   "neuron-mcp",
-  "neuron-runtime",
-  "neuron-otel",
-  "neuron",
-]
-exclude = [
-  "neuron-provider-openai/fuzz",
-  "neuron-provider-anthropic/fuzz",
-  "neuron-provider-ollama/fuzz",
+  "neuron-secret",
+  "neuron-crypto",
+  "neuron-auth",
+  "neuron-secret-env",
+  "neuron-secret-vault",
+  "neuron-secret-aws",
+  "neuron-secret-gcp",
+  "neuron-secret-keystore",
+  "neuron-secret-k8s",
+  "neuron-auth-static",
+  "neuron-auth-file",
+  "neuron-auth-oidc",
+  "neuron-auth-k8s",
+  "neuron-crypto-vault",
+  "neuron-crypto-hardware",
+  "neuron-hook-security",
+  "examples/custom_operator_barrier",
+  "neuron-turn-kit",
+  "neuron-effects-core",
+  "neuron-effects-local",
 ]
 
 [workspace.package]
 edition = "2024"
-rust-version = "1.90"
+rust-version = "1.85"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/secbear/neuron"
 homepage = "https://github.com/secbear/neuron"
 
-[workspace.dependencies]
-# Internal
-neuron-types = { version = "0.3.0", path = "neuron-types" }
-neuron-tool = { version = "0.3.0", path = "neuron-tool" }
-neuron-tool-macros = { version = "0.2.1", path = "neuron-tool-macros" }
-neuron-context = { version = "0.3.0", path = "neuron-context" }
-neuron-loop = { version = "0.3.0", path = "neuron-loop" }
-neuron-runtime = { version = "0.3.0", path = "neuron-runtime" }
-neuron-mcp = { version = "0.3.0", path = "neuron-mcp" }
-neuron-provider-anthropic = { version = "0.3.0", path = "neuron-provider-anthropic" }
-neuron-provider-openai = { version = "0.3.0", path = "neuron-provider-openai" }
-neuron-provider-ollama = { version = "0.3.0", path = "neuron-provider-ollama" }
-neuron-otel = { version = "0.3.0", path = "neuron-otel" }
-neuron = { version = "0.3.0", path = "neuron" }
-
-# External
-serde = { version = "1", features = ["derive"] }
+# Dependencies for workspace-level integration tests
+[dev-dependencies]
+layer0 = { path = "layer0", features = ["test-utils"], version = "0.4.0" }
+neuron = { path = "neuron", version = "0.4.0" }
+neuron-turn = { path = "neuron-turn", version = "0.4.0" }
+neuron-op-react = { path = "neuron-op-react", version = "0.4.0" }
+neuron-op-single-shot = { path = "neuron-op-single-shot", version = "0.4.0" }
+neuron-context = { path = "neuron-context", version = "0.4.0" }
+neuron-hooks = { path = "neuron-hooks", version = "0.4.0" }
+neuron-tool = { path = "neuron-tool", version = "0.4.0" }
+neuron-state-memory = { path = "neuron-state-memory", version = "0.4.0" }
+neuron-state-fs = { path = "neuron-state-fs", version = "0.4.0" }
+neuron-provider-anthropic = { path = "neuron-provider-anthropic", version = "0.4.0" }
+neuron-provider-openai = { path = "neuron-provider-openai", version = "0.4.0" }
+neuron-provider-ollama = { path = "neuron-provider-ollama", version = "0.4.0" }
+neuron-orch-local = { path = "neuron-orch-local", version = "0.4.0" }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+async-trait = "0.1"
 serde_json = "1"
-thiserror = "2"
-schemars = "0.8"
-tokio = { version = "1", features = ["sync"] }
-tokio-util = "0.7"
-futures = "0.3"
-tracing = "0.1"
-reqwest = { version = "0.12", features = ["json", "stream"] }
-async-stream = "0.3"
-bytes = "1"
-chrono = { version = "0.4", features = ["serde"] }
-uuid = { version = "1", features = ["v4"] }
-syn = { version = "2", features = ["full", "extra-traits"] }
-quote = "1"
-proc-macro2 = "1"
-
-# Dev-only
-wiremock = "0.6"
+rust_decimal = { version = "1", features = ["serde-str"] }
 tempfile = "3"
-proptest = "1"
-criterion = { version = "0.5", features = ["html_reports"] }

@@ -1,4 +1,8 @@
-name: CI
+# This workflow exposes a single required status context named "ci" via the final aggregator job.
+# Purpose: branch protection requires the context "ci". The aggregator job depends on all
+# real jobs and fails if any fail. It adds no extra checks; it provides a stable required
+# context so protection rules don’t need updates when jobs change.
+name: ci
 
 on:
   push:
@@ -12,7 +16,26 @@ env:
 
 jobs:
   check:
-    name: Check
+    name: Check (Nix)
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+      - name: Format check
+        run: nix develop --command bash -lc "nix fmt && git diff --exit-code"
+      - name: Test
+        run: nix develop --command cargo test --workspace
+      - name: Clippy
+        run: nix develop --command cargo clippy --workspace --all-features -- -D warnings
+      - name: Doc
+        run: nix develop --command cargo doc --workspace --no-deps
+
+  check-cargo:
+    name: Check (Cargo)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -20,7 +43,7 @@ jobs:
         with:
           components: clippy, rustfmt
       - uses: Swatinem/rust-cache@v2
-      - name: Format
+      - name: Format check
         run: cargo fmt --check
       - name: Clippy
         run: cargo clippy --workspace --all-features -- -D warnings
@@ -48,7 +71,7 @@ jobs:
           fail_ci_if_error: false
 
   security:
-    name: Security Audit
+    name: Security audit
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -56,20 +79,8 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
-  msrv:
-    name: MSRV (1.90)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: "1.90"
-      - uses: Swatinem/rust-cache@v2
-      - name: Check MSRV
-        run: cargo check --workspace
-
   deny:
-    name: Dependency Review
+    name: Dependency check
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -78,7 +89,7 @@ jobs:
           rust-version: stable
 
   links:
-    name: Link Check
+    name: Link check
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -89,3 +100,47 @@ jobs:
           fail: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  msrv:
+    name: MSRV check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.90"
+      - uses: Swatinem/rust-cache@v2
+      - name: Check
+        run: cargo check --workspace
+
+
+  ci:
+    name: ci
+    runs-on: ubuntu-latest
+    if: ${{ always() }}
+    needs: [check, check-cargo, coverage, security, deny, links, msrv]
+    steps:
+      - name: Aggregate required checks
+        env:
+          CHECK: ${{ needs.check.result }}
+          CHECK_CARGO: ${{ needs.check-cargo.result }}
+          COVERAGE: ${{ needs.coverage.result }}
+          SECURITY: ${{ needs.security.result }}
+          DENY: ${{ needs.deny.result }}
+          LINKS: ${{ needs.links.result }}
+          MSRV: ${{ needs.msrv.result }}
+        run: |
+          echo "check=$CHECK"
+          echo "check-cargo=$CHECK_CARGO"
+          echo "coverage=$COVERAGE"
+          echo "security=$SECURITY"
+          echo "deny=$DENY"
+          echo "links=$LINKS"
+          echo "msrv=$MSRV"
+          for s in "$CHECK" "$CHECK_CARGO" "$COVERAGE" "$SECURITY" "$DENY" "$LINKS" "$MSRV"; do
+            if [ "$s" != "success" ]; then
+              echo "One or more required jobs did not succeed"
+              exit 1
+            fi
+          done
+          echo "All required jobs succeeded"

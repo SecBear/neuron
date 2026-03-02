@@ -1,13 +1,18 @@
-#![doc = include_str!("../README.md")]
+#![deny(missing_docs)]
+//! MCP client and server bridging MCP tools with neuron ToolRegistry.
+//!
+//! Two independent components:
+//!
+//! - [`McpClient`] connects to an MCP server, discovers its tools, and wraps
+//!   each as a [`ToolDyn`](neuron_tool::ToolDyn) for use in a
+//!   [`ToolRegistry`](neuron_tool::ToolRegistry).
+//! - [`McpServer`] wraps a [`ToolRegistry`](neuron_tool::ToolRegistry) and
+//!   exposes its tools via the MCP protocol over stdio.
 
-pub mod bridge;
 pub mod client;
 pub mod error;
 pub mod server;
-pub mod types;
 
-pub use bridge::*;
-pub use client::*;
-pub use error::*;
-pub use server::*;
-pub use types::*;
+pub use client::McpClient;
+pub use error::McpError;
+pub use server::McpServer;

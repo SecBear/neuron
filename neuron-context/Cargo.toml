@@ -1,27 +1,14 @@
 [package]
 name = "neuron-context"
-version = "0.3.0"
+version = "0.4.0"
 edition.workspace = true
-rust-version.workspace = true
-description = "LLM context management for long-running agents — sliding window, token counting, and compaction strategies"
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true
-documentation = "https://docs.rs/neuron-context"
-keywords = ["ai", "agent", "llm", "context", "tokens"]
-categories = ["science", "asynchronous"]
+description = "Context strategy implementations for neuron-turn"
+readme = "README.md"
+categories = ["asynchronous"]
+keywords = ["neuron", "ai", "agent", "context", "llm"]
 
 [dependencies]
-neuron-types.workspace = true
-serde.workspace = true
-serde_json.workspace = true
-tracing.workspace = true
-
-[dev-dependencies]
-tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
-proptest.workspace = true
-criterion.workspace = true
-
-[[bench]]
-name = "compaction"
-harness = false
+neuron-turn = { path = "../neuron-turn", version = "0.4.0" }

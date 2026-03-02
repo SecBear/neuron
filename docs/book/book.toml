@@ -1,5 +1,5 @@
 [book]
-title = "neuron — Building Blocks for AI Agents in Rust"
+title = "neuron — Composable Agentic AI Architecture in Rust"
 authors = ["SecBear"]
 language = "en"
 src = "src"

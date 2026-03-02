@@ -1,59 +1,70 @@
 # Installation
 
-## Using the Umbrella Crate
+## Requirements
 
-The fastest way to get started is the `neuron` umbrella crate with feature flags:
+- **Rust** edition 2021, MSRV 1.90
+- **Cargo** (included with Rust)
 
-```toml
-[dependencies]
-neuron = { features = ["anthropic"] }
-```
+## With Nix (recommended for contributors)
 
-Or install via cargo:
+If you use Nix, the repository includes a development shell:
 
 ```bash
-cargo add neuron --features anthropic
+nix develop
 ```
 
-## Feature Flags
+This provides the correct Rust toolchain, `cargo`, `clippy`, `rustfmt`, and all system dependencies.
 
-| Feature | Enables | Default |
-|---------|---------|---------|
-| `anthropic` | `neuron-provider-anthropic` | Yes |
-| `openai` | `neuron-provider-openai` | No |
-| `ollama` | `neuron-provider-ollama` | No |
-| `mcp` | `neuron-mcp` (Model Context Protocol) | No |
-| `runtime` | `neuron-runtime` (sessions, guardrails) | No |
-| `otel` | `neuron-otel` (OpenTelemetry instrumentation) | No |
-| `full` | All of the above | No |
+## Adding neuron to your project
 
-## Using Individual Crates
-
-Each neuron crate is independently published. Use them directly for finer
-control over dependencies:
+The `neuron` crate is an umbrella that re-exports all layers behind feature flags. Add it to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-neuron-types = "*"
-neuron-provider-openai = "*"
-neuron-tool = "*"
-neuron-loop = "*"
+neuron = { version = "0.1", features = ["op-react", "provider-anthropic", "state-memory"] }
 ```
 
-This pulls in only what you need — no transitive dependency on providers you
-don't use.
+### Feature flags
 
-## Minimum Supported Rust Version
+The umbrella crate uses feature flags to control which implementations are compiled:
 
-neuron requires **Rust 1.90+** (edition 2024). It uses native async traits
-(RPITIT) and requires no `#[async_trait]` macro.
+| Feature | What it enables |
+|---------|----------------|
+| `core` | Layer 0 protocols + `neuron-turn` + `neuron-context` + `neuron-tool` (included in default) |
+| `hooks` | Hook registry (`neuron-hooks`) (included in default) |
+| `op-react` | ReAct operator (`neuron-op-react`) |
+| `op-single-shot` | Single-shot operator (`neuron-op-single-shot`) |
+| `provider-anthropic` | Anthropic Claude provider |
+| `provider-openai` | OpenAI provider |
+| `provider-ollama` | Ollama local model provider |
+| `providers-all` | All three providers |
+| `state-memory` | In-memory state store |
+| `state-fs` | Filesystem-backed state store |
+| `orch-local` | In-process orchestrator |
+| `orch-kit` | Orchestration utilities |
+| `env-local` | Local (passthrough) environment |
+| `mcp` | MCP client integration |
 
-## Environment Variables
+### Using individual crates
 
-Each provider loads credentials from environment variables via `from_env()`:
+You can also depend on individual crates directly if you want finer control over your dependency tree:
 
-| Provider | Environment Variable |
-|----------|---------------------|
-| Anthropic | `ANTHROPIC_API_KEY` |
-| OpenAI | `OPENAI_API_KEY` |
-| Ollama | `OLLAMA_HOST` (default: `http://localhost:11434`) |
+```toml
+[dependencies]
+layer0 = "0.1"
+neuron-turn = "0.1"
+neuron-tool = "0.1"
+neuron-op-react = "0.1"
+neuron-provider-anthropic = "0.1"
+neuron-hooks = "0.1"
+```
+
+## Verifying your setup
+
+```bash
+cargo build
+cargo test
+cargo clippy -- -D warnings
+```
+
+All three should pass cleanly on a fresh checkout.

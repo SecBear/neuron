@@ -1,87 +1,50 @@
 # neuron-provider-ollama
 
+> Ollama local model provider for neuron
+
 [![crates.io](https://img.shields.io/crates/v/neuron-provider-ollama.svg)](https://crates.io/crates/neuron-provider-ollama)
 [![docs.rs](https://docs.rs/neuron-provider-ollama/badge.svg)](https://docs.rs/neuron-provider-ollama)
 [![license](https://img.shields.io/crates/l/neuron-provider-ollama.svg)](LICENSE-MIT)
 
-Ollama provider for the neuron agent blocks ecosystem. Implements the
-[`Provider`](https://docs.rs/neuron-types/latest/neuron_types/trait.Provider.html)
-trait from `neuron-types` against the Ollama Chat API, supporting both
-synchronous completions and newline-delimited JSON (NDJSON) streaming.
+## Overview
 
-Ollama runs locally and requires no API key or authentication. The default model
-is `llama3.2`. The default base URL is `http://localhost:11434`.
+`neuron-provider-ollama` implements the `Provider` trait from
+[`neuron-turn`](../neuron-turn) for [Ollama](https://ollama.com), a local LLM runtime.
+It speaks Ollama's native chat API (not the OpenAI-compat shim), which enables access to
+Ollama-specific features like model keep-alive control and native tool call format.
 
-## Installation
-
-```sh
-cargo add neuron-provider-ollama
-```
-
-## Key Types
-
-- `Ollama` -- client struct with builder methods (`new`, `from_env`, `model`,
-  `base_url`, `keep_alive`). Implements `Provider` from `neuron-types` and `Default`.
-- `ProviderError` -- re-exported error type for all provider failures.
-- `StreamHandle` -- returned by `complete_stream`, yields `StreamEvent` items
-  as the model generates tokens.
-
-## Features
-
-- No authentication required -- designed for local Ollama instances.
-- `keep_alive` control for model memory residency (`"5m"`, `"0"` to unload
-  immediately).
-- Tool call support using the OpenAI-compatible format that Ollama adopted.
-- NDJSON streaming parsed line-by-line from the response byte stream.
-- Tool call IDs synthesized via `uuid::Uuid::new_v4()` since Ollama does not
-  provide them natively.
-- **Tool support varies by model** — not all Ollama models support function
-  calling. Check the [Ollama model library](https://ollama.com/library) for
-  which models support tools.
+Supports: any model loaded into your local Ollama instance (`llama3.2`, `qwen2.5`, `mistral`,
+`phi4`, etc.).
 
 ## Usage
 
-```rust,no_run
-use neuron_provider_ollama::Ollama;
-use neuron_types::{CompletionRequest, Message, Provider};
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Default constructor (no auth needed for local Ollama)
-    let provider = Ollama::new()
-        .model("llama3.2")
-        .keep_alive("5m");
-
-    // Or from environment (reads OLLAMA_HOST if set, defaults to localhost:11434)
-    let provider = Ollama::from_env()?;
-
-    let request = CompletionRequest {
-        messages: vec![Message::user("What is the capital of France?")],
-        max_tokens: Some(256),
-        ..Default::default()
-    };
-
-    let response = provider.complete(request).await?;
-
-    for block in &response.message.content {
-        println!("{block:?}");
-    }
-    Ok(())
-}
+```toml
+[dependencies]
+neuron-provider-ollama = "0.4"
+neuron-turn = "0.4"
 ```
 
-### Error handling
+### Setup
 
-Each provider defines its own `ProviderError` type. If you're using multiple
-providers, pattern-match on the specific provider's error rather than expecting
-a shared error type across providers.
+Start Ollama (`ollama serve`) and pull a model (`ollama pull llama3.2`).
 
-## Part of neuron
+```rust
+use neuron_provider_ollama::OllamaProvider;
 
-This crate is one block in the [neuron](https://github.com/secbear/neuron)
-composable agent toolkit. It depends only on `neuron-types`.
+let provider = OllamaProvider::default(); // connects to http://localhost:11434
+// Use provider with ReactOperator or SingleShotOperator
+```
 
-## License
+### Custom host
 
-Licensed under either of [Apache License, Version 2.0](LICENSE-APACHE) or
-[MIT License](LICENSE-MIT) at your option.
+```rust
+let provider = OllamaProvider::builder()
+    .base_url("http://my-gpu-box:11434")
+    .model("qwen2.5:14b")
+    .build()?;
+```
+
+## Part of the neuron workspace
+
+[neuron](https://github.com/secbear/neuron) is a composable async agentic AI framework for Rust.
+See the [book](https://secbear.github.io/neuron) for architecture and guides.
