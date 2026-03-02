@@ -10,6 +10,10 @@ exclude = [
   "https://docs\\.rs/neuron",
   # External sites that are intermittently unreachable from CI
   "https://www\\.conventionalcommits\\.org",
+  # Pre-publish: generic docs.rs & crates.io pages, and book site
+  "https://docs\\.rs/.*",
+  "https://crates\\.io/crates/.*",
+  "https://secbear\\.github\\.io/neuron",
 ]
 
 # Exclude build artifacts and dependency docs
@@ -23,13 +27,3 @@ max_retries = 3
 # Locally, accept common "no auth" codes.
 accept = "100..=399"
 
-
-## Additional excludes for pre-publish state
-exclude = [
-  # docs.rs pages for crates that are not yet published
-  "https://docs\\.rs/.*",
-  # crates.io pages for crates that are not yet published
-  "https://crates\\.io/crates/.*",
-  # GitHub Pages site may be offline during PRs
-  "https://secbear\\.github\\.io/neuron",
-]
