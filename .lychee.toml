@@ -14,9 +14,7 @@ exclude = [
   "https://docs\\.rs/.*",
   "https://crates\\.io/crates/.*",
   "https://secbear\\.github\\.io/neuron",
-]
-# Exclude sites that actively block CI link checkers
-exclude = [
+  "https://secbear\\.github\\.io/neuron",
   "https://platform\\.openai\\.com/.*",
 ]
 
