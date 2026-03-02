@@ -15,6 +15,10 @@ exclude = [
   "https://crates\\.io/crates/.*",
   "https://secbear\\.github\\.io/neuron",
 ]
+# Exclude sites that actively block CI link checkers
+exclude = [
+  "https://platform\\.openai\\.com/.*",
+]
 
 # Exclude build artifacts and dependency docs
 exclude_path = ["target"]
