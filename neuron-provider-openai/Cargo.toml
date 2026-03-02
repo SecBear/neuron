@@ -11,7 +11,7 @@ categories = ["asynchronous", "web-programming::http-client"]
 keywords = ["neuron", "ai", "agent", "openai", "gpt"]
 
 [dependencies]
-neuron-turn = { path = "../neuron-turn" , version = "0.4.0"}
+neuron-turn = { path = "../neuron-turn", version = "0.4.0" }
 reqwest = { version = "0.12", default-features = false, features = [
   "json",
   "rustls-tls",
@@ -22,9 +22,9 @@ rust_decimal = { version = "1", features = ["serde-str"] }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
-layer0 = { path = "../layer0" , version = "0.4.0"}
-neuron-op-react = { path = "../neuron-op-react" , version = "0.4.0"}
-neuron-tool = { path = "../neuron-tool" , version = "0.4.0"}
-neuron-hooks = { path = "../neuron-hooks" , version = "0.4.0"}
-neuron-context = { path = "../neuron-context" , version = "0.4.0"}
-neuron-state-memory = { path = "../neuron-state-memory" , version = "0.4.0"}
+layer0 = { path = "../layer0", version = "0.4.0" }
+neuron-op-react = { path = "../neuron-op-react", version = "0.4.0" }
+neuron-tool = { path = "../neuron-tool", version = "0.4.0" }
+neuron-hooks = { path = "../neuron-hooks", version = "0.4.0" }
+neuron-context = { path = "../neuron-context", version = "0.4.0" }
+neuron-state-memory = { path = "../neuron-state-memory", version = "0.4.0" }

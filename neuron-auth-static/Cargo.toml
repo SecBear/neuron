@@ -11,7 +11,7 @@ categories = ["asynchronous", "authentication"]
 keywords = ["neuron", "ai", "agent", "auth", "testing"]
 
 [dependencies]
-neuron-auth = { path = "../neuron-auth" , version = "0.4.0"}
+neuron-auth = { path = "../neuron-auth", version = "0.4.0" }
 async-trait = "0.1"
 
 [dev-dependencies]

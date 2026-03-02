@@ -11,7 +11,7 @@ categories = ["asynchronous", "cryptography"]
 keywords = ["neuron", "ai", "agent", "vault", "crypto"]
 
 [dependencies]
-neuron-crypto = { path = "../neuron-crypto" , version = "0.4.0"}
+neuron-crypto = { path = "../neuron-crypto", version = "0.4.0" }
 async-trait = "0.1"
 
 [dev-dependencies]
