@@ -31,7 +31,7 @@ jobs:
           EXTRA_ARGS=""
           if [ "$DRY_RUN" = "true" ]; then
             EXTRA_ARGS="--dry-run"
-            echo "DRY RUN MODE — no crates will be published"
+            echo "DRY RUN MODE -- no crates will be published"
           fi
 
           # Dependency order: leaves first, umbrella last.
