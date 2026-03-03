@@ -1,14 +1,19 @@
 # AGENTS.md
 
-This file is the entrypoint for any coding agent (Codex, Claude Code, etc.) working in this repo.
-It defines what to load, in what order, and what quality gates must be satisfied before claiming
-work is complete.
+Entrypoint for any coding agent (Codex, Claude Code, etc.) working in this repo.
+Defines what to load, what the project is, and what quality gates must pass before claiming done.
+
+## What This Project Is
+
+Neuron is a Rust workspace implementing a 6-layer composable agentic AI architecture.
+Layer 0 (`layer0` crate) defines the stability contract: four protocol traits
+(Turn, Orchestrator, StateStore, Environment), two cross-cutting interfaces
+(Hook, Lifecycle events), and the message types that cross every boundary.
+Layers 1-5 build implementations on top.
 
 ## Prime Directive: One Task Per Context
 
 Treat the context window like a fixed-size allocation: once you mix tasks, you lose coherence.
-
-Rules:
 
 1. One task per context window. If scope changes, start a fresh session.
 2. When you notice drift (conflicting goals, repeating mistakes, inventing APIs), stop and restart.
@@ -25,6 +30,15 @@ Load these documents in order before doing any implementation work:
 
 If you are unsure which spec applies, read `specs/00-vision-and-non-goals.md` and
 `specs/01-architecture-and-layering.md` first.
+
+For deep architectural context, continue with:
+
+5. `NEURON-REDESIGN-PLAN.md` — Authoritative plan. 6-layer architecture, workspace structure, phased implementation.
+6. `docs/architecture/HANDOFF.md` — Layer 0 implementation spec. Trait signatures, type definitions, module structure.
+7. `docs/architecture/composable-agentic-architecture.md` — Design rationale. 4 protocols + 2 interfaces, gap analysis.
+8. `docs/architecture/platform-scope-mapping.md` — Where features live (Neuron vs platform vs external infra).
+9. `docs/architecture/agentic-decision-map-v3.md` — Full design space. All 23 architectural decisions.
+10. `DEVELOPMENT-LOG.md` — Complete history of all decisions, research, and rationale.
 
 ## Where Truth Lives
 
@@ -46,10 +60,39 @@ This repo assumes Rust tooling is provided by Nix. Do not assume `cargo` exists 
 Use these commands as your default backpressure:
 
 1. Format: `nix develop -c nix fmt`
-2. Tests: `nix develop -c cargo test --workspace --all-targets`
-3. Lints: `nix develop -c cargo clippy --workspace --all-targets -- -D warnings`
+2. Build: `nix develop -c cargo build --workspace`
+3. Tests: `nix develop -c cargo test --workspace --all-targets`
+4. Lints: `nix develop -c cargo clippy --workspace --all-targets -- -D warnings`
+5. Docs: `nix develop -c cargo doc --no-deps`
+
+All must pass before any commit. For layer0 test-utils features:
+
+```bash
+nix develop -c cargo test --features test-utils -p layer0
+```
 
 Do not claim "done" unless you have fresh evidence from the relevant command(s) for the change.
+
+## Project Rules
+
+### Do
+
+- Follow `NEURON-REDESIGN-PLAN.md` for all structural decisions
+- Match layer0 trait signatures exactly — they are the stability contract
+- Use `#[deny(missing_docs)]` on every public item
+- Test that every message type round-trips through serde_json
+- Test that every trait is object-safe (`Box<dyn Trait>` compiles and is `Send + Sync`)
+- Keep layer0 dependencies minimal (serde, async-trait, thiserror, rust_decimal — that's it)
+- Update `DEVELOPMENT-LOG.md` after each phase
+
+### Do Not
+
+- Add dependencies to layer0 beyond what's already there
+- Add methods to layer0 protocol traits beyond what `HANDOFF.md` defines
+- Change layer0's trait signatures — they are the stability contract
+- Make layer0 traits non-object-safe
+- Skip phases — the phased approach is sequential
+- Make undocumented decisions — update the plan first if deviating
 
 ## TDD Policy
 
@@ -65,6 +108,65 @@ Exceptions are allowed only for:
 2. Pure documentation changes.
 3. Configuration-only changes where tests are not meaningful (but verification is still required).
 
+## Architecture Principles
+
+### Layer 0 Protocol
+
+- Protocol only: object-safe traits + serde wire types. No execution policy, no technology bindings, no durability semantics.
+- Additive changes preferred; breaking changes planned and versioned.
+
+### Effects Boundary
+
+- Sacred: operators declare, orchestrators/environments execute. No direct writes from operators.
+
+### Hooks vs Steering
+
+- **Hooks**: event-triggered observation/intervention at defined points (pre/post inference/tool, exit) with explicit actions (Halt/Skip/Modify). For policy/observability/redaction, not control flow.
+- **Steering**: operator-initiated control flow. Runtime decides when to poll, may inject messages, may skip current batches. Keep steering out of hooks.
+
+### Execution Mechanics (explicit, opt-in)
+
+- ToolExecutionStrategy (default: sequential). Optional barrier scheduling with Shared/Exclusive + batch flush + parallel shared tools.
+- SteeringSource polled at defined boundaries to inject mid-loop messages and optionally skip remaining tools.
+- Optional streaming tool API; forward chunks via ToolExecutionUpdate hook point. Streaming is observation-only; must not alter control flow.
+
+### Defaults
+
+- Slim for simple use cases. Advanced behavior opt-in via small, composable traits. No boolean soup.
+
+### Turn Engine Decomposition
+
+Prefer composing these primitives over monolithic loops:
+ContextAssembler, ToolExecutionPlanner, ConcurrencyDecider, BatchExecutor, SteeringSource, HookDispatcher, EffectSynthesizer, ExitController.
+
+### Tool Metadata
+
+- Source of truth for concurrency: Shared/Exclusive hints live on tool definition. Deciders read metadata first, may layer policy.
+
+### Limits
+
+- Single authority: budget/time/turns live in ExitController. Planners observe remaining budget/time (read-only).
+
+### Local vs Durable
+
+- LocalEffectExecutor: lean, in-order, best-effort.
+- Durable semantics (idempotency keys, retries, sagas) belong to durable orchestrators, not Layer 0 or local executors.
+- Orchestrator owns the reference effect interpreter and minimal signal/query semantics (local first, durable later).
+
+### Credentials
+
+- Resolved/injected via Environment + secret/auth/crypto backends. Tests must prove no secret leakage.
+
+### Invariants
+
+- Preserve tool_use → tool_result pairing; on steering, emit placeholders for skipped tools.
+- Refactor guardrail: behavior-preserving refactors must pass full test suite before adding new capabilities via decomposed traits.
+
+### Conformance
+
+- Golden tests prove provider swap, state swap, operator swap, and orchestration compose deterministically.
+- Enforce CI backpressure (fmt, clippy -D warnings, tests).
+
 ## Codifying Learnings (Build Your Stdlib)
 
 When a failure mode repeats or an agent needs steering:
@@ -76,47 +178,9 @@ When a failure mode repeats or an agent needs steering:
 
 Goal: make the correct outcome the path of least resistance.
 
-## Related Documents
-
-This repo already includes a deeper, Neuron-specific project guide in `CLAUDE.md`. Agents should
-consult it after the spec/rules stack when doing any substantial work.
-
 ## Loop Files
 
 This repo is designed to be run in a deterministic loop:
 
 1. `PROMPT.md` is the loop prompt.
 2. `ralph_queue.md` is the single prioritized queue.
-
-
-## Composability Philosophy (Neuron v2)
-
-- Layer 0 must stay stable: object-safe traits + serde wire types. Additive changes preferred; breaking changes are planned and versioned.
-- Effects are the side‑effect boundary: operators declare, orchestrators/environments execute. No direct writes from operators.
-- Hooks are for policy/observability/redaction, not control flow. Halt/Skip/Modify are explicit; do not encode scheduling in hooks.
-- Execution mechanics are explicit and opt‑in:
-  - ToolExecutionStrategy (default: sequential). Optional barrier scheduling with Shared/Exclusive + batch flush + parallel shared tools.
-  - SteeringSource polled at defined boundaries to inject mid‑loop messages and optionally skip remaining tools.
-  - Optional streaming tool API; forward chunks via a ToolExecutionUpdate hook point.
-- Defaults must remain slim for simple use cases. Advanced behavior is opt‑in and modular; avoid boolean soup.
-- Orchestrator owns the reference effect interpreter and minimal signal/query semantics (local first, durable later).
-- Credentials are resolved/injected via Environment + secret/auth/crypto backends; tests must prove no secret leakage.
-- Conformance: golden tests prove provider swap, state swap, operator swap, and orchestration compose deterministically.
-
-## Architecture Principles (Execution + Composability)
-
-- Layer 0 is protocol only: object-safe traits + serde wire types. No execution policy, no technology bindings, no durability semantics.
-- Effects boundary is sacred: operators declare; orchestrators/environments execute. Operators must not write state directly.
-- Hooks vs Steering:
-  - Hooks are event-triggered observation/intervention at defined points (pre/post inference/tool, exit) with explicit actions.
-  - Steering is operator-initiated control flow: the runtime decides when to poll, may inject messages, and may skip current batches. Keep steering out of hooks.
-- Defaults stay slim: sequential tools, no steering, no streaming, local best-effort effects. Advanced behavior is opt-in via small, composable traits (no boolean soup).
-- Turn engine decomposition: prefer composing these primitives over monolithic loops:
-  - ContextAssembler, ToolExecutionPlanner, ConcurrencyDecider, BatchExecutor, SteeringSource, HookDispatcher, EffectSynthesizer, ExitController.
-- Tool metadata is source of truth: concurrency hints (Shared/Exclusive) live on the tool definition; deciders read metadata first and may layer policy.
-- Single authority for limits: budget/time/turns live in ExitController; planners only observe remaining budget/time (read-only).
-- Local vs durable: keep LocalEffectExecutor lean (in-order, best-effort). Durable semantics (idempotency keys, retries, sagas) belong to durable orchestrators, not Layer 0 or local executors.
-- Streaming is observation-only: ToolExecutionUpdate is read-only; it must not alter control flow.
-- Invariants: preserve tool_use → tool_result pairing; on steering, emit placeholders for skipped tools.
-- Refactor guardrail: behavior-preserving refactors must pass the full test suite before adding new capabilities via decomposed traits.
-- Conformance: prove composition patterns (provider/state/operator/orchestration swaps) with golden tests; enforce CI backpressure (fmt, clippy -D warnings, tests).
