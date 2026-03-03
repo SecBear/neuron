@@ -15,12 +15,7 @@ authenticate before they can fetch secrets.
 
 This crate contains **no implementations** — for concrete providers see the backend crates:
 
-| Backend | Crate |
-|---------|-------|
-| Static token (dev/test) | [`neuron-auth-static`](../neuron-auth-static) |
-| File-based token | [`neuron-auth-file`](../neuron-auth-file) |
-| OIDC client credentials | [`neuron-auth-oidc`](../neuron-auth-oidc) |
-| Kubernetes ServiceAccount | [`neuron-auth-k8s`](../neuron-auth-k8s) |
+Additional backends planned.
 
 ## Usage
 

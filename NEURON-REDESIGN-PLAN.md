@@ -153,24 +153,15 @@ neuron/                              # workspace root
   # Security building blocks
   secret/
     neuron-secret/                   # secret store trait
-    neuron-secret-env/               # environment variable backend
+  secret/
+    neuron-secret/                   # secret store trait
     neuron-secret-vault/             # HashiCorp Vault backend (stub)
-    neuron-secret-aws/               # AWS Secrets Manager (stub)
-    neuron-secret-gcp/               # GCP Secret Manager (stub)
-    neuron-secret-keystore/          # OS keystore (stub)
-    neuron-secret-k8s/               # Kubernetes secrets (stub)
 
   auth/
     neuron-auth/                     # auth provider trait
-    neuron-auth-static/              # static token provider
-    neuron-auth-file/                # file-based token provider
-    neuron-auth-oidc/                # OIDC provider (stub)
-    neuron-auth-k8s/                 # K8s service account (stub)
 
   crypto/
     neuron-crypto/                   # crypto provider trait
-    neuron-crypto-vault/             # Vault transit (stub)
-    neuron-crypto-hardware/          # HSM/TPM (stub)
 
   # Umbrella crate
   neuron/                            # re-exports with feature flags

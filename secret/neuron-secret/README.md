@@ -17,12 +17,7 @@ This crate contains **no implementations** — for concrete resolvers see the ba
 
 | Backend | Crate |
 |---------|-------|
-| Environment variable | [`neuron-secret-env`](../neuron-secret-env) |
 | HashiCorp Vault KV | [`neuron-secret-vault`](../neuron-secret-vault) |
-| AWS Secrets Manager | [`neuron-secret-aws`](../neuron-secret-aws) |
-| GCP Secret Manager | [`neuron-secret-gcp`](../neuron-secret-gcp) |
-| OS keystore | [`neuron-secret-keystore`](../neuron-secret-keystore) |
-| Kubernetes Secrets | [`neuron-secret-k8s`](../neuron-secret-k8s) |
 
 ## Usage
 

@@ -383,5 +383,4 @@ Optionally 26 if the map's scope expands to include DevOps lifecycle (L6: Eval, 
 ---
 
 *Generated from 8 parallel deep research runs on 2026-03-03.*
-*Source reports archived at `docs/architecture/research-2026-03/`.*
 *Independence audit at `docs/architecture/decision-map-new-decision-audit.md`.*

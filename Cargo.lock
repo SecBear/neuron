@@ -840,43 +840,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "neuron-auth-file"
-version = "0.4.0"
-dependencies = [
- "async-trait",
- "neuron-auth",
- "tempfile",
- "tokio",
-]
-
-[[package]]
-name = "neuron-auth-k8s"
-version = "0.4.0"
-dependencies = [
- "async-trait",
- "neuron-auth",
- "tokio",
-]
-
-[[package]]
-name = "neuron-auth-oidc"
-version = "0.4.0"
-dependencies = [
- "async-trait",
- "neuron-auth",
- "tokio",
-]
-
-[[package]]
-name = "neuron-auth-static"
-version = "0.4.0"
-dependencies = [
- "async-trait",
- "neuron-auth",
- "tokio",
-]
-
-[[package]]
 name = "neuron-context"
 version = "0.4.0"
 dependencies = [
@@ -890,24 +853,6 @@ dependencies = [
  "async-trait",
  "layer0",
  "thiserror 2.0.18",
- "tokio",
-]
-
-[[package]]
-name = "neuron-crypto-hardware"
-version = "0.4.0"
-dependencies = [
- "async-trait",
- "neuron-crypto",
- "tokio",
-]
-
-[[package]]
-name = "neuron-crypto-vault"
-version = "0.4.0"
-dependencies = [
- "async-trait",
- "neuron-crypto",
  "tokio",
 ]
 
@@ -1092,60 +1037,6 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "zeroize",
-]
-
-[[package]]
-name = "neuron-secret-aws"
-version = "0.4.0"
-dependencies = [
- "async-trait",
- "layer0",
- "neuron-auth",
- "neuron-secret",
- "tokio",
-]
-
-[[package]]
-name = "neuron-secret-env"
-version = "0.4.0"
-dependencies = [
- "async-trait",
- "layer0",
- "neuron-secret",
- "serde_json",
- "tokio",
-]
-
-[[package]]
-name = "neuron-secret-gcp"
-version = "0.4.0"
-dependencies = [
- "async-trait",
- "layer0",
- "neuron-auth",
- "neuron-secret",
- "tokio",
-]
-
-[[package]]
-name = "neuron-secret-k8s"
-version = "0.4.0"
-dependencies = [
- "async-trait",
- "layer0",
- "neuron-auth",
- "neuron-secret",
- "tokio",
-]
-
-[[package]]
-name = "neuron-secret-keystore"
-version = "0.4.0"
-dependencies = [
- "async-trait",
- "layer0",
- "neuron-secret",
- "tokio",
 ]
 
 [[package]]

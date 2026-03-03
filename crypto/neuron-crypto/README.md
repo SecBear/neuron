@@ -15,10 +15,7 @@ remote KMS.
 
 This crate contains **no implementations** — for concrete providers see the backend crates:
 
-| Backend | Crate |
-|---------|-------|
-| HashiCorp Vault Transit | [`neuron-crypto-vault`](../neuron-crypto-vault) |
-| PKCS#11 / YubiKey PIV | [`neuron-crypto-hardware`](../neuron-crypto-hardware) |
+Additional backends planned.
 
 ## Usage
 

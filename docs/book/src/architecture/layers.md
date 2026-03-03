@@ -79,18 +79,7 @@ Future implementations could include SQLite (embedded), PostgreSQL (queryable, t
 **Crates:**
 - `neuron-env-local` -- Local passthrough environment (no isolation)
 - `neuron-secret` -- Secret resolution trait
-- `neuron-secret-env` -- Environment variable secrets
 - `neuron-secret-vault` -- HashiCorp Vault secrets
-- `neuron-secret-aws` -- AWS Secrets Manager
-- `neuron-secret-gcp` -- GCP Secret Manager
-- `neuron-secret-keystore` -- OS keystore (macOS Keychain, etc.)
-- `neuron-secret-k8s` -- Kubernetes secrets
-- `neuron-auth-static` -- Static API key auth
-- `neuron-auth-file` -- File-based auth
-- `neuron-auth-oidc` -- OIDC auth
-- `neuron-auth-k8s` -- Kubernetes service account auth
-- `neuron-crypto-vault` -- Vault-backed cryptography
-- `neuron-crypto-hardware` -- Hardware security module crypto
 
 Layer 4 implements `layer0::Environment` and provides the credential infrastructure that environments use. `LocalEnvironment` passes through with no isolation -- it holds an `Arc<dyn Operator>` and calls `execute()` directly. The secret, auth, and crypto backends provide credential resolution for the `EnvironmentSpec`'s `CredentialRef` system.
 
