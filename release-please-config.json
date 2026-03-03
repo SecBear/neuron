@@ -116,6 +116,18 @@
     "neuron": {
       "package-name": "neuron",
       "changelog-path": "CHANGELOG.md"
+    },
+    "effects/neuron-effects-core": {
+      "package-name": "neuron-effects-core",
+      "changelog-path": "CHANGELOG.md"
+    },
+    "effects/neuron-effects-local": {
+      "package-name": "neuron-effects-local",
+      "changelog-path": "CHANGELOG.md"
+    },
+    "turn/neuron-turn-kit": {
+      "package-name": "neuron-turn-kit",
+      "changelog-path": "CHANGELOG.md"
     }
   }
 }
