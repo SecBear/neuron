@@ -33,25 +33,28 @@ If you are unsure which spec applies, read `specs/00-vision-and-non-goals.md` an
 
 For deep architectural context, continue with:
 
-5. `NEURON-REDESIGN-PLAN.md` — Authoritative plan. 6-layer architecture, workspace structure, phased implementation.
-6. `docs/architecture/HANDOFF.md` — Layer 0 implementation spec. Trait signatures, type definitions, module structure.
-7. `docs/architecture/composable-agentic-architecture.md` — Design rationale. 4 protocols + 2 interfaces, gap analysis.
-8. `docs/architecture/platform-scope-mapping.md` — Where features live (Neuron vs platform vs external infra).
-9. `docs/architecture/agentic-decision-map-v3.md` — Full design space. All 23 architectural decisions.
-10. `DEVELOPMENT-LOG.md` — Complete history of all decisions, research, and rationale.
+5. `CONSTITUTION.md` — Agent constitution. Core values, positions on all 23 architectural decisions, authority hierarchy.
+6. `NEURON-REDESIGN-PLAN.md` — Authoritative plan. 6-layer architecture, workspace structure, phased implementation.
+7. `docs/architecture/HANDOFF.md` — Layer 0 implementation spec. Trait signatures, type definitions, module structure.
+8. `docs/architecture/composable-agentic-architecture.md` — Design rationale. 4 protocols + 2 interfaces, gap analysis.
+9. `docs/architecture/platform-scope-mapping.md` — Where features live (Neuron vs platform vs external infra).
+10. `docs/architecture/agentic-decision-map-v3.md` — Full design space. All 23 architectural decisions.
+11. `DEVELOPMENT-LOG.md` — Complete history of all decisions, research, and rationale.
 
 ## Where Truth Lives
 
-1. Requirements and intended behavior live in `specs/`.
-2. Operational constraints (how we work, how to verify, how to avoid repeated failure modes)
+1. Architectural values and positions on the 23 decisions live in `CONSTITUTION.md`.
+2. Requirements and intended behavior live in `specs/`.
+3. Operational constraints (how we work, how to verify, how to avoid repeated failure modes)
    live in `rules/`.
-3. Deep rationale and history live in `docs/` and `DEVELOPMENT-LOG.md`.
+4. Deep rationale and history live in `docs/` and `DEVELOPMENT-LOG.md`.
 
 If there is a conflict:
 
-1. Specs override rules.
-2. Rules override ad-hoc agent behavior.
-3. If the specs are ambiguous, update the specs (do not invent behavior).
+1. Constitution overrides specs.
+2. Specs override rules.
+3. Rules override ad-hoc agent behavior.
+4. If the specs are ambiguous, update the specs (do not invent behavior).
 
 ## Backpressure (Verification Gates)
 
