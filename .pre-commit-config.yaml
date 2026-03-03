@@ -3,7 +3,7 @@ repos:
     hooks:
       - id: treefmt
         name: treefmt
-        entry: bash -c 'nix fmt && git diff --exit-code'
+        entry: nix develop --command treefmt --fail-on-change
         language: system
         pass_filenames: false
         stages: [pre-commit]
