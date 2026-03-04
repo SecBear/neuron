@@ -45,20 +45,7 @@ All crates in the neuron workspace, organized by architectural layer.
 |-------|-------------|
 | `neuron-env-local` | Local environment. Implements `Environment` with no isolation (passthrough). |
 | `neuron-secret` | Secret resolution trait. Defines the interface for secret backends. |
-| `neuron-secret-env` | Environment variable secret backend. Reads secrets from env vars. |
 | `neuron-secret-vault` | HashiCorp Vault secret backend. |
-| `neuron-secret-aws` | AWS Secrets Manager backend. |
-| `neuron-secret-gcp` | GCP Secret Manager backend. |
-| `neuron-secret-keystore` | OS keystore backend (macOS Keychain, Windows Credential Store, Linux Secret Service). |
-| `neuron-secret-k8s` | Kubernetes Secrets backend. |
-| `neuron-auth` | Authentication trait. Defines the interface for auth backends. |
-| `neuron-auth-static` | Static API key authentication. |
-| `neuron-auth-file` | File-based authentication (token files, credential files). |
-| `neuron-auth-oidc` | OpenID Connect authentication. |
-| `neuron-auth-k8s` | Kubernetes service account authentication. |
-| `neuron-crypto` | Cryptographic operations trait. Defines the interface for crypto backends. |
-| `neuron-crypto-vault` | HashiCorp Vault Transit engine cryptography. |
-| `neuron-crypto-hardware` | Hardware security module (HSM) cryptography. |
 
 ## Layer 5 -- Cross-Cutting
 
@@ -87,7 +74,7 @@ All crates in the neuron workspace, organized by architectural layer.
 | 1 | 10 |
 | 2 | 4 |
 | 3 | 2 |
-| 4 | 16 |
+| 4 | 5 |
 | 5 | 2 |
 | Umbrella | 1 |
 | **Total** | **36** |

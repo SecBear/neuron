@@ -3,9 +3,17 @@ repos:
     hooks:
       - id: treefmt
         name: treefmt
-        entry: treefmt --fail-on-change
+        entry: nix develop --command treefmt --fail-on-change
         language: system
         pass_filenames: false
+        stages: [pre-commit]
+
+      - id: lychee-file-links
+        name: lychee (file links)
+        entry: lychee --scheme file --no-progress --config .lychee.toml
+        language: system
+        pass_filenames: true
+        types: [markdown]
         stages: [pre-commit]
 
       - id: clippy

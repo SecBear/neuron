@@ -54,7 +54,7 @@ rustup component add clippy rustfmt
 ## Conventions
 
 All coding conventions, architectural decisions, and design principles are
-documented in [`CLAUDE.md`](./CLAUDE.md) at the repository root. Read it before
+documented in [`AGENTS.md`](./AGENTS.md) at the repository root. Read it before
 submitting your first PR. Key highlights:
 
 ### Rust standards
@@ -85,8 +85,8 @@ The workspace is organized in 6 layers:
 - Inline `///` doc comments on **every** public item.
 - Every trait must have a doc example.
 - When adding or changing public API, update all documentation surfaces in the
-  same commit: source doc comments, crate `CLAUDE.md`, crate `README.md`,
-  examples, root `CLAUDE.md`, and `llms.txt` as applicable.
+  same commit: source doc comments, crate `AGENTS.md`, crate `README.md`,
+  examples, root `AGENTS.md`, and `llms.txt` as applicable.
 
 ## Commit messages
 
