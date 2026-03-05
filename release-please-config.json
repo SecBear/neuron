@@ -18,14 +18,12 @@
     "llms.txt",
     "AGENTS.md",
     "CLAUDE.md",
-    "CONSTITUTION.md",
     "CONTRIBUTING.md",
     "PROMPT.md",
     "SECURITY.md",
     "README.md",
     "SPECS.md",
-    "DEVELOPMENT-LOG.md",
-    "NEURON-REDESIGN-PLAN.md",
+    "ARCHITECTURE.md",
     "ralph_queue.md"
   ],
   "packages": {

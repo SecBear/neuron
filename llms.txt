@@ -1,105 +1,141 @@
 # Neuron
 
-> A 6-layer composable agentic AI framework in Rust, built on four protocol traits and two cross-cutting interfaces.
+> 6-layer composable agentic AI runtime in Rust.
+
+Neuron is a Rust framework for building agentic AI systems. It decomposes
+the problem into six architectural layers (L0–L5), each with clear trait
+boundaries, so every concern — from protocol serialization to secret
+management — lives in exactly one place.
 
 ## Getting Started
 
-- [README](README.md)
-- [Redesign Plan](NEURON-REDESIGN-PLAN.md)
-- [Specs Index](SPECS.md)
-- [Development Log](DEVELOPMENT-LOG.md)
-- [Contributing](CONTRIBUTING.md)
+- [README.md](README.md) — project overview and quickstart
+- [ARCHITECTURE.md](ARCHITECTURE.md) — layered architecture summary
+- [SPECS.md](SPECS.md) — spec index and status
+- [CONTRIBUTING.md](CONTRIBUTING.md) — contribution guidelines
 
-Build and test:
+### Build
 
-- Build: `cargo build`
-- Test: `cargo test --workspace`
-- Clippy: `cargo clippy --workspace --all-features -- -D warnings`
-- Docs: `cargo doc --workspace --no-deps`
+Neuron builds inside a Nix devshell:
+
+```sh
+nix develop --command cargo build --workspace
+nix develop --command cargo test --workspace --all-targets
+nix develop --command cargo clippy --workspace --all-targets -- -D warnings
+nix develop --command cargo doc --no-deps
+```
 
 ## Reading Order
 
-1. [Specs Index](SPECS.md)
-2. [Architecture: 6-Layer Model](docs/book/src/architecture/layers.md)
-3. [Architecture: Protocol Traits](docs/book/src/architecture/protocol-traits.md)
-4. [Crate Map](docs/book/src/reference/crate-map.md)
-5. [Redesign Plan (historical)](NEURON-REDESIGN-PLAN.md)
+1. [ARCHITECTURE.md](ARCHITECTURE.md)
+2. [SPECS.md](SPECS.md)
+3. [specs/00-vision-and-non-goals.md](specs/00-vision-and-non-goals.md)
+4. [specs/01-architecture-and-layering.md](specs/01-architecture-and-layering.md)
+5. [docs/book/src/architecture/layers.md](docs/book/src/architecture/layers.md)
+6. [docs/book/src/architecture/protocol-traits.md](docs/book/src/architecture/protocol-traits.md)
 
 ## Architecture
 
-- [Layer 0 Handoff](docs/architecture/HANDOFF.md): Layer 0 implementation spec with trait signatures, type definitions, module structure, and layer definitions.
-- [Composable Agentic Architecture](docs/architecture/composable-agentic-architecture.md): Design rationale for the 4 protocols + 2 interfaces model, gap analysis, and coverage map.
-- [Platform Scope Mapping](docs/architecture/platform-scope-mapping.md): Where features live (Neuron vs platform vs external infra).
-- [Agentic Decision Map v3](docs/architecture/agentic-decision-map-v3.md): Full design space covering all 23 architectural decisions.
-- [Validation and Coordination](docs/architecture/validation-and-coordination.md): Validation and coordination patterns.
+- [docs/architecture/orchestrator-composition-guide.md](docs/architecture/orchestrator-composition-guide.md) — orchestrator composition patterns
 
 ## Specs
 
-- [00 — Vision and Non-Goals](specs/00-vision-and-non-goals.md)
-- [01 — Architecture and Layering](specs/01-architecture-and-layering.md)
-- [02 — Layer 0 Protocol Contract](specs/02-layer0-protocol-contract.md)
-- [03 — Effects and Execution Semantics](specs/03-effects-and-execution-semantics.md)
-- [04 — Operator Turn Runtime](specs/04-operator-turn-runtime.md)
-- [05 — Orchestration Core](specs/05-orchestration-core.md)
-- [06 — Composition Factory and Glue](specs/06-composition-factory-and-glue.md)
-- [07 — State Core](specs/07-state-core.md)
-- [08 — Environment and Credentials](specs/08-environment-and-credentials.md)
-- [09 — Hooks Lifecycle and Governance](specs/09-hooks-lifecycle-and-governance.md)
-- [10 — Secrets Auth Crypto](specs/10-secrets-auth-crypto.md)
-- [11 — Testing Examples and Backpressure](specs/11-testing-examples-and-backpressure.md)
-- [12 — Packaging Versioning and Umbrella Crate](specs/12-packaging-versioning-and-umbrella-crate.md)
-- [13 — Documentation and DX Parity](specs/13-documentation-and-dx-parity.md)
+| #  | Spec | Path |
+|----|------|------|
+| 00 | Vision and Non-Goals | [specs/00-vision-and-non-goals.md](specs/00-vision-and-non-goals.md) |
+| 01 | Architecture and Layering | [specs/01-architecture-and-layering.md](specs/01-architecture-and-layering.md) |
+| 02 | Layer 0 Protocol Contract | [specs/02-layer0-protocol-contract.md](specs/02-layer0-protocol-contract.md) |
+| 03 | Effects and Execution Semantics | [specs/03-effects-and-execution-semantics.md](specs/03-effects-and-execution-semantics.md) |
+| 04 | Operator Turn Runtime | [specs/04-operator-turn-runtime.md](specs/04-operator-turn-runtime.md) |
+| 05 | Orchestration Core | [specs/05-orchestration-core.md](specs/05-orchestration-core.md) |
+| 06 | Composition, Factory, and Glue | [specs/06-composition-factory-and-glue.md](specs/06-composition-factory-and-glue.md) |
+| 07 | State Core | [specs/07-state-core.md](specs/07-state-core.md) |
+| 08 | Environment and Credentials | [specs/08-environment-and-credentials.md](specs/08-environment-and-credentials.md) |
+| 09 | Hooks Lifecycle and Governance | [specs/09-hooks-lifecycle-and-governance.md](specs/09-hooks-lifecycle-and-governance.md) |
+| 10 | Secrets, Auth, Crypto | [specs/10-secrets-auth-crypto.md](specs/10-secrets-auth-crypto.md) |
+| 11 | Testing, Examples, and Backpressure | [specs/11-testing-examples-and-backpressure.md](specs/11-testing-examples-and-backpressure.md) |
+| 12 | Packaging, Versioning, and Umbrella Crate | [specs/12-packaging-versioning-and-umbrella-crate.md](specs/12-packaging-versioning-and-umbrella-crate.md) |
+| 13 | Documentation and DX Parity | [specs/13-documentation-and-dx-parity.md](specs/13-documentation-and-dx-parity.md) |
 
-## Layer 0 — Protocol Traits
+## Crate Map
 
-- [layer0](layer0/): Protocol traits (Turn, Orchestrator, StateStore, Environment), message types, and cross-cutting interfaces (Hook, Lifecycle). This is the stability contract for the entire workspace.
+### Layer 0 — Protocol
 
-## Layer 1 — Turn Implementations
+| Crate | Path |
+|-------|------|
+| layer0 | [layer0/](layer0/) |
 
-- [neuron-turn](neuron-turn/): Turn provider abstraction and trait.
-- [neuron-context](neuron-context/): Conversation context management.
-- [neuron-tool](neuron-tool/): Tool registry, ToolDyn trait, and middleware.
-- [neuron-mcp](neuron-mcp/): Model Context Protocol client.
-- [neuron-provider-anthropic](neuron-provider-anthropic/): Anthropic provider.
-- [neuron-provider-openai](neuron-provider-openai/): OpenAI provider.
-- [neuron-provider-ollama](neuron-provider-ollama/): Ollama provider.
-- [neuron-op-react](neuron-op-react/): ReAct operator.
-- [neuron-op-single-shot](neuron-op-single-shot/): Single-shot operator.
+### Layer 1 — Turn Runtime
 
-## Layer 2 — Orchestration
+| Crate | Path |
+|-------|------|
+| neuron-turn | [turn/neuron-turn](turn/neuron-turn/) |
+| neuron-context | [turn/neuron-context](turn/neuron-context/) |
+| neuron-tool | [turn/neuron-tool](turn/neuron-tool/) |
+| neuron-mcp | [turn/neuron-mcp](turn/neuron-mcp/) |
+| neuron-turn-kit | [turn/neuron-turn-kit](turn/neuron-turn-kit/) |
 
-- [neuron-orch-local](neuron-orch-local/): Local orchestrator (in-process multi-agent).
-- [neuron-orch-kit](neuron-orch-kit/): Orchestration utilities.
+### Layer 1 — Operators
 
-## Layer 3 — State
+| Crate | Path |
+|-------|------|
+| neuron-op-react | [op/neuron-op-react](op/neuron-op-react/) |
+| neuron-op-single-shot | [op/neuron-op-single-shot](op/neuron-op-single-shot/) |
 
-- [neuron-state-memory](neuron-state-memory/): In-memory state store.
-- [neuron-state-fs](neuron-state-fs/): Filesystem state store.
+### Layer 1 — Providers
 
-## Layer 4 — Environment
+| Crate | Path |
+|-------|------|
+| neuron-provider-anthropic | [provider/neuron-provider-anthropic](provider/neuron-provider-anthropic/) |
+| neuron-provider-openai | [provider/neuron-provider-openai](provider/neuron-provider-openai/) |
+| neuron-provider-ollama | [provider/neuron-provider-ollama](provider/neuron-provider-ollama/) |
 
-- [neuron-env-local](neuron-env-local/): Local environment (credentials, sandbox).
-- [neuron-secret](neuron-secret/): Secret trait.
-- [neuron-secret-env](neuron-secret-env/): Environment variable secrets.
-- [neuron-secret-vault](neuron-secret-vault/): HashiCorp Vault secrets.
-- [neuron-secret-aws](neuron-secret-aws/): AWS Secrets Manager.
-- [neuron-secret-gcp](neuron-secret-gcp/): GCP Secret Manager.
-- [neuron-secret-keystore](neuron-secret-keystore/): OS keystore secrets.
-- [neuron-secret-k8s](neuron-secret-k8s/): Kubernetes secrets.
-- [neuron-auth](neuron-auth/): Authentication trait.
-- [neuron-auth-static](neuron-auth-static/): Static auth.
-- [neuron-auth-file](neuron-auth-file/): File-based auth.
-- [neuron-auth-oidc](neuron-auth-oidc/): OIDC auth.
-- [neuron-auth-k8s](neuron-auth-k8s/): Kubernetes auth.
-- [neuron-crypto](neuron-crypto/): Cryptography trait.
-- [neuron-crypto-vault](neuron-crypto-vault/): Vault crypto backend.
-- [neuron-crypto-hardware](neuron-crypto-hardware/): Hardware crypto backend.
+### Layer 2 — Orchestration
 
-## Layer 5 — Cross-Cutting
+| Crate | Path |
+|-------|------|
+| neuron-orch-local | [orch/neuron-orch-local](orch/neuron-orch-local/) |
+| neuron-orch-kit | [orch/neuron-orch-kit](orch/neuron-orch-kit/) |
 
-- [neuron-hooks](neuron-hooks/): Hook registry and lifecycle coordination.
-- [neuron-hook-security](neuron-hook-security/): Security hooks.
+### Layer 2 — Effects
 
-## Umbrella Crate
+| Crate | Path |
+|-------|------|
+| neuron-effects-core | [effects/neuron-effects-core](effects/neuron-effects-core/) |
+| neuron-effects-local | [effects/neuron-effects-local](effects/neuron-effects-local/) |
 
-- [neuron](neuron/): Re-exports everything with feature flags. Single dependency for downstream consumers.
+### Layer 3 — State
+
+| Crate | Path |
+|-------|------|
+| neuron-state-memory | [state/neuron-state-memory](state/neuron-state-memory/) |
+| neuron-state-fs | [state/neuron-state-fs](state/neuron-state-fs/) |
+
+### Layer 4 — Environment
+
+| Crate | Path |
+|-------|------|
+| neuron-env-local | [env/neuron-env-local](env/neuron-env-local/) |
+| neuron-secret | [secret/neuron-secret](secret/neuron-secret/) |
+| neuron-secret-vault | [secret/neuron-secret-vault](secret/neuron-secret-vault/) |
+| neuron-auth | [auth/neuron-auth](auth/neuron-auth/) |
+| neuron-crypto | [crypto/neuron-crypto](crypto/neuron-crypto/) |
+
+### Layer 5 — Cross-cutting (Hooks)
+
+| Crate | Path |
+|-------|------|
+| neuron-hooks | [hooks/neuron-hooks](hooks/neuron-hooks/) |
+| neuron-hook-security | [hooks/neuron-hook-security](hooks/neuron-hook-security/) |
+
+### Umbrella
+
+| Crate | Path |
+|-------|------|
+| neuron | [neuron/](neuron/) |
+
+### Examples
+
+| Example | Path |
+|---------|------|
+| custom_operator_barrier | [examples/custom_operator_barrier](examples/custom_operator_barrier/) |
