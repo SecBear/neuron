@@ -283,7 +283,7 @@ async fn assemble_card_without_deltas() {
         .unwrap();
 
     // Should have just the card
-    assert!(messages.len() >= 1, "should have at least the card");
+    assert!(!messages.is_empty(), "should have at least the card");
     assert_eq!(messages[0].policy, Some(CompactionPolicy::Pinned));
 }
 

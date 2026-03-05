@@ -1755,5 +1755,5 @@ fn effect_unlink_memory_round_trip() {
 // Compile-time proof: Box<dyn StateStore> and Box<dyn StateReader> are still
 // object-safe after adding the new default methods.
 // The new methods use no generics and no Self in return position — safe.
-fn _assert_state_store_still_object_safe(_: &Box<dyn StateStore>) {}
-fn _assert_state_reader_still_object_safe(_: &Box<dyn StateReader>) {}
+fn _assert_state_store_still_object_safe(_: &dyn StateStore) {}
+fn _assert_state_reader_still_object_safe(_: &dyn StateReader) {}
