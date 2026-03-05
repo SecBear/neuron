@@ -8,7 +8,7 @@ Layer 0 provides test utilities behind the `test-utils` feature flag:
 
 ```toml
 [dev-dependencies]
-layer0 = { version = "0.1", features = ["test-utils"] }
+layer0 = { version = "0.4", features = ["test-utils"] }
 ```
 
 This module includes mock implementations of the protocol traits that are useful for testing code that depends on `dyn Operator`, `dyn StateStore`, etc.

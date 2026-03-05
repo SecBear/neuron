@@ -32,12 +32,12 @@ pub trait Orchestrator: Send + Sync {
 }
 ```
 
-## LocalOrchestrator (`neuron-orch-local`)
+## LocalOrch (`neuron-orch-local`)
 
 The local orchestrator dispatches operator invocations in-process using tokio. It maps `AgentId` values to `Arc<dyn Operator>` references and calls `execute()` directly.
 
 ```rust,no_run
-use neuron_orch_local::LocalOrchestrator;
+use neuron_orch_local::LocalOrch;
 use layer0::operator::Operator;
 use layer0::id::AgentId;
 use std::sync::Arc;
@@ -46,7 +46,7 @@ use std::sync::Arc;
 let coder: Arc<dyn Operator> = /* ... */;
 let reviewer: Arc<dyn Operator> = /* ... */;
 
-let mut orchestrator = LocalOrchestrator::new();
+let mut orchestrator = LocalOrch::new();
 orchestrator.register(AgentId("coder".into()), coder);
 orchestrator.register(AgentId("reviewer".into()), reviewer);
 ```

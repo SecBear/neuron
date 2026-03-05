@@ -6,7 +6,7 @@ This page summarizes the key architectural decisions in neuron and the reasoning
 
 **Decision:** All Layer 0 protocol traits use `#[async_trait]` (heap-allocated futures). Internal traits in Layer 1 (like `Provider`) use RPITIT (native async, zero-cost).
 
-**Reasoning:** As of Rust edition 2021, `async fn` in traits is stabilized, but `async fn` in `dyn Trait` is not. Layer 0 traits *must* be object-safe because the entire composition model depends on `Box<dyn Operator>`, `Arc<dyn StateStore>`, etc. The `async_trait` macro provides this by boxing the returned future.
+**Reasoning:** Rust stabilized `async fn` in traits, but `async fn` in `dyn Trait` is still not available natively. Layer 0 traits *must* be object-safe because the entire composition model depends on `Box<dyn Operator>`, `Arc<dyn StateStore>`, etc. The `async_trait` macro provides this by boxing the returned future.
 
 Internal traits like `Provider` are never used behind `dyn` -- they are used as generic type parameters (`ReactOperator<P: Provider>`). These can use RPITIT for zero-cost abstraction. The object-safe boundary is the `Operator` trait, which is the protocol boundary.
 
@@ -43,11 +43,11 @@ These were derived from analyzing 23 architectural decisions that every agentic 
 
 The two interfaces (hooks and lifecycle events) are *cross-cutting* -- they span multiple protocols and cannot be owned by any single one. A budget event involves the operator (which tracks cost), the hook (which observes it), and the orchestrator (which reacts to it). Making this a method on any single trait would couple unrelated protocols.
 
-## Why edition 2021
+## Why edition 2024
 
-**Decision:** The workspace uses Rust edition 2021, not 2024.
+**Decision:** The workspace uses Rust edition 2024.
 
-**Reasoning:** Edition 2021 provides the widest compatibility with the Rust ecosystem. The crate's dependencies (`serde`, `async-trait`, `thiserror`, `tokio`, `reqwest`) all target edition 2021. Using 2024 would provide marginal benefits (some syntax improvements) while potentially creating friction for downstream consumers.
+**Reasoning:** Edition 2024 is the latest stable edition and provides native support for RPITIT (return position impl trait in traits) and other modern language features. This allows traits like `Provider` to use zero-cost async abstractions without workarounds like the `async_trait` macro. The Rust ecosystem has fully adopted 2024, providing excellent compatibility with all core dependencies.
 
 ## Why `#[non_exhaustive]` on all enums and structs
 

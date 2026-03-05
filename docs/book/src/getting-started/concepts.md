@@ -75,7 +75,7 @@ pub trait Environment: Send + Sync {
 }
 ```
 
-The `EnvironmentSpec` declares isolation boundaries (process, container, VM, Wasm), credential injection, resource limits, and network policy. `LocalEnvironment` passes through with no isolation (for development). Future implementations could spin up containers or Kubernetes pods.
+The `EnvironmentSpec` declares isolation boundaries (process, container, VM, Wasm), credential injection, resource limits, and network policy. `LocalEnv` passes through with no isolation (for development). Future implementations could spin up containers or Kubernetes pods.
 
 ## The two interfaces
 
@@ -112,7 +112,7 @@ Layer 0  Protocol traits  (the stability contract)
 
 Higher layers depend on lower layers, never the reverse. Layer 0 has no knowledge of any implementation. A Layer 1 crate depends on Layer 0 for trait definitions but knows nothing about orchestration or state backends.
 
-This means you can replace any layer's implementation without touching other layers. Swap `MemoryStore` for a hypothetical `PostgresStore` and nothing in your operator code changes. Swap `LocalOrchestrator` for a Temporal-backed orchestrator and your operators, tools, and state stores remain identical.
+This means you can replace any layer's implementation without touching other layers. Swap `MemoryStore` for a hypothetical `PostgresStore` and nothing in your operator code changes. Swap `LocalOrch` for a Temporal-backed orchestrator and your operators, tools, and state stores remain identical.
 
 ## The composition pattern
 
@@ -121,8 +121,8 @@ A typical application composes the layers like this:
 ```
 Operator   = ReactOperator<AnthropicProvider> + ToolRegistry + HookRegistry
 State      = FsStore (filesystem persistence)
-Env        = LocalEnvironment (no isolation, dev mode)
-Orchestr.  = LocalOrchestrator { agent_a -> Operator, agent_b -> Operator }
+Env        = LocalEnv (no isolation, dev mode)
+Orchestr.  = LocalOrch { agent_a -> Operator, agent_b -> Operator }
 ```
 
 Each component is constructed independently, then composed through trait objects. The orchestrator holds `Arc<dyn Operator>` references. The environment holds its own operator reference. Nothing knows about concrete types beyond its own construction site.

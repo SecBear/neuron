@@ -95,15 +95,16 @@ Errors from LLM providers (Layer 1, `neuron_turn::provider::ProviderError`):
 
 ```rust
 pub enum ProviderError {
-    RequestFailed(String),    // HTTP/network failure
+    TransientError { message: String, status: Option<u16> }, // HTTP/network failure
     RateLimited,              // 429 response
+    ContentBlocked { message: String }, // Content blocked by provider
     AuthFailed(String),       // 401/403 response
     InvalidResponse(String),  // Response parse failure
     Other(Box<dyn Error>),    // Catch-all
 }
 ```
 
-`ProviderError::is_retryable()` returns `true` for `RateLimited` and `RequestFailed`.
+`ProviderError::is_retryable()` returns `true` for `RateLimited` and `TransientError`.
 
 ### ToolError
 

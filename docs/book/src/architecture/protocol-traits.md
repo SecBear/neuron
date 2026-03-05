@@ -192,7 +192,7 @@ pub trait Environment: Send + Sync {
 }
 ```
 
-The `Environment` owns or has access to whatever it needs to execute an operator. `run()` takes only data (`OperatorInput` + `EnvironmentSpec`), not a function reference. For `LocalEnvironment`, the operator is an `Arc<dyn Operator>` stored at construction time. For a hypothetical `DockerEnvironment`, the input would be serialized, sent to a container, and the output deserialized.
+The `Environment` owns or has access to whatever it needs to execute an operator. `run()` takes only data (`OperatorInput` + `EnvironmentSpec`), not a function reference. For `LocalEnv`, the operator is an `Arc<dyn Operator>` stored at construction time. For a hypothetical `DockerEnvironment`, the input would be serialized, sent to a container, and the output deserialized.
 
 ### EnvironmentSpec
 

@@ -97,7 +97,7 @@ registry.add(Arc::new(my_hook), HookKind::Guardrail);
 Steering is observable *via* hooks, but it is not a `HookKind`. Four reasons:
 
 1. **Different control flow** — steering is polling (`drain()` called repeatedly at boundaries); hooks are callbacks (`on_event()` fires once at a defined point).
-2. **Different return types** — `drain()` returns `Vec<ProviderMessage>`; `on_event()` returns `HookAction`.
+2. **Different return types** — `drain()` returns `Vec<SteeringCommand>`; `on_event()` returns `HookAction`.
 3. **Different composition** — steering messages are concatenated; hook actions short-circuit or chain.
 4. **Different statefulness** — a steering source buffers messages between polls; hooks are stateless per call.
 

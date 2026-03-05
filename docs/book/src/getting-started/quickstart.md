@@ -11,6 +11,8 @@ use neuron_hooks::HookRegistry;
 use neuron_op_react::{ReactConfig, ReactOperator};
 use neuron_provider_anthropic::AnthropicProvider;
 use neuron_tool::{ToolDyn, ToolError, ToolRegistry};
+use neuron_state_memory::MemoryStore;
+use neuron_turn_kit::FullContext;
 use serde_json::json;
 use std::future::Future;
 use std::pin::Pin;
@@ -66,16 +68,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         default_max_turns: 10,
     };
 
-    // 4. Build the ReAct operator
-    let operator = ReactOperator::new(provider, tools, HookRegistry::new(), config);
+    // 4. Create the state reader
+    let state_reader = Arc::new(MemoryStore::new());
 
-    // 5. Create the input
+    // 5. Create the context strategy
+    let context_strategy = Box::new(FullContext);
+
+    // 6. Build the ReAct operator
+    let operator = ReactOperator::new(
+        provider,
+        tools,
+        context_strategy,
+        HookRegistry::new(),
+        state_reader,
+        config,
+    );
+
+    // 7. Create the input
     let input = OperatorInput::new(
         Content::text("What time is it right now?"),
         TriggerType::User,
     );
 
-    // 6. Execute
+    // 8. Execute
     let output = operator.execute(input).await?;
 
     println!("Response: {:?}", output.message);

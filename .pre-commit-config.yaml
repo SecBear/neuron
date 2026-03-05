@@ -39,3 +39,12 @@ repos:
         pass_filenames: false
         types: [rust]
         stages: [pre-push]
+
+
+      - id: book-drift
+        name: book drift check
+        entry: ./scripts/check-book-drift.sh
+        language: system
+        pass_filenames: false
+        types: [markdown]
+        stages: [pre-commit]

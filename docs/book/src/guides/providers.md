@@ -122,7 +122,9 @@ let config = ReactConfig {
 let operator = ReactOperator::new(
     provider,
     ToolRegistry::new(),
+    Box::new(neuron_turn_kit::FullContext),
     HookRegistry::new(),
+    Arc::new(neuron_state_memory::MemoryStore::new()),
     config,
 );
 // `operator` implements `layer0::Operator`
@@ -136,12 +138,13 @@ Provider errors are represented by `ProviderError`:
 
 ```rust
 pub enum ProviderError {
-    RequestFailed(String),    // HTTP/network failure
-    RateLimited,              // 429 response
-    AuthFailed(String),       // 401/403 response
-    InvalidResponse(String),  // Response parse failure
-    Other(Box<dyn Error>),    // Catch-all
+    TransientError { message: String, status: Option<u16> },
+    RateLimited,
+    ContentBlocked { message: String },
+    AuthFailed(String),
+    InvalidResponse(String),
+    Other(Box<dyn Error + Send + Sync>),
 }
 ```
 
-`ProviderError::is_retryable()` returns `true` for `RateLimited` and `RequestFailed` (transient network errors), and `false` for `AuthFailed` and `InvalidResponse` (permanent errors). Operator implementations use this to decide whether to retry.
+`ProviderError::is_retryable()` returns `true` for `RateLimited` and `TransientError` (transient network errors), and `false` for `AuthFailed`, `ContentBlocked`, and `InvalidResponse` (permanent errors). Operator implementations use this to decide whether to retry.

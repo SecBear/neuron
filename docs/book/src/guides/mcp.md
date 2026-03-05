@@ -34,5 +34,5 @@ The `neuron-mcp` crate depends on `layer0` and `neuron-tool`. Enable it via the 
 
 ```toml
 [dependencies]
-neuron = { version = "0.1", features = ["mcp"] }
+neuron = { version = "0.4", features = ["mcp"] }
 ```

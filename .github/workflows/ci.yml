@@ -101,6 +101,14 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  book-drift:
+    name: Book drift check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check book drift
+        run: ./scripts/check-book-drift.sh
+
   msrv:
     name: MSRV check
     runs-on: ubuntu-latest

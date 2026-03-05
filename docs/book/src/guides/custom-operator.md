@@ -160,19 +160,20 @@ impl Hook for MetricsHook {
 
 ## Implementing a SteeringSource
 
-`SteeringSource` is a narrow bridge: it supplies `ProviderMessage` values to inject into the conversation at batch boundaries, without inspecting any internal turn state.
+`SteeringSource` is a narrow bridge: it supplies `SteeringCommand` values (messages or context commands) to inject into the conversation at batch boundaries, without inspecting any internal turn state.
 
 ```rust,no_run
 use neuron_turn::types::{ProviderMessage, Role, ContentPart};
+use neuron_turn_kit::SteeringCommand;
 use neuron_op_react::SteeringSource;
 use std::sync::Mutex;
 
 struct ChannelSteering {
-    queue: Mutex<Vec<ProviderMessage>>,
+    queue: Mutex<Vec<SteeringCommand>>,
 }
 
 impl SteeringSource for ChannelSteering {
-    fn drain(&self) -> Vec<ProviderMessage> {
+    fn drain(&self) -> Vec<SteeringCommand> {
         self.queue.lock().unwrap().drain(..).collect()
     }
 }

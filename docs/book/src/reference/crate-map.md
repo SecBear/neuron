@@ -46,6 +46,8 @@ All crates in the neuron workspace, organized by architectural layer.
 | `neuron-env-local` | Local environment. Implements `Environment` with no isolation (passthrough). |
 | `neuron-secret` | Secret resolution trait. Defines the interface for secret backends. |
 | `neuron-secret-vault` | HashiCorp Vault secret backend. |
+| `neuron-crypto` | Cryptographic utilities and primitives. |
+| `neuron-auth` | Authentication and authorization abstractions. |
 
 ## Layer 5 -- Cross-Cutting
 
@@ -77,4 +79,4 @@ All crates in the neuron workspace, organized by architectural layer.
 | 4 | 5 |
 | 5 | 2 |
 | Umbrella | 1 |
-| **Total** | **36** |
+| **Total** | **25** |

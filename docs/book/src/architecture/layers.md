@@ -60,7 +60,7 @@ Layer 1 is where the core agentic loop lives. The `Provider` trait (defined in `
 - `neuron-orch-local` -- In-process orchestrator using tokio tasks
 - `neuron-orch-kit` -- Shared orchestration utilities
 
-Layer 2 implements `layer0::Orchestrator`. The `LocalOrchestrator` dispatches operator invocations in-process using tokio. It maps `AgentId` to `Arc<dyn Operator>` and handles parallel dispatch via `tokio::spawn`.
+Layer 2 implements `layer0::Orchestrator`. The `LocalOrch` dispatches operator invocations in-process using tokio. It maps `AgentId` to `Arc<dyn Operator>` and handles parallel dispatch via `tokio::spawn`.
 
 Future implementations could include Temporal workflows (durable, replayable) or Restate (durable execution with virtual objects).
 
@@ -81,7 +81,7 @@ Future implementations could include SQLite (embedded), PostgreSQL (queryable, t
 - `neuron-secret` -- Secret resolution trait
 - `neuron-secret-vault` -- HashiCorp Vault secrets
 
-Layer 4 implements `layer0::Environment` and provides the credential infrastructure that environments use. `LocalEnvironment` passes through with no isolation -- it holds an `Arc<dyn Operator>` and calls `execute()` directly. The secret, auth, and crypto backends provide credential resolution for the `EnvironmentSpec`'s `CredentialRef` system.
+Layer 4 implements `layer0::Environment` and provides the credential infrastructure that environments use. `LocalEnv` passes through with no isolation -- it holds an `Arc<dyn Operator>` and calls `execute()` directly. The secret, auth, and crypto backends provide credential resolution for the `EnvironmentSpec`'s `CredentialRef` system.
 
 ## Layer 5 -- Cross-Cutting
 
