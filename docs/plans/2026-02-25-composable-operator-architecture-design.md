@@ -445,7 +445,7 @@ Same orchestrator config. Same flow. Different operator behind the AgentId.
 
 ## 10. 23-Decision Coverage Map
 
-Every decision from `agentic-decision-map-v3.md` mapped to the architecture:
+Every architectural decision mapped to the architecture:
 
 ### Turn-Level Decisions (D1-D5)
 

@@ -19,7 +19,7 @@ Neuron's implementation matches the v3.2 architectural decisions.
 
 ## Current State
 
-- Branch: `feature/gap-analysis-implementation`
+- Branch: merged into `main`
 - Last commit: `e70bf55` — governing docs updated with v3.2 decisions
 - V3.2 architectural decisions finalized
 - All V32 items are in `ralph_queue.md` with full context

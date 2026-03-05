@@ -380,7 +380,5 @@ Bidirectional mapping. `ContentBlock::Custom` → `ContentPart::Text` (JSON-stri
 
 - **HANDOFF.md**: Aligned. Layer 1 internals correctly scoped. Turn trait signature matches. StateReader injection present.
 - **composable-agentic-architecture.md**: Aligned. Turn owns context assembly, inference, tool execution, exit conditions. Does not own isolation, durability, or state writes.
-- **agentic-decision-map-v3.md**: Aligned. All 23 decisions correctly addressed or deferred to appropriate layer.
-- **validation-and-coordination.md**: Aligned. Protocol boundaries preserved. No layer0 changes needed.
 
 No contradictions found. All gaps resolved in this design.

@@ -21,7 +21,7 @@
 
 This is relevant as a pattern but does not grant API access to Anthropic's model endpoints. Claude Code itself uses a proxy-brokered credential model — the agent never sees the Anthropic API key directly. The key is held server-side by Anthropic's infrastructure.
 
-**Source:** neuron decision map (`decision-map-new-decision-audit.md`), MCP spec (Nov 2025).
+**Source:** MCP spec (Nov 2025).
 
 ### 1.2 OpenAI Authentication
 

@@ -1,6 +1,6 @@
 # Design Decisions
 
-This page summarizes the key architectural decisions in neuron and the reasoning behind each one. For the full design space (all 23 architectural decisions every agentic system must make), see `docs/architecture/agentic-decision-map-v3.md` in the repository.
+This page summarizes the key architectural decisions in neuron and the reasoning behind each one.
 
 ## Why `#[async_trait]` instead of native async traits
 
