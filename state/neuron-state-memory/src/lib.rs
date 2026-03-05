@@ -9,7 +9,7 @@
 use async_trait::async_trait;
 use layer0::effect::Scope;
 use layer0::error::StateError;
-use layer0::state::{SearchResult, StateStore};
+use layer0::state::{SearchResult, StateStore, StoreOptions};
 use std::collections::HashMap;
 use tokio::sync::RwLock;
 
@@ -19,6 +19,7 @@ use tokio::sync::RwLock;
 /// where persistence across restarts is not required.
 pub struct MemoryStore {
     data: RwLock<HashMap<String, serde_json::Value>>,
+    transient: RwLock<HashMap<String, serde_json::Value>>,
 }
 
 impl MemoryStore {
@@ -26,6 +27,7 @@ impl MemoryStore {
     pub fn new() -> Self {
         Self {
             data: RwLock::new(HashMap::new()),
+            transient: RwLock::new(HashMap::new()),
         }
     }
 }
@@ -106,6 +108,30 @@ impl StateStore for MemoryStore {
     ) -> Result<Vec<SearchResult>, StateError> {
         // In-memory store does not support semantic search.
         Ok(vec![])
+    }
+
+    async fn write_hinted(
+        &self,
+        scope: &Scope,
+        key: &str,
+        value: serde_json::Value,
+        options: &StoreOptions,
+    ) -> Result<(), StateError> {
+        use layer0::state::Lifetime;
+        if matches!(options.lifetime, Some(Lifetime::Transient)) {
+            let ck = composite_key(scope, key);
+            self.transient.write().await.insert(ck, value);
+            Ok(())
+        } else {
+            self.write(scope, key, value).await
+        }
+    }
+
+    fn clear_transient(&self) {
+        // Use try_write; if the lock is contended, skip — best-effort clearing.
+        if let Ok(mut t) = self.transient.try_write() {
+            t.clear();
+        }
     }
 }
 
@@ -237,5 +263,47 @@ mod tests {
     fn memory_store_implements_state_store() {
         fn _assert_state_store<T: StateStore>() {}
         _assert_state_store::<MemoryStore>();
+    }
+
+    #[tokio::test]
+    async fn test_transient_write_not_durable() {
+        use layer0::state::{Lifetime, StoreOptions};
+
+        let store = MemoryStore::new();
+        let scope = Scope::Global;
+
+        // Write transient entry
+        let opts = StoreOptions {
+            lifetime: Some(Lifetime::Transient),
+            ..Default::default()
+        };
+        store
+            .write_hinted(&scope, "scratch", serde_json::json!("temp"), &opts)
+            .await
+            .unwrap();
+
+        // Transient entries are not visible via read()
+        let val = store.read(&scope, "scratch").await.unwrap();
+        assert_eq!(val, None, "transient entry must not be visible via read()");
+
+        // clear_transient is idempotent
+        store.clear_transient();
+        store.clear_transient();
+
+        // Write a durable entry
+        store
+            .write(&scope, "durable", serde_json::json!("persisted"))
+            .await
+            .unwrap();
+
+        // clear_transient does not touch durable storage
+        store.clear_transient();
+
+        let durable_val = store.read(&scope, "durable").await.unwrap();
+        assert_eq!(
+            durable_val,
+            Some(serde_json::json!("persisted")),
+            "durable entry must survive clear_transient()"
+        );
     }
 }

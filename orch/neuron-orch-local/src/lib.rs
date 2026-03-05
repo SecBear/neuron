@@ -26,8 +26,6 @@ pub struct LocalOrch {
     agents: HashMap<String, Arc<dyn Operator>>,
     // Per-workflow signal journal
     workflow_signals: RwLock<HashMap<String, Vec<SignalPayload>>>,
-    // Minimal query store placeholder for future extensions
-    query_store: RwLock<HashMap<String, serde_json::Value>>,
 }
 
 impl LocalOrch {
@@ -36,7 +34,6 @@ impl LocalOrch {
         Self {
             agents: HashMap::new(),
             workflow_signals: RwLock::new(HashMap::new()),
-            query_store: RwLock::new(HashMap::new()),
         }
     }
 
@@ -120,15 +117,8 @@ impl Orchestrator for LocalOrch {
         target: &WorkflowId,
         _query: QueryPayload,
     ) -> Result<serde_json::Value, OrchError> {
-        // Lazily create the journal for unknown workflows and report minimal schema
-        let mut workflows = self.workflow_signals.write().await;
-        let entry = workflows.entry(target.to_string()).or_default();
-        let count = entry.len();
-        // Store the last query result for future extension (not used by tests)
-        {
-            let mut store = self.query_store.write().await;
-            store.insert(target.to_string(), json!({ "signals": count }));
-        }
+        let workflows = self.workflow_signals.read().await;
+        let count = workflows.get(target.as_str()).map(|v| v.len()).unwrap_or(0);
         Ok(json!({ "signals": count }))
     }
 }

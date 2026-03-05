@@ -11,18 +11,55 @@ use layer0::effect::{Effect, Scope, SignalPayload};
 use layer0::error::OperatorError;
 use layer0::hook::{HookAction, HookContext, HookPoint};
 use layer0::id::{AgentId, WorkflowId};
+use layer0::lifecycle::{BudgetEvent, CompactionEvent};
 use layer0::operator::{
     ExitReason, Operator, OperatorInput, OperatorMetadata, OperatorOutput, ToolCallRecord,
 };
 use neuron_hooks::HookRegistry;
 use neuron_tool::{ToolConcurrencyHint, ToolRegistry};
+use neuron_turn::AnnotatedMessage;
 use neuron_turn::context::ContextStrategy;
 use neuron_turn::convert::{content_to_user_message, parts_to_content};
 use neuron_turn::provider::Provider;
 use neuron_turn::types::*;
 use rust_decimal::Decimal;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
+
+/// Sink for operator-emitted budget lifecycle events.
+///
+/// Implement this trait to observe step-limit, loop-detection, and timeout events
+/// from ReactOperator. All methods receive owned events for maximum flexibility.
+pub trait BudgetEventSink: Send + Sync {
+    /// Called when a budget-related event occurs.
+    fn on_budget_event(&self, event: BudgetEvent);
+}
+
+/// Sink for operator-emitted compaction lifecycle events.
+///
+/// Implement this trait to observe compaction failures, skips, and quality
+/// outcomes from ReactOperator.
+pub trait CompactionEventSink: Send + Sync {
+    /// Called when a compaction-related event occurs.
+    fn on_compaction_event(&self, event: CompactionEvent);
+}
+
+/// Snapshot of the context window at the time [`ReactOperator::context_snapshot`] is called.
+///
+/// Reflects the latest view of the in-flight context buffer maintained by the operator.
+/// Safe to clone, serialize, and send across threads.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ContextSnapshot {
+    /// Messages currently in the context window, with their annotations.
+    pub messages: Vec<AnnotatedMessage>,
+    /// Approximate token count of the current context (4 chars ≈ 1 token heuristic).
+    pub token_count: usize,
+    /// Number of messages pinned (will survive compaction).
+    pub pinned_count: usize,
+    /// Number of messages removed in the most recent compaction cycle.
+    /// Zero if compaction has not yet run.
+    pub last_compaction_removed: usize,
+}
 
 /// Static configuration for a ReactOperator instance.
 pub struct ReactConfig {
@@ -34,6 +71,20 @@ pub struct ReactConfig {
     pub default_max_tokens: u32,
     /// Default max turns before stopping.
     pub default_max_turns: u32,
+    /// Fraction of the token budget reserved for compaction headroom.
+    /// Compaction triggers at `max_tokens * 4 * (1 - compaction_reserve_pct)`.
+    /// Must be in 0.01..=0.50. Default: 0.20 (20%).
+    pub compaction_reserve_pct: f32,
+    /// Maximum total tool calls across all turns. None = unlimited.
+    pub max_tool_calls: Option<u32>,
+    /// Maximum consecutive identical tool calls (same name + input hash).
+    /// Exits with ExitReason::Custom("stuck_detected") when exceeded.
+    pub max_repeat_calls: Option<u32>,
+    /// Optional model selector. Called before each inference with the current request.
+    /// Returns a model name override, or None to use the default.
+    /// Enables task-type routing (e.g. route by message count, tool count, or cost).
+    #[allow(clippy::type_complexity)]
+    pub model_selector: Option<Arc<dyn Fn(&ProviderRequest) -> Option<String> + Send + Sync>>,
 }
 
 impl Default for ReactConfig {
@@ -43,7 +94,23 @@ impl Default for ReactConfig {
             default_model: String::new(),
             default_max_tokens: 4096,
             default_max_turns: 10,
+            compaction_reserve_pct: 0.20,
+            max_tool_calls: None,
+            max_repeat_calls: None,
+            model_selector: None,
         }
+    }
+}
+
+impl ReactConfig {
+    /// Validate that all configuration values are within acceptable ranges.
+    ///
+    /// Returns `Err` if any field is out of range.
+    pub fn validated(self) -> Result<Self, &'static str> {
+        if !(0.01..=0.50).contains(&self.compaction_reserve_pct) {
+            return Err("compaction_reserve_pct must be 0.01..=0.50");
+        }
+        Ok(self)
     }
 }
 
@@ -69,8 +136,8 @@ struct ResolvedConfig {
 
 // Re-export turn-kit primitives
 pub use neuron_turn_kit::{
-    BarrierPlanner, BatchItem, Concurrency, ConcurrencyDecider, SteeringSource,
-    ToolExecutionPlanner,
+    BarrierPlanner, BatchItem, Concurrency, ConcurrencyDecider, ContextCommand, SteeringCommand,
+    SteeringSource, ToolExecutionPlanner,
 };
 
 /// Default decider: all tools Exclusive.
@@ -128,6 +195,12 @@ pub struct ReactOperator<P: Provider> {
     planner: Box<dyn ToolExecutionPlanner>,
     decider: Box<dyn ConcurrencyDecider>,
     steering: Option<Arc<dyn SteeringSource>>,
+    budget_sink: Option<Arc<dyn BudgetEventSink>>,
+    compaction_sink: Option<Arc<dyn CompactionEventSink>>,
+    /// Live snapshot buffer, updated at key mutation points during `execute`.
+    current_context: Arc<Mutex<Vec<AnnotatedMessage>>>,
+    /// Number of messages removed in the most recent compaction cycle.
+    last_compaction_removed: Arc<Mutex<usize>>,
 }
 
 impl<P: Provider> ReactOperator<P> {
@@ -150,6 +223,10 @@ impl<P: Provider> ReactOperator<P> {
             planner: Box::new(SequentialPlanner),
             decider: Box::new(DefaultDecider),
             steering: None,
+            budget_sink: None,
+            compaction_sink: None,
+            current_context: Arc::new(Mutex::new(Vec::new())),
+            last_compaction_removed: Arc::new(Mutex::new(0)),
         }
     }
     /// Opt-in: set a custom tool execution planner.
@@ -173,6 +250,58 @@ impl<P: Provider> ReactOperator<P> {
     pub fn with_steering(mut self, s: Arc<dyn SteeringSource>) -> Self {
         self.steering = Some(s);
         self
+    }
+    /// Opt-in: attach a sink for budget lifecycle events (step-limit, loop, timeout).
+    pub fn with_budget_sink(mut self, sink: Arc<dyn BudgetEventSink>) -> Self {
+        self.budget_sink = Some(sink);
+        self
+    }
+    /// Opt-in: attach a sink for compaction lifecycle events (quality, failure).
+    pub fn with_compaction_sink(mut self, sink: Arc<dyn CompactionEventSink>) -> Self {
+        self.compaction_sink = Some(sink);
+        self
+    }
+    /// Opt-in: set a model selector callback for per-inference routing.
+    ///
+    /// The selector is called before each inference call. Return `Some(model)` to
+    /// override the model for that call, or `None` to use the default.
+    pub fn with_model_selector(
+        mut self,
+        f: impl Fn(&ProviderRequest) -> Option<String> + Send + Sync + 'static,
+    ) -> Self {
+        self.config.model_selector = Some(Arc::new(f));
+        self
+    }
+
+    /// Return a point-in-time snapshot of the operator's context window.
+    ///
+    /// Safe to call before the first [`Operator::execute`] invocation — returns an
+    /// empty snapshot in that case. Also safe to call concurrently with a running
+    /// `execute` call; the snapshot reflects the most recent completed update point.
+    ///
+    /// The returned [`ContextSnapshot`] is a deep clone — subsequent mutations to the
+    /// operator do not affect it.
+    pub fn context_snapshot(&self) -> ContextSnapshot {
+        let messages = self
+            .current_context
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        let token_count = self.context_strategy.token_estimate(&messages);
+        let pinned_count = messages
+            .iter()
+            .filter(|am| matches!(am.policy, Some(layer0::CompactionPolicy::Pinned)))
+            .count();
+        let last_compaction_removed = *self
+            .last_compaction_removed
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        ContextSnapshot {
+            messages,
+            token_count,
+            pinned_count,
+            last_compaction_removed,
+        }
     }
 
     fn resolve_config(&self, input: &OperatorInput) -> ResolvedConfig {
@@ -225,7 +354,7 @@ impl<P: Provider> ReactOperator<P> {
     async fn assemble_context(
         &self,
         input: &OperatorInput,
-    ) -> Result<Vec<ProviderMessage>, OperatorError> {
+    ) -> Result<Vec<AnnotatedMessage>, OperatorError> {
         let mut messages = Vec::new();
 
         // Read history from state if session is present
@@ -236,7 +365,10 @@ impl<P: Provider> ReactOperator<P> {
                     if let Ok(history_messages) =
                         serde_json::from_value::<Vec<ProviderMessage>>(history)
                     {
-                        messages = history_messages;
+                        messages = history_messages
+                            .into_iter()
+                            .map(AnnotatedMessage::from)
+                            .collect();
                     }
                 }
                 Ok(None) => {} // No history yet
@@ -245,7 +377,9 @@ impl<P: Provider> ReactOperator<P> {
         }
 
         // Add the new user message
-        messages.push(content_to_user_message(&input.message));
+        messages.push(AnnotatedMessage::from(content_to_user_message(
+            &input.message,
+        )));
 
         Ok(messages)
     }
@@ -257,7 +391,16 @@ impl<P: Provider> ReactOperator<P> {
                 let key = input.get("key")?.as_str()?.to_string();
                 let value = input.get("value")?.clone();
                 let scope = parse_scope(scope_str);
-                Some(Effect::WriteMemory { scope, key, value })
+                Some(Effect::WriteMemory {
+                    scope,
+                    key,
+                    value,
+                    tier: None,
+                    lifetime: None,
+                    content_kind: None,
+                    salience: None,
+                    ttl: None,
+                })
             }
             "delete_memory" => {
                 let scope_str = input.get("scope")?.as_str()?;
@@ -352,6 +495,109 @@ impl<P: Provider> ReactOperator<P> {
         ctx.elapsed = elapsed;
         ctx
     }
+    /// Poll the steering source and dispatch hook events.
+    ///
+    /// Returns injected messages (after hook approval) and context commands (unconditional).
+    /// Context commands bypass the `PreSteeringInject` hook — they are direct buffer manipulation.
+    async fn poll_steering(
+        &self,
+        ti: u64,
+        to: u64,
+        cost: Decimal,
+        turns: u32,
+        elapsed: DurationMs,
+    ) -> (Vec<ProviderMessage>, Vec<ContextCommand>) {
+        let Some(s) = &self.steering else {
+            return (vec![], vec![]);
+        };
+        let commands = s.drain();
+        if commands.is_empty() {
+            return (vec![], vec![]);
+        }
+        let mut msgs_to_inject = Vec::new();
+        let mut ctx_cmds = Vec::new();
+        for cmd in commands {
+            match cmd {
+                SteeringCommand::Message(msg) => msgs_to_inject.push(msg),
+                SteeringCommand::Context(cmd) => ctx_cmds.push(cmd),
+            }
+        }
+        if msgs_to_inject.is_empty() {
+            return (vec![], ctx_cmds);
+        }
+        let mut ctx =
+            self.build_hook_context(HookPoint::PreSteeringInject, ti, to, cost, turns, elapsed);
+        ctx.steering_messages = Some(msgs_to_inject.iter().map(|m| format!("{:?}", m)).collect());
+        if let HookAction::Halt { .. } = self.hooks.dispatch(&ctx).await {
+            return (vec![], ctx_cmds);
+        }
+        (msgs_to_inject, ctx_cmds)
+    }
+}
+
+/// Apply a list of context manipulation commands to the message buffer.
+///
+/// Commands execute unconditionally — they bypass the `PreSteeringInject` hook.
+pub(crate) fn apply_context_commands(
+    messages: &mut Vec<neuron_turn::AnnotatedMessage>,
+    cmds: Vec<ContextCommand>,
+) {
+    for cmd in cmds {
+        match cmd {
+            ContextCommand::Pin { message_index } => {
+                if let Some(am) = messages.get_mut(message_index) {
+                    am.policy = Some(layer0::CompactionPolicy::Pinned);
+                }
+            }
+            ContextCommand::DropOldest { count } => {
+                let droppable: Vec<usize> = messages
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, am)| !matches!(am.policy, Some(layer0::CompactionPolicy::Pinned)))
+                    .map(|(i, _)| i)
+                    .take(count)
+                    .collect();
+                for i in droppable.into_iter().rev() {
+                    messages.remove(i);
+                }
+            }
+            ContextCommand::ClearWorking => {
+                messages.retain(|am| matches!(am.policy, Some(layer0::CompactionPolicy::Pinned)));
+            }
+            ContextCommand::SaveSnapshot { path } => match serde_json::to_vec(messages) {
+                Ok(data) => {
+                    if let Err(e) = std::fs::write(&path, &data) {
+                        eprintln!(
+                            "[steering] SaveSnapshot write failed: path={}, error={}",
+                            path.display(),
+                            e
+                        );
+                    }
+                }
+                Err(e) => eprintln!("[steering] SaveSnapshot serialization failed: {}", e),
+            },
+            ContextCommand::LoadSnapshot { path } => match std::fs::read(&path) {
+                Ok(data) => {
+                    match serde_json::from_slice::<Vec<neuron_turn::AnnotatedMessage>>(&data) {
+                        Ok(loaded) => {
+                            messages.clear();
+                            messages.extend(loaded);
+                        }
+                        Err(e) => eprintln!(
+                            "[steering] LoadSnapshot deserialization failed: path={}, error={}",
+                            path.display(),
+                            e
+                        ),
+                    }
+                }
+                Err(e) => eprintln!(
+                    "[steering] LoadSnapshot read failed: path={}, error={}",
+                    path.display(),
+                    e
+                ),
+            },
+        }
+    }
 }
 
 #[async_trait]
@@ -360,6 +606,10 @@ impl<P: Provider + 'static> Operator for ReactOperator<P> {
         let start = Instant::now();
         let config = self.resolve_config(&input);
         let mut messages = self.assemble_context(&input).await?;
+        *self
+            .current_context
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = messages.clone();
         let tools = self.build_tool_schemas(&config);
 
         let mut total_tokens_in: u64 = 0;
@@ -369,8 +619,12 @@ impl<P: Provider + 'static> Operator for ReactOperator<P> {
         let mut tool_records: Vec<ToolCallRecord> = vec![];
         let mut effects: Vec<Effect> = vec![];
         let mut last_content: Vec<ContentPart> = vec![];
+        let mut total_tool_calls: u32 = 0;
+        let mut recent_calls: std::collections::VecDeque<(String, u64)> =
+            std::collections::VecDeque::new();
 
         loop {
+            self.state_reader.clear_transient();
             turns_used += 1;
 
             // 1. Hook: PreInference
@@ -401,12 +655,23 @@ impl<P: Provider + 'static> Operator for ReactOperator<P> {
             // 2. Build ProviderRequest
             let request = ProviderRequest {
                 model: config.model.clone(),
-                messages: messages.clone(),
+                messages: messages.iter().map(|am| am.message.clone()).collect(),
                 tools: tools.clone(),
                 max_tokens: Some(config.max_tokens),
                 temperature: None,
                 system: Some(config.system.clone()),
                 extra: input.metadata.clone(),
+            };
+
+            // Apply model selector if configured
+            let request = if let Some(sel) = &self.config.model_selector {
+                let mut req = request;
+                if let Some(model) = sel(&req) {
+                    req.model = Some(model);
+                }
+                req
+            } else {
+                request
             };
 
             // 3. Call provider
@@ -459,7 +724,21 @@ impl<P: Provider + 'static> Operator for ReactOperator<P> {
                     return Err(OperatorError::Model("output truncated (max_tokens)".into()));
                 }
                 StopReason::ContentFilter => {
-                    return Err(OperatorError::Model("content filtered".into()));
+                    return Ok(Self::make_output(
+                        parts_to_content(&response.content),
+                        ExitReason::SafetyStop {
+                            reason: "content_filter".into(),
+                        },
+                        self.build_metadata(
+                            total_tokens_in,
+                            total_tokens_out,
+                            total_cost,
+                            turns_used,
+                            tool_records,
+                            DurationMs::from(start.elapsed()),
+                        ),
+                        effects,
+                    ));
                 }
                 StopReason::EndTurn => {
                     return Ok(Self::make_output(
@@ -483,10 +762,10 @@ impl<P: Provider + 'static> Operator for ReactOperator<P> {
 
             // 7. Tool execution
             // Add assistant message to context
-            messages.push(ProviderMessage {
+            messages.push(AnnotatedMessage::from(ProviderMessage {
                 role: Role::Assistant,
                 content: response.content.clone(),
-            });
+            }));
 
             let mut tool_results: Vec<ContentPart> = Vec::new();
             // Use planner to decide batches. Build (id,name,input) vector first.
@@ -509,11 +788,22 @@ impl<P: Provider + 'static> Operator for ReactOperator<P> {
                 match batch {
                     BatchItem::Shared(call_group) => {
                         // Pre-batch steering poll
-                        if let Some(s) = &self.steering {
-                            let injected = s.drain();
+                        {
+                            let (injected, ctx_cmds) = self
+                                .poll_steering(
+                                    total_tokens_in,
+                                    total_tokens_out,
+                                    total_cost,
+                                    turns_used,
+                                    DurationMs::from(start.elapsed()),
+                                )
+                                .await;
+                            apply_context_commands(&mut messages, ctx_cmds);
                             if !injected.is_empty() {
-                                messages.extend(injected);
+                                messages.extend(injected.into_iter().map(AnnotatedMessage::from));
                                 // All tools in this batch are skipped with placeholders
+                                let skipped_names: Vec<String> =
+                                    call_group.iter().map(|(_, n, _)| n.clone()).collect();
                                 for (id, name, _input) in call_group.into_iter() {
                                     tool_results.push(ContentPart::ToolResult {
                                         tool_use_id: id,
@@ -526,6 +816,18 @@ impl<P: Provider + 'static> Operator for ReactOperator<P> {
                                         false,
                                     ));
                                 }
+                                if !skipped_names.is_empty() {
+                                    let mut skip_ctx = self.build_hook_context(
+                                        HookPoint::PostSteeringSkip,
+                                        total_tokens_in,
+                                        total_tokens_out,
+                                        total_cost,
+                                        turns_used,
+                                        DurationMs::from(start.elapsed()),
+                                    );
+                                    skip_ctx.skipped_tools = Some(skipped_names);
+                                    self.hooks.dispatch(&skip_ctx).await;
+                                }
                                 _steered = true;
                                 break 'batches;
                             }
@@ -534,12 +836,25 @@ impl<P: Provider + 'static> Operator for ReactOperator<P> {
                         let len = call_group.len();
                         for idx in 0..len {
                             // Pre-next-tool steering poll (after some tools completed)
-                            if idx > 0
-                                && let Some(s) = &self.steering
-                            {
-                                let injected = s.drain();
+                            if idx > 0 {
+                                let (injected, ctx_cmds) = self
+                                    .poll_steering(
+                                        total_tokens_in,
+                                        total_tokens_out,
+                                        total_cost,
+                                        turns_used,
+                                        DurationMs::from(start.elapsed()),
+                                    )
+                                    .await;
+                                apply_context_commands(&mut messages, ctx_cmds);
                                 if !injected.is_empty() {
-                                    messages.extend(injected);
+                                    messages
+                                        .extend(injected.into_iter().map(AnnotatedMessage::from));
+                                    let skipped_names: Vec<String> = call_group
+                                        .iter()
+                                        .skip(idx)
+                                        .map(|(_, n, _)| n.clone())
+                                        .collect();
                                     for (rid, rname, _rinput) in
                                         call_group.iter().skip(idx).cloned()
                                     {
@@ -554,7 +869,18 @@ impl<P: Provider + 'static> Operator for ReactOperator<P> {
                                             false,
                                         ));
                                     }
-                                    _steered = true;
+                                    if !skipped_names.is_empty() {
+                                        let mut skip_ctx = self.build_hook_context(
+                                            HookPoint::PostSteeringSkip,
+                                            total_tokens_in,
+                                            total_tokens_out,
+                                            total_cost,
+                                            turns_used,
+                                            DurationMs::from(start.elapsed()),
+                                        );
+                                        skip_ctx.skipped_tools = Some(skipped_names);
+                                        self.hooks.dispatch(&skip_ctx).await;
+                                    }
                                     _steered = true;
                                 }
                             }
@@ -574,6 +900,24 @@ impl<P: Provider + 'static> Operator for ReactOperator<P> {
                                     DurationMs::ZERO,
                                     true,
                                 ));
+                                // V32-09: track effect tool call
+                                total_tool_calls += 1;
+                                {
+                                    use std::hash::{Hash, Hasher};
+                                    let mut hasher =
+                                        std::collections::hash_map::DefaultHasher::new();
+                                    tool_input.to_string().hash(&mut hasher);
+                                    let cap = self
+                                        .config
+                                        .max_repeat_calls
+                                        .map(|v| v as usize)
+                                        .unwrap_or(0)
+                                        .max(10);
+                                    recent_calls.push_back((name.to_string(), hasher.finish()));
+                                    while recent_calls.len() > cap {
+                                        recent_calls.pop_front();
+                                    }
+                                }
                             } else {
                                 // Hook: PreToolUse
                                 let mut actual_input = tool_input.clone();
@@ -748,38 +1092,92 @@ impl<P: Provider + 'static> Operator for ReactOperator<P> {
                                     content: result_content,
                                     is_error,
                                 });
+                                // V32-09: track regular tool call
+                                total_tool_calls += 1;
+                                {
+                                    use std::hash::{Hash, Hasher};
+                                    let mut hasher =
+                                        std::collections::hash_map::DefaultHasher::new();
+                                    actual_input.to_string().hash(&mut hasher);
+                                    let cap = self
+                                        .config
+                                        .max_repeat_calls
+                                        .map(|v| v as usize)
+                                        .unwrap_or(0)
+                                        .max(10);
+                                    recent_calls.push_back((name.clone(), hasher.finish()));
+                                    while recent_calls.len() > cap {
+                                        recent_calls.pop_front();
+                                    }
+                                }
                                 tool_records.push(ToolCallRecord::new(name, duration, success));
                             }
                             // Mid-batch steering poll — skip remaining tools in this batch
-                            if let Some(s) = &self.steering {
-                                let injected = s.drain();
+                            {
+                                let (injected, ctx_cmds) = self
+                                    .poll_steering(
+                                        total_tokens_in,
+                                        total_tokens_out,
+                                        total_cost,
+                                        turns_used,
+                                        DurationMs::from(start.elapsed()),
+                                    )
+                                    .await;
+                                apply_context_commands(&mut messages, ctx_cmds);
                                 if !injected.is_empty() {
-                                    messages.extend(injected);
-                                }
-                                if idx + 1 < len {
-                                    for (rid, rname, _rinput) in
-                                        call_group.iter().skip(idx + 1).cloned()
-                                    {
-                                        tool_results.push(ContentPart::ToolResult {
-                                            tool_use_id: rid,
-                                            content: "Skipped due to steering".into(),
-                                            is_error: false,
-                                        });
-                                        tool_records.push(ToolCallRecord::new(
-                                            &rname,
-                                            DurationMs::ZERO,
-                                            false,
-                                        ));
+                                    messages
+                                        .extend(injected.into_iter().map(AnnotatedMessage::from));
+                                    if idx + 1 < len {
+                                        let skipped_names: Vec<String> = call_group
+                                            .iter()
+                                            .skip(idx + 1)
+                                            .map(|(_, n, _)| n.clone())
+                                            .collect();
+                                        for (rid, rname, _rinput) in
+                                            call_group.iter().skip(idx + 1).cloned()
+                                        {
+                                            tool_results.push(ContentPart::ToolResult {
+                                                tool_use_id: rid,
+                                                content: "Skipped due to steering".into(),
+                                                is_error: false,
+                                            });
+                                            tool_records.push(ToolCallRecord::new(
+                                                &rname,
+                                                DurationMs::ZERO,
+                                                false,
+                                            ));
+                                        }
+                                        if !skipped_names.is_empty() {
+                                            let mut skip_ctx = self.build_hook_context(
+                                                HookPoint::PostSteeringSkip,
+                                                total_tokens_in,
+                                                total_tokens_out,
+                                                total_cost,
+                                                turns_used,
+                                                DurationMs::from(start.elapsed()),
+                                            );
+                                            skip_ctx.skipped_tools = Some(skipped_names);
+                                            self.hooks.dispatch(&skip_ctx).await;
+                                        }
+                                        break 'batches;
                                     }
-                                    break 'batches;
                                 }
                             }
                         }
                         // Post-batch steering poll
-                        if let Some(s) = &self.steering {
-                            let injected = s.drain();
+                        {
+                            let (injected, ctx_cmds) = self
+                                .poll_steering(
+                                    total_tokens_in,
+                                    total_tokens_out,
+                                    total_cost,
+                                    turns_used,
+                                    DurationMs::from(start.elapsed()),
+                                )
+                                .await;
+                            apply_context_commands(&mut messages, ctx_cmds);
                             if !injected.is_empty() {
-                                messages.extend(injected);
+                                messages.extend(injected.into_iter().map(AnnotatedMessage::from));
                                 _steered = true;
                                 break 'batches;
                             }
@@ -787,10 +1185,20 @@ impl<P: Provider + 'static> Operator for ReactOperator<P> {
                     }
                     BatchItem::Exclusive((id, name, tool_input)) => {
                         // Pre-exclusive steering poll
-                        if let Some(s) = &self.steering {
-                            let injected = s.drain();
+                        {
+                            let (injected, ctx_cmds) = self
+                                .poll_steering(
+                                    total_tokens_in,
+                                    total_tokens_out,
+                                    total_cost,
+                                    turns_used,
+                                    DurationMs::from(start.elapsed()),
+                                )
+                                .await;
+                            apply_context_commands(&mut messages, ctx_cmds);
                             if !injected.is_empty() {
-                                messages.extend(injected);
+                                messages.extend(injected.into_iter().map(AnnotatedMessage::from));
+                                let skipped_names = vec![name.clone()];
                                 tool_results.push(ContentPart::ToolResult {
                                     tool_use_id: id,
                                     content: "Skipped due to steering".into(),
@@ -801,6 +1209,16 @@ impl<P: Provider + 'static> Operator for ReactOperator<P> {
                                     DurationMs::ZERO,
                                     false,
                                 ));
+                                let mut skip_ctx = self.build_hook_context(
+                                    HookPoint::PostSteeringSkip,
+                                    total_tokens_in,
+                                    total_tokens_out,
+                                    total_cost,
+                                    turns_used,
+                                    DurationMs::from(start.elapsed()),
+                                );
+                                skip_ctx.skipped_tools = Some(skipped_names);
+                                self.hooks.dispatch(&skip_ctx).await;
                                 _steered = true;
                                 break 'batches;
                             }
@@ -815,6 +1233,23 @@ impl<P: Provider + 'static> Operator for ReactOperator<P> {
                                 is_error: false,
                             });
                             tool_records.push(ToolCallRecord::new(&name, DurationMs::ZERO, true));
+                            // V32-09: track effect tool call
+                            total_tool_calls += 1;
+                            {
+                                use std::hash::{Hash, Hasher};
+                                let mut hasher = std::collections::hash_map::DefaultHasher::new();
+                                tool_input.to_string().hash(&mut hasher);
+                                let cap = self
+                                    .config
+                                    .max_repeat_calls
+                                    .map(|v| v as usize)
+                                    .unwrap_or(0)
+                                    .max(10);
+                                recent_calls.push_back((name.to_string(), hasher.finish()));
+                                while recent_calls.len() > cap {
+                                    recent_calls.pop_front();
+                                }
+                            }
                             continue;
                         }
                         let mut actual_input = tool_input.clone();
@@ -964,12 +1399,38 @@ impl<P: Provider + 'static> Operator for ReactOperator<P> {
                             content: result_content,
                             is_error,
                         });
+                        // V32-09: track tool call
+                        total_tool_calls += 1;
+                        {
+                            use std::hash::{Hash, Hasher};
+                            let mut hasher = std::collections::hash_map::DefaultHasher::new();
+                            actual_input.to_string().hash(&mut hasher);
+                            let cap = self
+                                .config
+                                .max_repeat_calls
+                                .map(|v| v as usize)
+                                .unwrap_or(0)
+                                .max(10);
+                            recent_calls.push_back((name.clone(), hasher.finish()));
+                            while recent_calls.len() > cap {
+                                recent_calls.pop_front();
+                            }
+                        }
                         tool_records.push(ToolCallRecord::new(name, tool_duration, success));
                         // Post-exclusive steering poll
-                        if let Some(s) = &self.steering {
-                            let injected = s.drain();
+                        {
+                            let (injected, ctx_cmds) = self
+                                .poll_steering(
+                                    total_tokens_in,
+                                    total_tokens_out,
+                                    total_cost,
+                                    turns_used,
+                                    DurationMs::from(start.elapsed()),
+                                )
+                                .await;
+                            apply_context_commands(&mut messages, ctx_cmds);
                             if !injected.is_empty() {
-                                messages.extend(injected);
+                                messages.extend(injected.into_iter().map(AnnotatedMessage::from));
                                 _steered = true;
                                 break 'batches;
                             }
@@ -979,12 +1440,111 @@ impl<P: Provider + 'static> Operator for ReactOperator<P> {
             }
 
             // Add tool results as user message
-            messages.push(ProviderMessage {
+            messages.push(AnnotatedMessage::from(ProviderMessage {
                 role: Role::User,
                 content: tool_results,
-            });
+            }));
+            *self
+                .current_context
+                .lock()
+                .unwrap_or_else(|e| e.into_inner()) = messages.clone();
 
-            // 8. Check limits
+            // 8. Hook: ExitCheck — safety halt must fire before any limit checks
+            let hook_ctx = self.build_hook_context(
+                HookPoint::ExitCheck,
+                total_tokens_in,
+                total_tokens_out,
+                total_cost,
+                turns_used,
+                DurationMs::from(start.elapsed()),
+            );
+            if let HookAction::Halt { reason } = self.hooks.dispatch(&hook_ctx).await {
+                return Ok(Self::make_output(
+                    parts_to_content(&last_content),
+                    ExitReason::ObserverHalt { reason },
+                    self.build_metadata(
+                        total_tokens_in,
+                        total_tokens_out,
+                        total_cost,
+                        turns_used,
+                        tool_records,
+                        DurationMs::from(start.elapsed()),
+                    ),
+                    effects,
+                ));
+            }
+
+            // 9. Check limits
+            // 9a. Step/loop limits
+            if let Some(max_tc) = self.config.max_tool_calls {
+                let threshold = (max_tc as f32 * 0.80) as u32;
+                if total_tool_calls >= threshold
+                    && total_tool_calls < max_tc
+                    && let Some(ref sink) = self.budget_sink
+                {
+                    sink.on_budget_event(BudgetEvent::StepLimitApproaching {
+                        agent: AgentId::new("react"),
+                        current: total_tool_calls,
+                        max: max_tc,
+                    });
+                }
+            }
+
+            if let Some(max_tc) = self.config.max_tool_calls
+                && total_tool_calls >= max_tc
+            {
+                if let Some(ref sink) = self.budget_sink {
+                    sink.on_budget_event(BudgetEvent::StepLimitReached {
+                        agent: AgentId::new("react"),
+                        total_tool_calls,
+                    });
+                }
+
+                return Ok(Self::make_output(
+                    parts_to_content(&last_content),
+                    ExitReason::BudgetExhausted,
+                    self.build_metadata(
+                        total_tokens_in,
+                        total_tokens_out,
+                        total_cost,
+                        turns_used,
+                        tool_records,
+                        DurationMs::from(start.elapsed()),
+                    ),
+                    effects,
+                ));
+            }
+            if let Some(max_rep) = self.config.max_repeat_calls
+                && max_rep > 0
+                && recent_calls.len() >= max_rep as usize
+            {
+                let first = recent_calls.front().cloned();
+                if recent_calls.iter().all(|c| Some(c) == first.as_ref()) {
+                    if let Some(ref sink) = self.budget_sink {
+                        sink.on_budget_event(BudgetEvent::LoopDetected {
+                            agent: AgentId::new("react"),
+                            tool_name: first.as_ref().map(|(n, _)| n.clone()).unwrap_or_default(),
+                            consecutive_count: recent_calls.len() as u32,
+                            max: max_rep,
+                        });
+                    }
+
+                    return Ok(Self::make_output(
+                        parts_to_content(&last_content),
+                        ExitReason::Custom("stuck_detected".into()),
+                        self.build_metadata(
+                            total_tokens_in,
+                            total_tokens_out,
+                            total_cost,
+                            turns_used,
+                            tool_records,
+                            DurationMs::from(start.elapsed()),
+                        ),
+                        effects,
+                    ));
+                }
+            }
+            // 9b. MaxTurns
             if turns_used >= config.max_turns {
                 return Ok(Self::make_output(
                     parts_to_content(&last_content),
@@ -1019,9 +1579,30 @@ impl<P: Provider + 'static> Operator for ReactOperator<P> {
                 ));
             }
 
+            if let Some(max_duration) = &config.max_duration {
+                let threshold = max_duration.to_std().mul_f32(0.80);
+                if start.elapsed() >= threshold
+                    && start.elapsed() < max_duration.to_std()
+                    && let Some(ref sink) = self.budget_sink
+                {
+                    sink.on_budget_event(BudgetEvent::TimeoutApproaching {
+                        agent: AgentId::new("react"),
+                        elapsed: DurationMs::from(start.elapsed()),
+                        max_duration: *max_duration,
+                    });
+                }
+            }
+
             if let Some(max_duration) = &config.max_duration
                 && start.elapsed() >= max_duration.to_std()
             {
+                if let Some(ref sink) = self.budget_sink {
+                    sink.on_budget_event(BudgetEvent::TimeoutReached {
+                        agent: AgentId::new("react"),
+                        elapsed: DurationMs::from(start.elapsed()),
+                    });
+                }
+
                 return Ok(Self::make_output(
                     parts_to_content(&last_content),
                     ExitReason::Timeout,
@@ -1037,35 +1618,51 @@ impl<P: Provider + 'static> Operator for ReactOperator<P> {
                 ));
             }
 
-            // 9. Hook: ExitCheck
-            let hook_ctx = self.build_hook_context(
-                HookPoint::ExitCheck,
-                total_tokens_in,
-                total_tokens_out,
-                total_cost,
-                turns_used,
-                DurationMs::from(start.elapsed()),
-            );
-            if let HookAction::Halt { reason } = self.hooks.dispatch(&hook_ctx).await {
-                return Ok(Self::make_output(
-                    parts_to_content(&last_content),
-                    ExitReason::ObserverHalt { reason },
-                    self.build_metadata(
-                        total_tokens_in,
-                        total_tokens_out,
-                        total_cost,
-                        turns_used,
-                        tool_records,
-                        DurationMs::from(start.elapsed()),
-                    ),
-                    effects,
-                ));
-            }
-
             // 10. Context compaction
-            let limit = config.max_tokens as usize * 4;
-            if self.context_strategy.should_compact(&messages, limit) {
-                messages = self.context_strategy.compact(messages);
+            let effective_limit =
+                (config.max_tokens as f32 * 4.0 * (1.0 - self.config.compaction_reserve_pct))
+                    as usize;
+            if self
+                .context_strategy
+                .should_compact(&messages, effective_limit)
+            {
+                let before_count = messages.len() as u32;
+                let before_tokens = self.context_strategy.token_estimate(&messages) as u64;
+                match self.context_strategy.compact(messages.clone()) {
+                    Ok(compacted) => {
+                        let after_count = compacted.len() as u32;
+                        let after_tokens = self.context_strategy.token_estimate(&compacted) as u64;
+                        if let Some(ref sink) = self.compaction_sink {
+                            sink.on_compaction_event(CompactionEvent::CompactionQuality {
+                                agent: AgentId::new("react"),
+                                tokens_before: before_tokens,
+                                tokens_after: after_tokens,
+                                items_preserved: after_count,
+                                items_lost: before_count.saturating_sub(after_count),
+                            });
+                        }
+                        messages = compacted;
+                        *self
+                            .last_compaction_removed
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner()) =
+                            before_count.saturating_sub(after_count) as usize;
+                        *self
+                            .current_context
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner()) = messages.clone();
+                    }
+                    Err(e) => {
+                        if let Some(ref sink) = self.compaction_sink {
+                            sink.on_compaction_event(CompactionEvent::CompactionFailed {
+                                agent: AgentId::new("react"),
+                                error: e.to_string(),
+                                strategy: "context_strategy".into(),
+                            });
+                        }
+                        // messages unchanged — continue the loop, don't exit
+                    }
+                }
             }
 
             // 11. Loop repeats
@@ -1476,7 +2073,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn content_filter_returns_model_error() {
+    async fn content_filter_returns_safety_stop() {
         let provider = MockProvider::new(vec![ProviderResponse {
             content: vec![],
             stop_reason: StopReason::ContentFilter,
@@ -1487,11 +2084,10 @@ mod tests {
         }]);
         let op = make_op(provider);
 
-        let result = op.execute(simple_input("Hi")).await;
-        assert!(result.is_err());
-        match result.unwrap_err() {
-            OperatorError::Model(msg) => assert!(msg.contains("content filtered")),
-            other => panic!("expected OperatorError::Model, got {:?}", other),
+        let output = op.execute(simple_input("Hi")).await.unwrap();
+        match output.exit_reason {
+            ExitReason::SafetyStop { reason } => assert_eq!(reason, "content_filter"),
+            other => panic!("expected SafetyStop, got {:?}", other),
         }
     }
 
@@ -1821,9 +2417,16 @@ mod tests {
         }
     }
     impl SteeringSource for MockSteering {
-        fn drain(&self) -> Vec<ProviderMessage> {
+        fn drain(&self) -> Vec<SteeringCommand> {
             self.calls.fetch_add(1, Ordering::SeqCst);
-            self.seq.lock().unwrap().pop_front().unwrap_or_default()
+            self.seq
+                .lock()
+                .unwrap()
+                .pop_front()
+                .unwrap_or_default()
+                .into_iter()
+                .map(SteeringCommand::Message)
+                .collect()
         }
     }
 
@@ -2122,7 +2725,7 @@ mod tests {
         let chunks = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
         let finals = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
         let mut hooks = HookRegistry::new();
-        hooks.add(Arc::new(CollectHook {
+        hooks.add_observer(Arc::new(CollectHook {
             points: vec![HookPoint::ToolExecutionUpdate, HookPoint::PostToolUse],
             chunks: chunks.clone(),
             finals: finals.clone(),
@@ -2220,5 +2823,786 @@ mod tests {
         assert_eq!(hits.load(Ordering::SeqCst), 2);
         assert_eq!(output.metadata.tools_called.len(), 2);
         assert_eq!(output.metadata.turns_used, 2);
+    }
+    // ── V32 new mock structures ──────────────────────────────────────────────
+
+    /// A hook that always returns Halt when it fires at one of its points.
+    struct HaltHook {
+        points: Vec<HookPoint>,
+        reason: String,
+    }
+    #[async_trait]
+    impl layer0::hook::Hook for HaltHook {
+        fn points(&self) -> &[HookPoint] {
+            &self.points
+        }
+        async fn on_event(
+            &self,
+            _ctx: &HookContext,
+        ) -> Result<HookAction, layer0::error::HookError> {
+            Ok(HookAction::Halt {
+                reason: self.reason.clone(),
+            })
+        }
+    }
+
+    /// An observer hook that records tool names from PostSteeringSkip events.
+    struct RecordSkippedHook {
+        recorded: std::sync::Arc<Mutex<Vec<String>>>,
+    }
+    #[async_trait]
+    impl layer0::hook::Hook for RecordSkippedHook {
+        fn points(&self) -> &[HookPoint] {
+            &[HookPoint::PostSteeringSkip]
+        }
+        async fn on_event(
+            &self,
+            ctx: &HookContext,
+        ) -> Result<HookAction, layer0::error::HookError> {
+            if let Some(tools) = &ctx.skipped_tools {
+                let mut v = self.recorded.lock().unwrap();
+                v.extend_from_slice(tools);
+            }
+            Ok(HookAction::Continue)
+        }
+    }
+
+    /// A context strategy that compacts when token_estimate > limit.
+    /// Records the limit it was called with.
+    struct ThresholdCompaction {
+        last_limit: std::sync::Arc<Mutex<Option<usize>>>,
+    }
+    impl neuron_turn::context::ContextStrategy for ThresholdCompaction {
+        fn token_estimate(&self, messages: &[neuron_turn::AnnotatedMessage]) -> usize {
+            messages.len() * 100
+        }
+        fn should_compact(&self, messages: &[neuron_turn::AnnotatedMessage], limit: usize) -> bool {
+            *self.last_limit.lock().unwrap() = Some(limit);
+            self.token_estimate(messages) > limit
+        }
+        fn compact(
+            &self,
+            messages: Vec<neuron_turn::AnnotatedMessage>,
+        ) -> Result<Vec<neuron_turn::AnnotatedMessage>, neuron_turn::context::CompactionError>
+        {
+            Ok(messages)
+        }
+    }
+
+    /// A provider that records the model field it receives.
+    struct RecordingProvider {
+        inner: MockProvider,
+        models_seen: std::sync::Arc<Mutex<Vec<Option<String>>>>,
+    }
+    impl Provider for RecordingProvider {
+        #[allow(clippy::manual_async_fn)]
+        fn complete(
+            &self,
+            request: ProviderRequest,
+        ) -> impl std::future::Future<
+            Output = Result<ProviderResponse, neuron_turn::provider::ProviderError>,
+        > + Send {
+            self.models_seen.lock().unwrap().push(request.model.clone());
+            self.inner.complete(request)
+        }
+    }
+
+    // ── V32-01 tests ─────────────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn exit_priority_hook_before_limits() {
+        // ExitCheck guardrail fires → ObserverHalt, even though MaxTurns would also fire.
+        // max_turns=1, provider always returns ToolUse so the turn count reaches limit.
+        let provider = MockProvider::new(vec![
+            tool_use_response("tu_1", "echo", json!({})),
+            // Second response never reached
+            simple_text_response("never"),
+        ]);
+        let mut tools = ToolRegistry::new();
+        tools.register(Arc::new(EchoTool));
+        let mut hooks = HookRegistry::new();
+        hooks.add_guardrail(Arc::new(HaltHook {
+            points: vec![HookPoint::ExitCheck],
+            reason: "observer_halt_test".into(),
+        }));
+        let op = ReactOperator::new(
+            provider,
+            tools,
+            Box::new(neuron_turn::context::NoCompaction),
+            hooks,
+            Arc::new(NullStateReader),
+            ReactConfig {
+                default_max_turns: 1,
+                ..Default::default()
+            },
+        );
+        let output = op.execute(simple_input("run")).await.unwrap();
+        // Must be ObserverHalt, not MaxTurns
+        match &output.exit_reason {
+            ExitReason::ObserverHalt { reason } => {
+                assert_eq!(reason, "observer_halt_test");
+            }
+            other => panic!("expected ObserverHalt, got {:?}", other),
+        }
+    }
+
+    // ── V32-04 tests ─────────────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn steering_guardrail_blocks_injection() {
+        // A Halt guardrail at PreSteeringInject must prevent injection.
+        // The tool should still execute normally.
+        let first = ProviderResponse {
+            content: vec![ContentPart::ToolUse {
+                id: "t1".into(),
+                name: "echo".into(),
+                input: json!({"n": 1}),
+            }],
+            stop_reason: StopReason::ToolUse,
+            usage: TokenUsage {
+                input_tokens: 10,
+                output_tokens: 5,
+                ..Default::default()
+            },
+            model: "mock".into(),
+            cost: None,
+            truncated: None,
+        };
+        let provider = MockProvider::new(vec![first, simple_text_response("Done")]);
+        let hits = std::sync::Arc::new(AtomicUsize::new(0));
+        let mut tools = ToolRegistry::new();
+        tools.register(Arc::new(CountingEchoTool::new(hits.clone())));
+        // Steering always returns a message
+        let steering = Arc::new(MockSteering::new(vec![vec![user_msg("blocked steering")]]));
+        let mut hooks = HookRegistry::new();
+        // Guardrail blocks injection at PreSteeringInject
+        hooks.add_guardrail(Arc::new(HaltHook {
+            points: vec![HookPoint::PreSteeringInject],
+            reason: "injection_blocked".into(),
+        }));
+        let op = ReactOperator::new(
+            provider,
+            tools,
+            Box::new(neuron_turn::context::NoCompaction),
+            hooks,
+            Arc::new(NullStateReader),
+            ReactConfig::default(),
+        )
+        .with_steering(steering);
+        let output = op.execute(simple_input("run")).await.unwrap();
+        // Tool still executed (injection was blocked → tool ran)
+        assert_eq!(hits.load(Ordering::SeqCst), 1);
+        assert_eq!(output.exit_reason, ExitReason::Complete);
+    }
+
+    #[tokio::test]
+    async fn steering_observer_sees_skipped_tools() {
+        // Observer at PostSteeringSkip receives the skipped tool names.
+        let first = ProviderResponse {
+            content: vec![ContentPart::ToolUse {
+                id: "t1".into(),
+                name: "echo".into(),
+                input: json!({}),
+            }],
+            stop_reason: StopReason::ToolUse,
+            usage: TokenUsage {
+                input_tokens: 10,
+                output_tokens: 5,
+                ..Default::default()
+            },
+            model: "mock".into(),
+            cost: None,
+            truncated: None,
+        };
+        let provider = MockProvider::new(vec![first, simple_text_response("Done")]);
+        let hits = std::sync::Arc::new(AtomicUsize::new(0));
+        let mut tools = ToolRegistry::new();
+        tools.register(Arc::new(CountingEchoTool::new(hits.clone())));
+        // Steering fires immediately to skip the tool
+        let steering = Arc::new(MockSteering::new(vec![vec![user_msg("STEER NOW")]]));
+        let recorded = std::sync::Arc::new(Mutex::new(Vec::<String>::new()));
+        let mut hooks = HookRegistry::new();
+        hooks.add_observer(Arc::new(RecordSkippedHook {
+            recorded: recorded.clone(),
+        }));
+        let op = ReactOperator::new(
+            provider,
+            tools,
+            Box::new(neuron_turn::context::NoCompaction),
+            hooks,
+            Arc::new(NullStateReader),
+            ReactConfig::default(),
+        )
+        .with_steering(steering);
+        let output = op.execute(simple_input("run")).await.unwrap();
+        assert_eq!(output.exit_reason, ExitReason::Complete);
+        // Tool was skipped by steering
+        assert_eq!(hits.load(Ordering::SeqCst), 0);
+        // Observer received the skipped tool name
+        let seen = recorded.lock().unwrap().clone();
+        assert!(
+            seen.contains(&"echo".to_string()),
+            "expected 'echo' in {:?}",
+            seen
+        );
+    }
+
+    #[tokio::test]
+    async fn steering_with_no_hooks_unchanged() {
+        // Regression: steering with no hooks registered behaves the same as before.
+        let first = ProviderResponse {
+            content: vec![ContentPart::ToolUse {
+                id: "t1".into(),
+                name: "echo".into(),
+                input: json!({}),
+            }],
+            stop_reason: StopReason::ToolUse,
+            usage: TokenUsage {
+                input_tokens: 10,
+                output_tokens: 5,
+                ..Default::default()
+            },
+            model: "mock".into(),
+            cost: None,
+            truncated: None,
+        };
+        let provider = MockProvider::new(vec![first, simple_text_response("Done")]);
+        let hits = std::sync::Arc::new(AtomicUsize::new(0));
+        let mut tools = ToolRegistry::new();
+        tools.register(Arc::new(CountingEchoTool::new(hits.clone())));
+        // Steering fires to skip the tool (no hooks — should still skip)
+        let steering = Arc::new(MockSteering::new(vec![vec![user_msg("STEER")]]));
+        let op = make_op_with_tools(provider, tools).with_steering(steering);
+        let output = op.execute(simple_input("run")).await.unwrap();
+        assert_eq!(output.exit_reason, ExitReason::Complete);
+        // Tool was skipped
+        assert_eq!(hits.load(Ordering::SeqCst), 0);
+        // Steering injection happened (message visible in next turn)
+        assert_eq!(output.metadata.turns_used, 2);
+    }
+
+    // ── V32-05 tests ─────────────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn compaction_reserve_enforced() {
+        // max_tokens=100, compaction_reserve_pct=0.20
+        // Effective limit = 100 * 4 * 0.80 = 320
+        // Use a tool-use turn so the compaction step is reached.
+        // ThresholdCompaction records the limit it is called with.
+        let provider = MockProvider::new(vec![
+            tool_use_response("t1", "echo", json!({})),
+            simple_text_response("Done"),
+        ]);
+        let mut tools = ToolRegistry::new();
+        tools.register(Arc::new(EchoTool));
+        let last_limit = std::sync::Arc::new(Mutex::new(None::<usize>));
+        let op = ReactOperator::new(
+            provider,
+            tools,
+            Box::new(ThresholdCompaction {
+                last_limit: last_limit.clone(),
+            }),
+            HookRegistry::new(),
+            Arc::new(NullStateReader),
+            ReactConfig {
+                default_max_tokens: 100,
+                compaction_reserve_pct: 0.20,
+                ..Default::default()
+            },
+        );
+        op.execute(simple_input("Hi")).await.unwrap();
+        let seen = *last_limit.lock().unwrap();
+        // Effective limit: 100 * 4 * 0.80 = 320
+        assert_eq!(
+            seen,
+            Some(320),
+            "expected effective_limit=320, got {:?}",
+            seen
+        );
+    }
+
+    // ── V32-09 tests ─────────────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn max_tool_calls_exits_with_budget_exhausted() {
+        // max_tool_calls = 3; model always requests tool calls.
+        // After the 3rd tool call, exit with BudgetExhausted.
+        let provider = MockProvider::new(vec![
+            tool_use_response("t1", "echo", json!({})),
+            tool_use_response("t2", "echo", json!({})),
+            tool_use_response("t3", "echo", json!({})),
+            simple_text_response("never reached"),
+        ]);
+        let mut tools = ToolRegistry::new();
+        tools.register(Arc::new(EchoTool));
+        let op = ReactOperator::new(
+            provider,
+            tools,
+            Box::new(neuron_turn::context::NoCompaction),
+            HookRegistry::new(),
+            Arc::new(NullStateReader),
+            ReactConfig {
+                default_max_turns: 10,
+                max_tool_calls: Some(3),
+                ..Default::default()
+            },
+        );
+        let output = op.execute(simple_input("run")).await.unwrap();
+        assert_eq!(output.exit_reason, ExitReason::BudgetExhausted);
+        // 3 tool calls were made
+        assert_eq!(output.metadata.tools_called.len(), 3);
+    }
+
+    #[tokio::test]
+    async fn max_repeat_calls_detects_stuck() {
+        // max_repeat_calls = 2; model always calls same tool with same args.
+        // After 2 consecutive identical calls, exit with Custom("stuck_detected").
+        let provider = MockProvider::new(vec![
+            tool_use_response("t1", "echo", json!({"x": 1})),
+            tool_use_response("t2", "echo", json!({"x": 1})),
+            simple_text_response("never reached"),
+        ]);
+        let mut tools = ToolRegistry::new();
+        tools.register(Arc::new(EchoTool));
+        let op = ReactOperator::new(
+            provider,
+            tools,
+            Box::new(neuron_turn::context::NoCompaction),
+            HookRegistry::new(),
+            Arc::new(NullStateReader),
+            ReactConfig {
+                default_max_turns: 10,
+                max_repeat_calls: Some(2),
+                ..Default::default()
+            },
+        );
+        let output = op.execute(simple_input("run")).await.unwrap();
+        assert_eq!(
+            output.exit_reason,
+            ExitReason::Custom("stuck_detected".into())
+        );
+    }
+
+    #[tokio::test]
+    async fn max_repeat_calls_different_args_no_trigger() {
+        // max_repeat_calls = 2; model alternates args → no stuck detection.
+        let provider = MockProvider::new(vec![
+            tool_use_response("t1", "echo", json!({"x": 1})),
+            tool_use_response("t2", "echo", json!({"x": 2})),
+            simple_text_response("Done"),
+        ]);
+        let mut tools = ToolRegistry::new();
+        tools.register(Arc::new(EchoTool));
+        let op = ReactOperator::new(
+            provider,
+            tools,
+            Box::new(neuron_turn::context::NoCompaction),
+            HookRegistry::new(),
+            Arc::new(NullStateReader),
+            ReactConfig {
+                default_max_turns: 10,
+                max_repeat_calls: Some(2),
+                ..Default::default()
+            },
+        );
+        let output = op.execute(simple_input("run")).await.unwrap();
+        // No stuck detection — completes normally
+        assert_eq!(output.exit_reason, ExitReason::Complete);
+    }
+
+    #[tokio::test]
+    async fn both_limits_none_current_behavior() {
+        // Regression: both max_tool_calls=None and max_repeat_calls=None.
+        // Behavior unchanged — completes normally.
+        let provider = MockProvider::new(vec![
+            tool_use_response("t1", "echo", json!({})),
+            tool_use_response("t2", "echo", json!({})),
+            simple_text_response("Done"),
+        ]);
+        let mut tools = ToolRegistry::new();
+        tools.register(Arc::new(EchoTool));
+        let op = ReactOperator::new(
+            provider,
+            tools,
+            Box::new(neuron_turn::context::NoCompaction),
+            HookRegistry::new(),
+            Arc::new(NullStateReader),
+            ReactConfig {
+                max_tool_calls: None,
+                max_repeat_calls: None,
+                ..Default::default()
+            },
+        );
+        let output = op.execute(simple_input("run")).await.unwrap();
+        assert_eq!(output.exit_reason, ExitReason::Complete);
+        assert_eq!(output.metadata.tools_called.len(), 2);
+    }
+
+    // ── V32-10 tests ─────────────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn model_selector_overrides_model() {
+        // Selector returns Some("big-model") when messages.len() > 1 (after first turn),
+        // None otherwise. Verify the provider sees the correct model each call.
+        let models_seen = std::sync::Arc::new(Mutex::new(Vec::<Option<String>>::new()));
+        let provider = RecordingProvider {
+            inner: MockProvider::new(vec![
+                tool_use_response("t1", "echo", json!({})),
+                simple_text_response("Done"),
+            ]),
+            models_seen: models_seen.clone(),
+        };
+        let mut tools = ToolRegistry::new();
+        tools.register(Arc::new(EchoTool));
+        let op = ReactOperator::new(
+            provider,
+            tools,
+            Box::new(neuron_turn::context::NoCompaction),
+            HookRegistry::new(),
+            Arc::new(NullStateReader),
+            ReactConfig {
+                default_model: "default-model".into(),
+                ..Default::default()
+            },
+        )
+        .with_model_selector(|req: &ProviderRequest| {
+            if req.messages.len() > 1 {
+                Some("big-model".to_string())
+            } else {
+                None
+            }
+        });
+        op.execute(simple_input("run")).await.unwrap();
+        let seen = models_seen.lock().unwrap().clone();
+        assert_eq!(seen.len(), 2, "expected 2 provider calls");
+        // First call: 1 message → selector returns None → uses default
+        assert_eq!(seen[0], Some("default-model".to_string()));
+        // Second call: messages.len() > 1 → selector returns big-model
+        assert_eq!(seen[1], Some("big-model".to_string()));
+    }
+
+    #[tokio::test]
+    async fn no_model_selector_model_unchanged() {
+        // Regression: without model_selector, model stays as configured.
+        let models_seen = std::sync::Arc::new(Mutex::new(Vec::<Option<String>>::new()));
+        let provider = RecordingProvider {
+            inner: MockProvider::new(vec![simple_text_response("Hi")]),
+            models_seen: models_seen.clone(),
+        };
+        let op = ReactOperator::new(
+            provider,
+            ToolRegistry::new(),
+            Box::new(neuron_turn::context::NoCompaction),
+            HookRegistry::new(),
+            Arc::new(NullStateReader),
+            ReactConfig {
+                default_model: "my-model".into(),
+                ..Default::default()
+            },
+        );
+        op.execute(simple_input("Hi")).await.unwrap();
+        let seen = models_seen.lock().unwrap().clone();
+        assert_eq!(seen, vec![Some("my-model".to_string())]);
+    }
+
+    struct BudgetCollector {
+        events: Arc<Mutex<Vec<BudgetEvent>>>,
+    }
+
+    impl BudgetEventSink for BudgetCollector {
+        fn on_budget_event(&self, event: BudgetEvent) {
+            self.events.lock().unwrap().push(event);
+        }
+    }
+
+    #[tokio::test]
+    async fn budget_sink_receives_step_limit_reached() {
+        // max_tool_calls = 2; model returns 2 tool calls then the limit fires.
+        let provider = MockProvider::new(vec![
+            tool_use_response("t1", "echo", json!({})),
+            tool_use_response("t2", "echo", json!({})),
+            simple_text_response("never reached"),
+        ]);
+        let mut tools = ToolRegistry::new();
+        tools.register(Arc::new(EchoTool));
+        let events = Arc::new(Mutex::new(Vec::<BudgetEvent>::new()));
+        let sink = Arc::new(BudgetCollector {
+            events: events.clone(),
+        });
+        let op = ReactOperator::new(
+            provider,
+            tools,
+            Box::new(NoCompaction),
+            HookRegistry::new(),
+            Arc::new(NullStateReader),
+            ReactConfig {
+                default_max_turns: 10,
+                max_tool_calls: Some(2),
+                ..Default::default()
+            },
+        )
+        .with_budget_sink(sink);
+        let output = op.execute(simple_input("run")).await.unwrap();
+        assert_eq!(output.exit_reason, ExitReason::BudgetExhausted);
+        let collected = events.lock().unwrap().clone();
+        assert!(
+            collected
+                .iter()
+                .any(|e| matches!(e, BudgetEvent::StepLimitReached { .. })),
+            "expected StepLimitReached in {:?}",
+            collected
+        );
+    }
+
+    struct CompactionCollector {
+        events: Arc<Mutex<Vec<CompactionEvent>>>,
+    }
+
+    impl CompactionEventSink for CompactionCollector {
+        fn on_compaction_event(&self, event: CompactionEvent) {
+            self.events.lock().unwrap().push(event);
+        }
+    }
+
+    #[tokio::test]
+    async fn compaction_sink_receives_quality_event_on_success() {
+        // ThresholdCompaction fires when token_estimate (messages.len() * 100) > effective_limit.
+        // With max_tokens=1, effective_limit = 1 * 4 * 0.9 = 3, so any non-empty list triggers.
+        let provider = MockProvider::new(vec![
+            tool_use_response("t1", "echo", json!({})),
+            simple_text_response("Done"),
+        ]);
+        let mut tools = ToolRegistry::new();
+        tools.register(Arc::new(EchoTool));
+        let last_limit = Arc::new(Mutex::new(None::<usize>));
+        let events = Arc::new(Mutex::new(Vec::<CompactionEvent>::new()));
+        let sink = Arc::new(CompactionCollector {
+            events: events.clone(),
+        });
+        let op = ReactOperator::new(
+            provider,
+            tools,
+            Box::new(ThresholdCompaction { last_limit }),
+            HookRegistry::new(),
+            Arc::new(NullStateReader),
+            ReactConfig {
+                default_max_tokens: 1,
+                ..Default::default()
+            },
+        )
+        .with_compaction_sink(sink);
+        op.execute(simple_input("run")).await.unwrap();
+        let collected = events.lock().unwrap().clone();
+        assert!(
+            collected
+                .iter()
+                .any(|e| matches!(e, CompactionEvent::CompactionQuality { .. })),
+            "expected CompactionQuality in {:?}",
+            collected
+        );
+    }
+
+    // ── V32-22 ContextCommand tests ───────────────────────────────────────────
+
+    #[allow(dead_code)]
+    /// Steering source that returns an arbitrary list of SteeringCommand.
+    struct MockContextSteering {
+        commands: Mutex<Vec<SteeringCommand>>,
+    }
+    #[allow(dead_code)]
+    impl MockContextSteering {
+        fn new(commands: Vec<SteeringCommand>) -> Self {
+            Self {
+                commands: Mutex::new(commands),
+            }
+        }
+    }
+    impl SteeringSource for MockContextSteering {
+        fn drain(&self) -> Vec<SteeringCommand> {
+            self.commands.lock().unwrap().drain(..).collect()
+        }
+    }
+
+    fn make_user_am(text: &str) -> neuron_turn::AnnotatedMessage {
+        neuron_turn::AnnotatedMessage::from(ProviderMessage {
+            role: Role::User,
+            content: vec![ContentPart::Text { text: text.into() }],
+        })
+    }
+
+    fn make_pinned_am(text: &str) -> neuron_turn::AnnotatedMessage {
+        neuron_turn::AnnotatedMessage::pinned(ProviderMessage {
+            role: Role::User,
+            content: vec![ContentPart::Text { text: text.into() }],
+        })
+    }
+
+    #[test]
+    fn test_pin_command() {
+        let mut msgs = vec![make_user_am("first"), make_user_am("second")];
+        apply_context_commands(&mut msgs, vec![ContextCommand::Pin { message_index: 0 }]);
+        assert_eq!(msgs[0].policy, Some(layer0::CompactionPolicy::Pinned));
+        assert_eq!(msgs[1].policy, None);
+    }
+
+    #[test]
+    fn test_pin_out_of_bounds_is_noop() {
+        let mut msgs = vec![make_user_am("only")];
+        apply_context_commands(&mut msgs, vec![ContextCommand::Pin { message_index: 99 }]);
+        // No panic, message unchanged
+        assert_eq!(msgs.len(), 1);
+        assert_eq!(msgs[0].policy, None);
+    }
+
+    #[test]
+    fn test_drop_oldest_skips_pinned() {
+        // [normal, pinned, normal, normal] — drop 2 oldest non-pinned
+        let mut msgs = vec![
+            make_user_am("m0"),
+            make_pinned_am("pinned"),
+            make_user_am("m2"),
+            make_user_am("m3"),
+        ];
+        apply_context_commands(&mut msgs, vec![ContextCommand::DropOldest { count: 2 }]);
+        // m0 and m2 dropped (oldest non-pinned), pinned and m3 remain
+        assert_eq!(msgs.len(), 2);
+        assert_eq!(msgs[0].policy, Some(layer0::CompactionPolicy::Pinned));
+        let text = match &msgs[1].message.content[0] {
+            ContentPart::Text { text } => text.as_str(),
+            _ => panic!("expected Text"),
+        };
+        assert_eq!(text, "m3");
+    }
+
+    #[test]
+    fn test_drop_oldest_count_exceeds_droppable() {
+        // Only 1 non-pinned; drop count=5 should not panic
+        let mut msgs = vec![make_pinned_am("pinned"), make_user_am("normal")];
+        apply_context_commands(&mut msgs, vec![ContextCommand::DropOldest { count: 5 }]);
+        assert_eq!(msgs.len(), 1);
+        assert_eq!(msgs[0].policy, Some(layer0::CompactionPolicy::Pinned));
+    }
+
+    #[test]
+    fn test_clear_working_keeps_pinned() {
+        let mut msgs = vec![
+            make_user_am("normal1"),
+            make_pinned_am("pinned"),
+            make_user_am("normal2"),
+        ];
+        apply_context_commands(&mut msgs, vec![ContextCommand::ClearWorking]);
+        assert_eq!(msgs.len(), 1);
+        assert_eq!(msgs[0].policy, Some(layer0::CompactionPolicy::Pinned));
+    }
+
+    #[test]
+    fn test_save_load_snapshot_round_trip() {
+        let original = vec![make_pinned_am("pinned"), make_user_am("normal")];
+        let path =
+            std::env::temp_dir().join(format!("neuron_test_snapshot_{}.json", std::process::id()));
+        let mut msgs = original.clone();
+        // Save
+        apply_context_commands(
+            &mut msgs,
+            vec![ContextCommand::SaveSnapshot { path: path.clone() }],
+        );
+        assert!(path.exists(), "snapshot file should exist after save");
+        // Corrupt the buffer
+        msgs.clear();
+        msgs.push(make_user_am("corrupted"));
+        // Load
+        apply_context_commands(
+            &mut msgs,
+            vec![ContextCommand::LoadSnapshot { path: path.clone() }],
+        );
+        // Verify restored
+        assert_eq!(msgs.len(), 2);
+        assert_eq!(msgs[0].policy, Some(layer0::CompactionPolicy::Pinned));
+        assert_eq!(msgs[1].policy, None);
+        // Cleanup
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn test_load_snapshot_missing_file_is_noop() {
+        let mut msgs = vec![make_user_am("existing")];
+        let path = std::path::PathBuf::from("/nonexistent/path/snapshot.json");
+        apply_context_commands(&mut msgs, vec![ContextCommand::LoadSnapshot { path }]);
+        // Buffer unchanged
+        assert_eq!(msgs.len(), 1);
+    }
+    // ── V32-29 ContextSnapshot tests ──────────────────────────────────────────────
+
+    #[test]
+    fn context_snapshot_empty_before_execute() {
+        let provider = MockProvider::new(vec![]);
+        let op = make_op(provider);
+        let snap = op.context_snapshot();
+        assert!(snap.messages.is_empty());
+        assert_eq!(snap.token_count, 0);
+        assert_eq!(snap.pinned_count, 0);
+        assert_eq!(snap.last_compaction_removed, 0);
+    }
+
+    #[tokio::test]
+    async fn context_snapshot_reflects_messages_after_turn() {
+        let provider = MockProvider::new(vec![simple_text_response("Hello!")]);
+        let op = make_op(provider);
+        // Before execute: empty
+        assert!(op.context_snapshot().messages.is_empty());
+        op.execute(simple_input("Hi")).await.unwrap();
+        // After execute: snapshot holds at least the initial user message
+        let snap = op.context_snapshot();
+        assert!(
+            !snap.messages.is_empty(),
+            "expected non-empty context after execute, got: {:?}",
+            snap.messages
+        );
+    }
+
+    #[test]
+    fn context_snapshot_pinned_count() {
+        let provider = MockProvider::new(vec![]);
+        let op = make_op(provider);
+        {
+            let mut ctx = op.current_context.lock().unwrap();
+            ctx.push(make_user_am("normal"));
+            ctx.push(make_pinned_am("pinned1"));
+            ctx.push(make_pinned_am("pinned2"));
+        }
+        let snap = op.context_snapshot();
+        assert_eq!(snap.messages.len(), 3);
+        assert_eq!(snap.pinned_count, 2);
+    }
+
+    #[test]
+    fn context_snapshot_last_compaction_removed_zero_initially() {
+        let provider = MockProvider::new(vec![]);
+        let op = make_op(provider);
+        assert_eq!(op.context_snapshot().last_compaction_removed, 0);
+    }
+
+    #[test]
+    fn context_snapshot_clone_and_debug() {
+        let provider = MockProvider::new(vec![]);
+        let op = make_op(provider);
+        let snap = op.context_snapshot();
+        let cloned = snap.clone();
+        assert_eq!(cloned.messages.len(), snap.messages.len());
+        // Debug must not panic
+        let _ = format!("{:?}", snap);
+    }
+
+    #[test]
+    fn context_snapshot_serde_round_trip() {
+        let provider = MockProvider::new(vec![]);
+        let op = make_op(provider);
+        let snap = op.context_snapshot();
+        let json = serde_json::to_string(&snap).unwrap();
+        let back: ContextSnapshot = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.messages.len(), snap.messages.len());
+        assert_eq!(back.token_count, snap.token_count);
+        assert_eq!(back.pinned_count, snap.pinned_count);
+        assert_eq!(back.last_compaction_removed, snap.last_compaction_removed);
     }
 }

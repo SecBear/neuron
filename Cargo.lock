@@ -843,7 +843,12 @@ dependencies = [
 name = "neuron-context"
 version = "0.4.0"
 dependencies = [
+ "async-trait",
+ "layer0",
+ "neuron-state-memory",
  "neuron-turn",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]
@@ -872,8 +877,10 @@ dependencies = [
  "async-trait",
  "layer0",
  "neuron-effects-core",
+ "neuron-hooks",
  "serde_json",
  "thiserror 2.0.18",
+ "tokio",
  "tracing",
 ]
 
@@ -907,18 +914,21 @@ dependencies = [
  "layer0",
  "serde_json",
  "tokio",
+ "tracing",
 ]
 
 [[package]]
 name = "neuron-mcp"
 version = "0.4.0"
 dependencies = [
+ "layer0",
  "neuron-tool",
  "rmcp",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
  "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -933,6 +943,7 @@ dependencies = [
  "neuron-turn",
  "neuron-turn-kit",
  "rust_decimal",
+ "serde",
  "serde_json",
  "tokio",
 ]
@@ -957,9 +968,11 @@ dependencies = [
  "layer0",
  "neuron-effects-core",
  "neuron-effects-local",
+ "neuron-hooks",
  "serde_json",
  "thiserror 2.0.18",
  "tokio",
+ "tracing",
 ]
 
 [[package]]

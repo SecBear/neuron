@@ -1,0 +1,101 @@
+name: Structural Change Detection
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+jobs:
+  detect-changes:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect changed crates
+        id: changes
+        run: |
+          # Get list of changed files in the merged PR
+          CHANGED=$(git diff --name-only ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.merge_commit_sha }})
+          echo "Changed files:"
+          echo "$CHANGED"
+
+          # Extract unique crate directories (first two path segments for workspace members)
+          CRATES=$(echo "$CHANGED" | grep -E '\.(rs|toml)$' | sed -n 's|^\([^/]*/[^/]*\)/.*|\1|p' | sort -u)
+          echo "Affected crates:"
+          echo "$CRATES"
+
+          # Also extract module paths (file paths without extension)
+          MODULES=$(echo "$CHANGED" | grep '\.rs$' | sed 's/\.rs$//' | sort -u)
+          echo "Affected modules:"
+          echo "$MODULES"
+
+          # Write to outputs
+          echo "crates<<EOF" >> $GITHUB_OUTPUT
+          echo "$CRATES" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+          echo "modules<<EOF" >> $GITHUB_OUTPUT
+          echo "$MODULES" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Cross-reference with bridge manifest
+        id: decisions
+        run: |
+          # Bridge manifest location (synced from golden repo)
+          MANIFEST=".golden/neuron-bridge.json"
+
+          if [ ! -f "$MANIFEST" ]; then
+            echo "Bridge manifest not found at $MANIFEST — skipping decision mapping"
+            echo "decisions=[]" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Use jq to find decisions affected by changed crates/modules
+          AFFECTED=$(cat <<'SCRIPT' | python3 - "$MANIFEST" "${{ steps.changes.outputs.crates }}" "${{ steps.changes.outputs.modules }}"
+          import json, sys
+
+          manifest_path = sys.argv[1]
+          changed_crates = set(sys.argv[2].strip().split('\n')) if sys.argv[2].strip() else set()
+          changed_modules = set(sys.argv[3].strip().split('\n')) if sys.argv[3].strip() else set()
+
+          with open(manifest_path) as f:
+              manifest = json.load(f)
+
+          affected = []
+          for mapping in manifest.get('mappings', []):
+              # Check if any mapped crate was changed
+              for crate_path in mapping.get('crates', []):
+                  # Bridge manifest stores crate names; changed_crates has paths like "layer0" or "op/neuron-op-sweep"
+                  for changed in changed_crates:
+                      if crate_path in changed or changed.endswith(crate_path):
+                          affected.append(mapping['decision_id'])
+                          break
+              # Check if any mapped module was changed
+              for module in mapping.get('modules', []):
+                  for changed in changed_modules:
+                      if module.rstrip('/') in changed or changed in module:
+                          if mapping['decision_id'] not in affected:
+                              affected.append(mapping['decision_id'])
+                          break
+
+          print(json.dumps(sorted(set(affected))))
+          SCRIPT
+          )
+
+          echo "Affected decisions: $AFFECTED"
+          echo "decisions=$AFFECTED" >> $GITHUB_OUTPUT
+
+      - name: Create sweep trigger
+        if: steps.decisions.outputs.decisions != '[]'
+        run: |
+          echo "## Structural Change Detection" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "PR #${{ github.event.pull_request.number }} affected these decisions:" >> $GITHUB_STEP_SUMMARY
+          echo '```json' >> $GITHUB_STEP_SUMMARY
+          echo '${{ steps.decisions.outputs.decisions }}' >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "A targeted sweep should be triggered for these decisions." >> $GITHUB_STEP_SUMMARY

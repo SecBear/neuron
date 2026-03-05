@@ -14,6 +14,7 @@
   - [Providers](guides/providers.md)
   - [Tools](guides/tools.md)
   - [Operators](guides/operators.md)
+  - [Custom Operator](guides/custom-operator.md)
   - [State](guides/state.md)
   - [Orchestration](guides/orchestration.md)
   - [Hooks](guides/hooks.md)

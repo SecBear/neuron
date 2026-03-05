@@ -9,7 +9,7 @@ This release introduces a composable, layered runtime with stable protocol bound
   - `neuron-effects-core` — trait + error + policy
   - `neuron-effects-local` — in‑process effect execution (in‑order, best‑effort)
 - React Operator improvements (opt‑in; defaults unchanged):
-  - BarrierPlanner (Rho‑style Shared/Exclusive batching)
+  - BarrierPlanner (Shared/Exclusive batch scheduling)
   - SteeringSource (operator‑initiated mid‑loop injection + skip placeholders)
   - Streaming tools (`ToolDynStreaming`) + `HookPoint::ToolExecutionUpdate` (read‑only)
   - Tool‑level concurrency hints (`ToolConcurrencyHint`) with metadata‑based decider
@@ -41,5 +41,3 @@ This release introduces a composable, layered runtime with stable protocol bound
 ## Known limitations
 - Durable orchestrators (Temporal/Restate) are not included in this release; wiring guidance provided in docs
 
-## Acknowledgements
-Thanks to the Rho integration work for motivating `turn-kit` and the effect split.

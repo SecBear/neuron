@@ -115,6 +115,7 @@ fn react_config() -> ReactConfig {
         default_model: "mock-model".into(),
         default_max_tokens: 256,
         default_max_turns: 5,
+        ..ReactConfig::default()
     }
 }
 

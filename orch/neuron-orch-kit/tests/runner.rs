@@ -146,6 +146,11 @@ impl Operator for WriterOperator {
             scope: Scope::Global,
             key: "k1".into(),
             value: json!({"v": 1}),
+            tier: None,
+            lifetime: None,
+            content_kind: None,
+            salience: None,
+            ttl: None,
         });
         output.effects.push(Effect::Signal {
             target: WorkflowId::new("wf1"),
@@ -224,6 +229,11 @@ impl Operator for FullPipelineRootOperator {
             scope: Scope::Global,
             key: "k-pipeline".into(),
             value: json!({"v": 42}),
+            tier: None,
+            lifetime: None,
+            content_kind: None,
+            salience: None,
+            ttl: None,
         });
         output.effects.push(Effect::Delegate {
             agent: AgentId::new("child"),

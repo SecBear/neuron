@@ -74,11 +74,14 @@ pub use environment::{Environment, EnvironmentSpec};
 pub use error::{EnvError, HookError, OperatorError, OrchError, StateError};
 pub use hook::{Hook, HookAction, HookContext, HookPoint};
 pub use id::{AgentId, ScopeId, SessionId, WorkflowId};
-pub use lifecycle::{BudgetEvent, CompactionEvent, ObservableEvent};
+pub use lifecycle::{BudgetEvent, CompactionEvent, CompactionPolicy, ObservableEvent};
 pub use operator::{
     ExitReason, Operator, OperatorConfig, OperatorInput, OperatorMetadata, OperatorOutput,
     ToolCallRecord,
 };
 pub use orchestrator::{Orchestrator, QueryPayload};
 pub use secret::{SecretAccessEvent, SecretAccessOutcome, SecretSource};
-pub use state::{SearchResult, StateReader, StateStore};
+pub use state::{
+    ContentKind, Lifetime, MemoryLink, MemoryTier, SearchOptions, SearchResult, StateReader,
+    StateStore, StoreOptions,
+};

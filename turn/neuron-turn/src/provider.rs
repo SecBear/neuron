@@ -12,13 +12,25 @@ use thiserror::Error;
 #[non_exhaustive]
 #[derive(Debug, Error)]
 pub enum ProviderError {
-    /// HTTP or network request failed.
-    #[error("request failed: {0}")]
-    RequestFailed(String),
+    /// Transient network or server error — safe to retry with backoff.
+    #[error("transient error: {message}")]
+    TransientError {
+        /// Human-readable description of the error.
+        message: String,
+        /// HTTP status code if available.
+        status: Option<u16>,
+    },
 
     /// Provider rate-limited the request.
     #[error("rate limited")]
     RateLimited,
+
+    /// Content blocked by safety filter — do NOT retry.
+    #[error("content blocked: {message}")]
+    ContentBlocked {
+        /// Human-readable description of what was blocked.
+        message: String,
+    },
 
     /// Authentication/authorization failed.
     #[error("auth failed: {0}")]
@@ -38,7 +50,7 @@ impl ProviderError {
     pub fn is_retryable(&self) -> bool {
         matches!(
             self,
-            ProviderError::RateLimited | ProviderError::RequestFailed(_)
+            ProviderError::RateLimited | ProviderError::TransientError { .. }
         )
     }
 }
@@ -67,8 +79,27 @@ mod tests {
     #[test]
     fn provider_error_display() {
         assert_eq!(
-            ProviderError::RequestFailed("timeout".into()).to_string(),
-            "request failed: timeout"
+            ProviderError::TransientError {
+                message: "timeout".into(),
+                status: None,
+            }
+            .to_string(),
+            "transient error: timeout"
+        );
+        assert_eq!(
+            ProviderError::TransientError {
+                message: "server error".into(),
+                status: Some(500),
+            }
+            .to_string(),
+            "transient error: server error"
+        );
+        assert_eq!(
+            ProviderError::ContentBlocked {
+                message: "blocked".into(),
+            }
+            .to_string(),
+            "content blocked: blocked"
         );
         assert_eq!(ProviderError::RateLimited.to_string(), "rate limited");
         assert_eq!(
@@ -84,9 +115,66 @@ mod tests {
     #[test]
     fn provider_error_retryable() {
         assert!(ProviderError::RateLimited.is_retryable());
-        assert!(ProviderError::RequestFailed("timeout".into()).is_retryable());
+        assert!(
+            ProviderError::TransientError {
+                message: "timeout".into(),
+                status: None,
+            }
+            .is_retryable()
+        );
+        assert!(
+            ProviderError::TransientError {
+                message: "server error".into(),
+                status: Some(500),
+            }
+            .is_retryable()
+        );
         assert!(!ProviderError::AuthFailed("bad key".into()).is_retryable());
         assert!(!ProviderError::InvalidResponse("x".into()).is_retryable());
+        assert!(
+            !ProviderError::ContentBlocked {
+                message: "blocked".into(),
+            }
+            .is_retryable()
+        );
+    }
+
+    #[test]
+    fn content_blocked_is_not_retryable() {
+        assert!(
+            !ProviderError::ContentBlocked {
+                message: "safety filter triggered".into(),
+            }
+            .is_retryable()
+        );
+    }
+
+    #[test]
+    fn auth_failed_is_not_retryable() {
+        assert!(!ProviderError::AuthFailed("401 Unauthorized".into()).is_retryable());
+    }
+
+    #[test]
+    fn transient_error_is_retryable() {
+        assert!(
+            ProviderError::TransientError {
+                message: "connection reset".into(),
+                status: None,
+            }
+            .is_retryable()
+        );
+        assert!(
+            ProviderError::TransientError {
+                message: "HTTP 503: service unavailable".into(),
+                status: Some(503),
+            }
+            .is_retryable()
+        );
+    }
+
+    #[test]
+    fn rate_limited_is_retryable() {
+        assert!(ProviderError::RateLimited.is_retryable());
     }
 
     #[test]

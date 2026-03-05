@@ -6,10 +6,12 @@ use layer0::content::Content;
 use layer0::effect::Effect;
 use layer0::operator::{OperatorInput, TriggerType};
 use layer0::orchestrator::Orchestrator;
-use layer0::state::StateStore;
+use layer0::state::{StateStore, StoreOptions};
 use neuron_effects_core::{EffectExecutor, Error, UnknownEffectPolicy};
 use serde_json::json;
 use std::sync::Arc;
+
+use neuron_hooks::HookRegistry;
 
 /// Local executor that applies memory effects to a `StateStore` and
 /// translates orchestration effects into `Orchestrator` calls.
@@ -31,6 +33,7 @@ pub struct LocalEffectExecutor<S: StateStore + ?Sized, O: Orchestrator + ?Sized>
     pub orch: Arc<O>,
     /// Unknown effect handling policy.
     pub unknown_policy: UnknownEffectPolicy,
+    hooks: Option<Arc<HookRegistry>>,
 }
 
 impl<S: StateStore + ?Sized, O: Orchestrator + ?Sized> LocalEffectExecutor<S, O> {
@@ -40,12 +43,22 @@ impl<S: StateStore + ?Sized, O: Orchestrator + ?Sized> LocalEffectExecutor<S, O>
             state,
             orch,
             unknown_policy: UnknownEffectPolicy::IgnoreAndWarn,
+            hooks: None,
         }
     }
 
     /// Override the unknown/custom effect handling policy.
     pub fn with_unknown_policy(mut self, policy: UnknownEffectPolicy) -> Self {
         self.unknown_policy = policy;
+        self
+    }
+
+    /// Attach a hook registry. `PreMemoryWrite` fires before every `WriteMemory` effect.
+    ///
+    /// If a guardrail returns `Halt`, the write is skipped (not an error).
+    /// If a transformer returns `ModifyToolOutput`, its value replaces the original.
+    pub fn with_hooks(mut self, hooks: Arc<HookRegistry>) -> Self {
+        self.hooks = Some(hooks);
         self
     }
 }
@@ -59,8 +72,53 @@ where
     async fn execute(&self, effects: &[Effect]) -> Result<(), Error> {
         for effect in effects {
             match effect {
-                Effect::WriteMemory { scope, key, value } => {
-                    self.state.write(scope, key, value.clone()).await?;
+                Effect::WriteMemory {
+                    scope,
+                    key,
+                    value,
+                    tier,
+                    lifetime,
+                    content_kind,
+                    salience,
+                    ttl,
+                } => {
+                    let effective_value = if let Some(hooks) = &self.hooks {
+                        use layer0::hook::{HookAction, HookContext, HookPoint};
+                        let mut ctx = HookContext::new(HookPoint::PreMemoryWrite);
+                        ctx.memory_key = Some(key.clone());
+                        ctx.memory_value = Some(value.clone());
+                        ctx.memory_options = Some(layer0::StoreOptions {
+                            tier: *tier,
+                            lifetime: *lifetime,
+                            content_kind: content_kind.clone(),
+                            salience: *salience,
+                            ttl: *ttl,
+                        });
+                        match hooks.dispatch(&ctx).await {
+                            HookAction::Halt { reason } => {
+                                tracing::warn!(
+                                    key = %key,
+                                    reason = %reason,
+                                    "PreMemoryWrite hook halted write"
+                                );
+                                continue;
+                            }
+                            HookAction::ModifyToolOutput { new_output } => new_output,
+                            _ => value.clone(),
+                        }
+                    } else {
+                        value.clone()
+                    };
+                    let opts = StoreOptions {
+                        tier: *tier,
+                        lifetime: *lifetime,
+                        content_kind: content_kind.clone(),
+                        salience: *salience,
+                        ttl: *ttl,
+                    };
+                    self.state
+                        .write_hinted(scope, key, effective_value, &opts)
+                        .await?;
                 }
                 Effect::DeleteMemory { scope, key } => {
                     // StateStore::delete is idempotent by contract — missing key is Ok.

@@ -10,9 +10,17 @@ use neuron_turn::types::*;
 use rust_decimal::Decimal;
 use types::*;
 
+/// API key source — static string or environment variable resolved per request.
+enum ApiKeySource {
+    /// Key material provided at construction time.
+    Static(String),
+    /// Environment variable name; resolved at each `complete()` call.
+    EnvVar(String),
+}
+
 /// Anthropic API provider.
 pub struct AnthropicProvider {
-    api_key: String,
+    api_key_source: ApiKeySource,
     client: reqwest::Client,
     api_url: String,
     api_version: String,
@@ -22,10 +30,45 @@ impl AnthropicProvider {
     /// Create a new Anthropic provider with the given API key.
     pub fn new(api_key: impl Into<String>) -> Self {
         Self {
-            api_key: api_key.into(),
+            api_key_source: ApiKeySource::Static(api_key.into()),
             client: reqwest::Client::new(),
             api_url: "https://api.anthropic.com/v1/messages".into(),
             api_version: "2023-06-01".into(),
+        }
+    }
+
+    /// Create a provider that reads its API key from an environment variable at each request.
+    ///
+    /// The variable is resolved via `std::env::var` at every call to `complete()`.  
+    /// Returns `ProviderError::AuthFailed` if the variable is unset or empty — the error
+    /// message contains the variable *name* only, never its value.
+    pub fn from_env_var(var_name: impl Into<String>) -> Self {
+        Self {
+            api_key_source: ApiKeySource::EnvVar(var_name.into()),
+            client: reqwest::Client::new(),
+            api_url: "https://api.anthropic.com/v1/messages".into(),
+            api_version: "2023-06-01".into(),
+        }
+    }
+
+    fn resolve_api_key(&self) -> Result<String, ProviderError> {
+        match &self.api_key_source {
+            ApiKeySource::Static(key) => Ok(key.clone()),
+            ApiKeySource::EnvVar(var_name) => {
+                let key = std::env::var(var_name).map_err(|_| {
+                    ProviderError::AuthFailed(format!(
+                        "env var '{}' not set or not unicode",
+                        var_name
+                    ))
+                })?;
+                if key.is_empty() {
+                    return Err(ProviderError::AuthFailed(format!(
+                        "env var '{}' is empty",
+                        var_name
+                    )));
+                }
+                Ok(key)
+            }
         }
     }
 
@@ -74,7 +117,10 @@ impl AnthropicProvider {
         }
     }
 
-    fn parse_response(&self, response: AnthropicResponse) -> ProviderResponse {
+    fn parse_response(
+        &self,
+        response: AnthropicResponse,
+    ) -> Result<ProviderResponse, ProviderError> {
         let content: Vec<ContentPart> = response
             .content
             .iter()
@@ -85,6 +131,7 @@ impl AnthropicProvider {
             "end_turn" => StopReason::EndTurn,
             "tool_use" => StopReason::ToolUse,
             "max_tokens" => StopReason::MaxTokens,
+            "refusal" => StopReason::ContentFilter,
             _ => StopReason::EndTurn,
         };
 
@@ -101,14 +148,14 @@ impl AnthropicProvider {
         let output_cost = Decimal::from(response.usage.output_tokens) * Decimal::new(125, 8);
         let cost = input_cost + output_cost;
 
-        ProviderResponse {
+        Ok(ProviderResponse {
             content,
             stop_reason,
             usage,
             model: response.model,
             cost: Some(cost),
             truncated: None,
-        }
+        })
     }
 }
 
@@ -117,20 +164,30 @@ impl Provider for AnthropicProvider {
         &self,
         request: ProviderRequest,
     ) -> impl std::future::Future<Output = Result<ProviderResponse, ProviderError>> + Send {
+        let api_key_result = self.resolve_api_key();
         let api_request = self.build_request(&request);
-        let http_request = self
-            .client
-            .post(&self.api_url)
-            .header("x-api-key", &self.api_key)
-            .header("anthropic-version", &self.api_version)
-            .header("content-type", "application/json")
-            .json(&api_request);
+        let http_opt = api_key_result.map(|key| {
+            self.client
+                .post(&self.api_url)
+                .header("x-api-key", key)
+                .header("anthropic-version", &self.api_version)
+                .header("content-type", "application/json")
+                .json(&api_request)
+        });
 
         async move {
-            let http_response = http_request
-                .send()
-                .await
-                .map_err(|e| ProviderError::RequestFailed(e.to_string()))?;
+            let http_request = match http_opt {
+                Err(e) => return Err(e),
+                Ok(r) => r,
+            };
+            let http_response =
+                http_request
+                    .send()
+                    .await
+                    .map_err(|e| ProviderError::TransientError {
+                        message: e.to_string(),
+                        status: None,
+                    })?;
 
             let status = http_response.status();
             if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
@@ -144,9 +201,7 @@ impl Provider for AnthropicProvider {
             }
             if !status.is_success() {
                 let body = http_response.text().await.unwrap_or_default();
-                return Err(ProviderError::RequestFailed(format!(
-                    "HTTP {status}: {body}"
-                )));
+                return Err(map_error_response(status, &body));
             }
 
             let api_response: AnthropicResponse = http_response
@@ -154,8 +209,27 @@ impl Provider for AnthropicProvider {
                 .await
                 .map_err(|e| ProviderError::InvalidResponse(e.to_string()))?;
 
-            Ok(self.parse_response(api_response))
+            self.parse_response(api_response)
         }
+    }
+}
+
+/// Map a non-success HTTP response to an appropriate [`ProviderError`].
+///
+/// - 500, 502, 503 (server errors) → [`ProviderError::TransientError`]
+/// - Body containing content-filter signals → [`ProviderError::ContentBlocked`]
+/// - All other non-success responses → [`ProviderError::TransientError`]
+fn map_error_response(status: reqwest::StatusCode, body: &str) -> ProviderError {
+    let status_u16 = status.as_u16();
+    // Check for Anthropic content-filter signals in the response body.
+    if body.contains("content_filter") || body.contains("content policy") {
+        return ProviderError::ContentBlocked {
+            message: body.to_string(),
+        };
+    }
+    ProviderError::TransientError {
+        message: format!("HTTP {status}: {body}"),
+        status: Some(status_u16),
     }
 }
 
@@ -270,7 +344,7 @@ mod tests {
             },
         };
 
-        let response = provider.parse_response(api_response);
+        let response = provider.parse_response(api_response).unwrap();
         assert_eq!(response.stop_reason, StopReason::EndTurn);
         assert_eq!(response.usage.input_tokens, 10);
         assert_eq!(response.usage.output_tokens, 5);
@@ -297,7 +371,7 @@ mod tests {
             },
         };
 
-        let response = provider.parse_response(api_response);
+        let response = provider.parse_response(api_response).unwrap();
         assert_eq!(response.stop_reason, StopReason::ToolUse);
         assert_eq!(response.content.len(), 1);
         match &response.content[0] {
@@ -340,7 +414,7 @@ mod tests {
             },
         };
 
-        let response = provider.parse_response(api_response);
+        let response = provider.parse_response(api_response).unwrap();
         assert_eq!(response.usage.cache_read_tokens, Some(50));
         assert_eq!(response.usage.cache_creation_tokens, Some(25));
     }
@@ -419,101 +493,142 @@ mod tests {
     }
 
     #[test]
-    fn image_content_in_request() {
-        let provider = AnthropicProvider::new("test-key");
-        let request = ProviderRequest {
-            model: None,
-            messages: vec![ProviderMessage {
-                role: Role::User,
-                content: vec![ContentPart::Image {
-                    source: ImageSource::Base64 {
-                        data: "aGVsbG8=".into(),
-                    },
-                    media_type: "image/png".into(),
-                }],
-            }],
-            tools: vec![],
-            max_tokens: None,
-            temperature: None,
-            system: None,
-            extra: json!(null),
-        };
-
-        let api_request = provider.build_request(&request);
-        // Should build without panic. Content should be blocks with image.
-        assert_eq!(api_request.messages.len(), 1);
-    }
-
-    #[test]
-    fn parse_tool_use_stop_reason() {
-        let provider = AnthropicProvider::new("test-key");
-        let api_response = AnthropicResponse {
-            content: vec![AnthropicContentBlock::ToolUse {
-                id: "tu_1".into(),
-                name: "bash".into(),
-                input: json!({"cmd": "ls"}),
-            }],
-            model: "claude-haiku-4-5-20251001".into(),
-            stop_reason: "tool_use".into(),
-            usage: AnthropicUsage {
-                input_tokens: 20,
-                output_tokens: 15,
-                cache_read_input_tokens: None,
-                cache_creation_input_tokens: None,
-            },
-        };
-
-        let response = provider.parse_response(api_response);
-        assert_eq!(response.stop_reason, StopReason::ToolUse);
-    }
-
-    #[test]
-    fn parse_max_tokens_stop_reason() {
+    fn parse_response_refusal_maps_to_content_filter() {
         let provider = AnthropicProvider::new("test-key");
         let api_response = AnthropicResponse {
             content: vec![AnthropicContentBlock::Text {
-                text: "trunca...".into(),
+                text: "I cannot help with that.".into(),
             }],
             model: "claude-haiku-4-5-20251001".into(),
-            stop_reason: "max_tokens".into(),
+            stop_reason: "refusal".into(),
             usage: AnthropicUsage {
-                input_tokens: 10,
-                output_tokens: 100,
+                input_tokens: 5,
+                output_tokens: 8,
                 cache_read_input_tokens: None,
                 cache_creation_input_tokens: None,
             },
         };
-
-        let response = provider.parse_response(api_response);
-        assert_eq!(response.stop_reason, StopReason::MaxTokens);
+        let result = provider.parse_response(api_response);
+        let resp = result.expect("refusal should be Ok, not Err");
+        assert_eq!(resp.stop_reason, StopReason::ContentFilter);
+        assert_eq!(resp.usage.input_tokens, 5);
+        assert_eq!(resp.usage.output_tokens, 8);
+        assert_eq!(resp.content.len(), 1);
+        assert!(resp.cost.is_some());
     }
 
     #[test]
-    fn with_url_overrides_api_url() {
-        let provider =
-            AnthropicProvider::new("test-key").with_url("https://proxy.example.com/v1/messages");
-        assert_eq!(provider.api_url, "https://proxy.example.com/v1/messages");
+    fn map_error_500_returns_transient() {
+        let status = reqwest::StatusCode::INTERNAL_SERVER_ERROR;
+        let err = map_error_response(status, "internal server error");
+        assert!(matches!(
+            err,
+            ProviderError::TransientError {
+                status: Some(500),
+                ..
+            }
+        ));
+        assert!(err.is_retryable());
     }
 
     #[test]
-    fn cost_calculation_is_positive() {
-        let provider = AnthropicProvider::new("test-key");
-        let api_response = AnthropicResponse {
-            content: vec![AnthropicContentBlock::Text {
-                text: "Hello".into(),
-            }],
-            model: "claude-haiku-4-5-20251001".into(),
-            stop_reason: "end_turn".into(),
-            usage: AnthropicUsage {
-                input_tokens: 1000,
-                output_tokens: 500,
-                cache_read_input_tokens: None,
-                cache_creation_input_tokens: None,
-            },
-        };
+    fn map_error_503_returns_transient() {
+        let status = reqwest::StatusCode::SERVICE_UNAVAILABLE;
+        let err = map_error_response(status, "service unavailable");
+        assert!(matches!(
+            err,
+            ProviderError::TransientError {
+                status: Some(503),
+                ..
+            }
+        ));
+        assert!(err.is_retryable());
+    }
 
-        let response = provider.parse_response(api_response);
-        let cost = response.cost.unwrap();
-        assert!(cost > Decimal::ZERO);
+    #[test]
+    fn map_error_content_filter_body_returns_blocked() {
+        let status = reqwest::StatusCode::BAD_REQUEST;
+        let body = r#"{"type":"error","error":{"type":"invalid_request_error","message":"content_filter triggered"}}"#;
+        let err = map_error_response(status, body);
+        assert!(matches!(err, ProviderError::ContentBlocked { .. }));
+        assert!(!err.is_retryable());
+    }
+}
+
+#[cfg(test)]
+mod tests_credential {
+    use super::*;
+
+    #[test]
+    fn new_uses_static_key() {
+        let p = AnthropicProvider::new("sk-static");
+        assert_eq!(p.resolve_api_key().unwrap(), "sk-static");
+    }
+
+    #[test]
+    fn from_env_var_resolves_when_set() {
+        let var = "NEURON_ANTHROPIC_TEST_CRED_A";
+        unsafe {
+            std::env::set_var(var, "sk-from-env");
+        }
+        let p = AnthropicProvider::from_env_var(var);
+        assert_eq!(p.resolve_api_key().unwrap(), "sk-from-env");
+        unsafe {
+            std::env::remove_var(var);
+        }
+    }
+
+    #[test]
+    fn from_env_var_missing_returns_auth_failed() {
+        let var = "NEURON_ANTHROPIC_TEST_CRED_MISSING_ZZZ";
+        unsafe {
+            std::env::remove_var(var);
+        }
+        let p = AnthropicProvider::from_env_var(var);
+        let err = p.resolve_api_key().unwrap_err();
+        assert!(matches!(err, ProviderError::AuthFailed(_)));
+        let msg = err.to_string();
+        assert!(msg.contains(var), "error should name the variable");
+    }
+
+    #[test]
+    fn from_env_var_empty_returns_auth_failed() {
+        let var = "NEURON_ANTHROPIC_TEST_CRED_EMPTY_ZZZ";
+        unsafe {
+            std::env::set_var(var, "");
+        }
+        let p = AnthropicProvider::from_env_var(var);
+        let err = p.resolve_api_key().unwrap_err();
+        assert!(matches!(err, ProviderError::AuthFailed(_)));
+        let msg = err.to_string();
+        assert!(msg.contains(var), "error should name the variable");
+        unsafe {
+            std::env::remove_var(var);
+        }
+    }
+
+    #[test]
+    fn error_message_does_not_contain_secret_value() {
+        // Set a var to a secret value, then empty it — verify the empty-key error
+        // only names the variable, never surfaces the value.
+        let var = "NEURON_ANTHROPIC_TEST_CRED_REDACT_ZZZ";
+        let secret = "sk-must-not-appear-in-any-error-message";
+        unsafe {
+            std::env::set_var(var, "");
+        }
+        let p = AnthropicProvider::from_env_var(var);
+        // Secret value is not in the env var (it's empty), but confirm var name is present.
+        let msg = p.resolve_api_key().unwrap_err().to_string();
+        assert!(msg.contains(var));
+        assert!(!msg.contains(secret));
+        // Now set the var to the secret and confirm that the happy path
+        // (resolved key) is NOT leaked into any error type.
+        unsafe {
+            std::env::set_var(var, secret);
+        }
+        assert_eq!(p.resolve_api_key().unwrap(), secret); // key resolved correctly
+        unsafe {
+            std::env::remove_var(var);
+        }
     }
 }

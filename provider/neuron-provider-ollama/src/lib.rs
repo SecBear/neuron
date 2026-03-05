@@ -178,6 +178,9 @@ impl OllamaProvider {
         }
     }
 
+    /// Parse an [`OllamaResponse`] into a [`ProviderResponse`].
+    ///
+    /// Ollama does not report `content_filter` stop reason — no mapping needed.
     fn parse_response(&self, response: OllamaResponse) -> ProviderResponse {
         let mut content: Vec<ContentPart> = Vec::new();
 
@@ -254,10 +257,14 @@ impl Provider for OllamaProvider {
             .json(&api_request);
 
         async move {
-            let http_response = http_request
-                .send()
-                .await
-                .map_err(|e| ProviderError::RequestFailed(e.to_string()))?;
+            let http_response =
+                http_request
+                    .send()
+                    .await
+                    .map_err(|e| ProviderError::TransientError {
+                        message: e.to_string(),
+                        status: None,
+                    })?;
 
             let status = http_response.status();
             if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
@@ -271,9 +278,7 @@ impl Provider for OllamaProvider {
             }
             if !status.is_success() {
                 let body = http_response.text().await.unwrap_or_default();
-                return Err(ProviderError::RequestFailed(format!(
-                    "HTTP {status}: {body}"
-                )));
+                return Err(map_error_response(status, &body));
             }
 
             let api_response: OllamaResponse = http_response
@@ -283,6 +288,18 @@ impl Provider for OllamaProvider {
 
             Ok(self.parse_response(api_response))
         }
+    }
+}
+
+/// Map a non-success HTTP response to an appropriate [`ProviderError`].
+///
+/// Ollama has no content-safety filter, so all non-success, non-auth, non-rate-limit
+/// responses are treated as transient errors.
+fn map_error_response(status: reqwest::StatusCode, body: &str) -> ProviderError {
+    let status_u16 = status.as_u16();
+    ProviderError::TransientError {
+        message: format!("HTTP {status}: {body}"),
+        status: Some(status_u16),
     }
 }
 
@@ -712,5 +729,33 @@ mod tests {
         let api_request = provider.build_request(&request);
         assert_eq!(api_request.messages[0].role, "system");
         assert_eq!(api_request.messages[0].content, "You are helpful.");
+    }
+
+    #[test]
+    fn map_error_500_returns_transient() {
+        let status = reqwest::StatusCode::INTERNAL_SERVER_ERROR;
+        let err = map_error_response(status, "internal server error");
+        assert!(matches!(
+            err,
+            ProviderError::TransientError {
+                status: Some(500),
+                ..
+            }
+        ));
+        assert!(err.is_retryable());
+    }
+
+    #[test]
+    fn map_error_503_returns_transient() {
+        let status = reqwest::StatusCode::SERVICE_UNAVAILABLE;
+        let err = map_error_response(status, "model not available");
+        assert!(matches!(
+            err,
+            ProviderError::TransientError {
+                status: Some(503),
+                ..
+            }
+        ));
+        assert!(err.is_retryable());
     }
 }

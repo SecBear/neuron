@@ -1,0 +1,115 @@
+use async_trait::async_trait;
+use layer0::effect::{Effect, Scope};
+use layer0::error::HookError;
+use layer0::hook::{Hook, HookAction, HookContext, HookPoint};
+use layer0::id::AgentId;
+use layer0::state::StateStore;
+use layer0::test_utils::InMemoryStore;
+use neuron_hooks::HookRegistry;
+use neuron_orch_kit::{EffectInterpreter, ExecutionEvent, ExecutionTrace, LocalEffectInterpreter};
+use serde_json::json;
+use std::sync::Arc;
+
+// ── Test hooks ──────────────────────────────────────────────────────────────
+
+struct HaltHook {
+    points: Vec<HookPoint>,
+    reason: String,
+}
+
+#[async_trait]
+impl Hook for HaltHook {
+    fn points(&self) -> &[HookPoint] {
+        &self.points
+    }
+
+    async fn on_event(&self, _ctx: &HookContext) -> Result<HookAction, HookError> {
+        Ok(HookAction::Halt {
+            reason: self.reason.clone(),
+        })
+    }
+}
+
+// ── Tests ───────────────────────────────────────────────────────────────────
+
+/// Halt guardrail at `PreMemoryWrite` skips the write and produces no
+/// `MemoryWritten` trace event.
+#[tokio::test]
+async fn interpreter_halt_hook_skips_write() {
+    let state = Arc::new(InMemoryStore::new());
+
+    let mut registry = HookRegistry::new();
+    registry.add_guardrail(Arc::new(HaltHook {
+        points: vec![HookPoint::PreMemoryWrite],
+        reason: "blocked".into(),
+    }));
+
+    let interp = LocalEffectInterpreter::new(state.clone()).with_hooks(Arc::new(registry));
+
+    let effect = Effect::WriteMemory {
+        scope: Scope::Global,
+        key: "k".into(),
+        value: json!("v"),
+        tier: None,
+        lifetime: None,
+        content_kind: None,
+        salience: None,
+        ttl: None,
+    };
+
+    let mut followups = vec![];
+    let mut trace = ExecutionTrace::new();
+
+    interp
+        .execute_effect(&effect, &mut followups, &mut trace)
+        .await
+        .expect("execute_effect ok — halt is not an error");
+
+    assert!(
+        !trace
+            .events
+            .iter()
+            .any(|e| matches!(e, ExecutionEvent::MemoryWritten { .. })),
+        "halt hook must suppress the MemoryWritten trace event"
+    );
+
+    let got = state.read(&Scope::Global, "k").await.expect("read ok");
+    assert_eq!(got, None, "halt hook must prevent the state write");
+}
+
+/// Without hooks, `WriteMemory` writes and emits `MemoryWritten`.
+#[tokio::test]
+async fn interpreter_no_hooks_writes_normally() {
+    let state = Arc::new(InMemoryStore::new());
+    let interp = LocalEffectInterpreter::new(state.clone());
+
+    let effect = Effect::WriteMemory {
+        scope: Scope::Global,
+        key: "k2".into(),
+        value: json!(99),
+        tier: None,
+        lifetime: None,
+        content_kind: None,
+        salience: None,
+        ttl: None,
+    };
+
+    let mut followups: Vec<(AgentId, layer0::operator::OperatorInput)> = vec![];
+    let mut trace = ExecutionTrace::new();
+
+    interp
+        .execute_effect(&effect, &mut followups, &mut trace)
+        .await
+        .expect("execute_effect ok");
+
+    assert!(
+        trace
+            .events
+            .iter()
+            .any(|e| matches!(e, ExecutionEvent::MemoryWritten { key } if key == "k2")),
+        "expected MemoryWritten event in trace"
+    );
+
+    let got = state.read(&Scope::Global, "k2").await.expect("read ok");
+    assert_eq!(got, Some(json!(99)));
+}

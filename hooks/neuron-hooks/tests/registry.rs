@@ -20,7 +20,7 @@ async fn empty_registry_returns_continue() {
 async fn single_hook_dispatches() {
     let mut registry = HookRegistry::new();
     let hook = Arc::new(LoggingHook::new());
-    registry.add(hook.clone());
+    registry.add_observer(hook.clone());
 
     let ctx = HookContext::new(HookPoint::PreInference);
     let action = registry.dispatch(&ctx).await;
@@ -57,15 +57,15 @@ async fn hooks_execute_in_registration_order() {
     let log = Arc::new(std::sync::Mutex::new(Vec::new()));
 
     let mut registry = HookRegistry::new();
-    registry.add(Arc::new(NamedHook {
+    registry.add_guardrail(Arc::new(NamedHook {
         name: "first".into(),
         log: Arc::clone(&log),
     }));
-    registry.add(Arc::new(NamedHook {
+    registry.add_guardrail(Arc::new(NamedHook {
         name: "second".into(),
         log: Arc::clone(&log),
     }));
-    registry.add(Arc::new(NamedHook {
+    registry.add_guardrail(Arc::new(NamedHook {
         name: "third".into(),
         log: Arc::clone(&log),
     }));
@@ -100,12 +100,12 @@ async fn halt_stops_pipeline() {
     let log = Arc::new(std::sync::Mutex::new(Vec::new()));
 
     let mut registry = HookRegistry::new();
-    registry.add(Arc::new(NamedHook {
+    registry.add_guardrail(Arc::new(NamedHook {
         name: "before-halt".into(),
         log: Arc::clone(&log),
     }));
-    registry.add(Arc::new(HaltingHook));
-    registry.add(Arc::new(NamedHook {
+    registry.add_guardrail(Arc::new(HaltingHook));
+    registry.add_guardrail(Arc::new(NamedHook {
         name: "after-halt".into(),
         log: Arc::clone(&log),
     }));
@@ -127,7 +127,7 @@ async fn halt_stops_pipeline() {
 async fn hooks_only_fire_at_registered_points() {
     let mut registry = HookRegistry::new();
     let hook = Arc::new(LoggingHook::new());
-    registry.add(hook.clone());
+    registry.add_observer(hook.clone());
 
     // LoggingHook registers for all 5 points. Let's check it fires.
     let ctx = HookContext::new(HookPoint::ExitCheck);
@@ -147,7 +147,7 @@ async fn hooks_only_fire_at_registered_points() {
     }
 
     let mut registry2 = HookRegistry::new();
-    registry2.add(Arc::new(PreToolOnly));
+    registry2.add_guardrail(Arc::new(PreToolOnly));
 
     let ctx = HookContext::new(HookPoint::PreInference);
     let action = registry2.dispatch(&ctx).await;
@@ -175,8 +175,8 @@ async fn hook_error_does_not_halt_pipeline() {
     let log = Arc::new(std::sync::Mutex::new(Vec::new()));
 
     let mut registry = HookRegistry::new();
-    registry.add(Arc::new(ErroringHook));
-    registry.add(Arc::new(NamedHook {
+    registry.add_guardrail(Arc::new(ErroringHook));
+    registry.add_guardrail(Arc::new(NamedHook {
         name: "after-error".into(),
         log: Arc::clone(&log),
     }));
@@ -210,7 +210,7 @@ impl Hook for SkipToolHook {
 #[tokio::test]
 async fn skip_tool_stops_pipeline() {
     let mut registry = HookRegistry::new();
-    registry.add(Arc::new(SkipToolHook));
+    registry.add_guardrail(Arc::new(SkipToolHook));
 
     let ctx = HookContext::new(HookPoint::PreToolUse);
     let action = registry.dispatch(&ctx).await;
@@ -235,7 +235,7 @@ impl Hook for ModifyInputHook {
 #[tokio::test]
 async fn modify_tool_input_stops_pipeline() {
     let mut registry = HookRegistry::new();
-    registry.add(Arc::new(ModifyInputHook));
+    registry.add_transformer(Arc::new(ModifyInputHook));
 
     let ctx = HookContext::new(HookPoint::PreToolUse);
     let action = registry.dispatch(&ctx).await;

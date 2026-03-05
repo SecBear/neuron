@@ -2,15 +2,26 @@
 //! Context strategy implementations for neuron-turn.
 //!
 //! Provides [`SlidingWindow`] for dropping oldest messages when context
-//! exceeds a limit. `NoCompaction` is in neuron-turn itself.
+//! exceeds a limit, [`SaliencePackingStrategy`] for salience-aware
+//! packing via iterative MMR selection, and [`ContextAssembler`] for
+//! assembling sweep context packages from state store data.
+//! `NoCompaction` is in neuron-turn itself.
 
-use neuron_turn::context::ContextStrategy;
+pub mod context_assembly;
+mod salience_packing;
+
+pub use context_assembly::{ContextAssembler, ContextAssemblyConfig};
+pub use salience_packing::{SaliencePackingConfig, SaliencePackingStrategy};
+
+use layer0::CompactionPolicy;
+use neuron_turn::context::{AnnotatedMessage, CompactionError, ContextStrategy};
 use neuron_turn::types::{ContentPart, ProviderMessage};
 
 /// Sliding window context strategy.
 ///
 /// When context exceeds the limit, drops the oldest messages
 /// (keeping the first message, which is typically the initial user message).
+/// Pinned messages (policy = `Pinned`) are always preserved.
 pub struct SlidingWindow {
     /// Approximate chars-per-token ratio for estimation.
     chars_per_token: usize,
@@ -55,50 +66,65 @@ impl Default for SlidingWindow {
 }
 
 impl ContextStrategy for SlidingWindow {
-    fn token_estimate(&self, messages: &[ProviderMessage]) -> usize {
+    fn token_estimate(&self, messages: &[AnnotatedMessage]) -> usize {
         messages
             .iter()
-            .map(|m| self.estimate_message_tokens(m))
+            .map(|m| self.estimate_message_tokens(&m.message))
             .sum()
     }
 
-    fn should_compact(&self, messages: &[ProviderMessage], limit: usize) -> bool {
+    fn should_compact(&self, messages: &[AnnotatedMessage], limit: usize) -> bool {
         self.token_estimate(messages) > limit
     }
 
-    fn compact(&self, messages: Vec<ProviderMessage>) -> Vec<ProviderMessage> {
-        if messages.len() <= 2 {
-            return messages;
-        }
+    fn compact(
+        &self,
+        messages: Vec<AnnotatedMessage>,
+    ) -> Result<Vec<AnnotatedMessage>, CompactionError> {
+        // Partition: pinned messages survive all compaction.
+        let (pinned, normal): (Vec<AnnotatedMessage>, Vec<AnnotatedMessage>) = messages
+            .into_iter()
+            .partition(|m| matches!(m.policy, Some(CompactionPolicy::Pinned)));
 
-        // Keep first message + most recent messages that fit
-        let first = messages[0].clone();
-        let rest = &messages[1..];
+        // Apply sliding-window to non-pinned messages (existing algorithm).
+        let compacted_normal = if normal.len() <= 2 {
+            normal
+        } else {
+            let first = normal[0].clone();
+            let rest = &normal[1..];
 
-        // Work backwards, accumulating messages until we hit roughly half the
-        // original size (heuristic: keep recent context, drop old)
-        let total_tokens: usize = messages
-            .iter()
-            .map(|m| self.estimate_message_tokens(m))
-            .sum();
-        let target = total_tokens / 2;
+            let total_tokens: usize = {
+                let first_tokens = self.estimate_message_tokens(&first.message);
+                let rest_tokens: usize = rest
+                    .iter()
+                    .map(|m| self.estimate_message_tokens(&m.message))
+                    .sum();
+                first_tokens + rest_tokens
+            };
+            let target = total_tokens / 2;
 
-        let mut kept = Vec::new();
-        let mut current_tokens = self.estimate_message_tokens(&first);
+            let mut kept = Vec::new();
+            let mut current_tokens = self.estimate_message_tokens(&first.message);
 
-        for msg in rest.iter().rev() {
-            let msg_tokens = self.estimate_message_tokens(msg);
-            if current_tokens + msg_tokens > target && !kept.is_empty() {
-                break;
+            for msg in rest.iter().rev() {
+                let msg_tokens = self.estimate_message_tokens(&msg.message);
+                if current_tokens + msg_tokens > target && !kept.is_empty() {
+                    break;
+                }
+                kept.push(msg.clone());
+                current_tokens += msg_tokens;
             }
-            kept.push(msg.clone());
-            current_tokens += msg_tokens;
-        }
 
-        kept.reverse();
-        let mut result = vec![first];
-        result.extend(kept);
-        result
+            kept.reverse();
+            let mut result = vec![first];
+            result.extend(kept);
+            result
+        };
+
+        // Pinned messages go first (invariants), then compacted normal messages.
+        let mut result = pinned;
+        result.extend(compacted_normal);
+        Ok(result)
     }
 }
 
@@ -107,13 +133,13 @@ mod tests {
     use super::*;
     use neuron_turn::types::Role;
 
-    fn text_message(role: Role, text: &str) -> ProviderMessage {
-        ProviderMessage {
+    fn text_message(role: Role, text: &str) -> AnnotatedMessage {
+        AnnotatedMessage::from(ProviderMessage {
             role,
             content: vec![ContentPart::Text {
                 text: text.to_string(),
             }],
-        }
+        })
     }
 
     #[test]
@@ -143,11 +169,11 @@ mod tests {
             text_message(Role::User, &"latest ".repeat(100)),
         ];
 
-        let compacted = sw.compact(messages.clone());
+        let compacted = sw.compact(messages.clone()).unwrap();
 
         // Should keep first message
-        assert_eq!(compacted[0].role, Role::User);
-        assert!(compacted[0].content[0] == messages[0].content[0]);
+        assert_eq!(compacted[0].message.role, Role::User);
+        assert!(compacted[0].message.content[0] == messages[0].message.content[0]);
 
         // Should keep some recent messages
         assert!(compacted.len() < messages.len());
@@ -155,8 +181,8 @@ mod tests {
 
         // Last message should be the latest
         assert_eq!(
-            compacted.last().unwrap().content[0],
-            messages.last().unwrap().content[0]
+            compacted.last().unwrap().message.content[0],
+            messages.last().unwrap().message.content[0]
         );
     }
 
@@ -168,7 +194,7 @@ mod tests {
             text_message(Role::Assistant, "hello"),
         ];
 
-        let compacted = sw.compact(messages.clone());
+        let compacted = sw.compact(messages.clone()).unwrap();
         assert_eq!(compacted.len(), messages.len());
     }
 
@@ -176,7 +202,34 @@ mod tests {
     fn sliding_window_single_message_unchanged() {
         let sw = SlidingWindow::new();
         let messages = vec![text_message(Role::User, "hi")];
-        let compacted = sw.compact(messages.clone());
+        let compacted = sw.compact(messages.clone()).unwrap();
         assert_eq!(compacted.len(), 1);
+    }
+
+    #[test]
+    fn sliding_window_pinned_messages_survive_compaction() {
+        let sw = SlidingWindow::new();
+        // Build a list where a pinned message would otherwise be dropped
+        let pinned = AnnotatedMessage::pinned(ProviderMessage {
+            role: Role::User,
+            content: vec![ContentPart::Text {
+                text: "pinned constraint".to_string(),
+            }],
+        });
+        let mut messages = vec![pinned.clone()];
+        // Add enough normal messages to trigger compaction
+        for i in 0..10 {
+            messages.push(text_message(Role::User, &"x".repeat(400 + i * 10)));
+        }
+
+        let compacted = sw.compact(messages).unwrap();
+
+        // The pinned message must survive
+        assert!(
+            compacted
+                .iter()
+                .any(|m| m.message.content == pinned.message.content),
+            "pinned message must survive compaction"
+        );
     }
 }

@@ -303,6 +303,16 @@ fn exit_reason_observer_halt_round_trip() {
     assert_eq!(e, back);
 }
 
+#[test]
+fn exit_reason_safety_stop_round_trip() {
+    let e = ExitReason::SafetyStop {
+        reason: "refusal".into(),
+    };
+    let json = serde_json::to_string(&e).unwrap();
+    let back: ExitReason = serde_json::from_str(&json).unwrap();
+    assert_eq!(e, back);
+}
+
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Effect round-trips (including Custom)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -313,6 +323,11 @@ fn effect_write_memory_round_trip() {
         scope: Scope::Session(SessionId::new("s1")),
         key: "notes".into(),
         value: json!({"text": "remember this"}),
+        tier: None,
+        lifetime: None,
+        content_kind: None,
+        salience: None,
+        ttl: None,
     };
     let json = serde_json::to_string(&e).unwrap();
     let back: Effect = serde_json::from_str(&json).unwrap();
@@ -979,6 +994,147 @@ fn effect_delete_memory_round_trip() {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// MemoryTier and StoreOptions round-trips
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+#[test]
+fn memory_tier_round_trip() {
+    use layer0::MemoryTier;
+    let tiers = [MemoryTier::Hot, MemoryTier::Warm, MemoryTier::Cold];
+    for tier in tiers {
+        let json = serde_json::to_string(&tier).unwrap();
+        let back: MemoryTier = serde_json::from_str(&json).unwrap();
+        assert_eq!(tier, back);
+    }
+}
+
+#[test]
+fn store_options_default() {
+    use layer0::StoreOptions;
+    let opts = StoreOptions::default();
+    assert!(opts.tier.is_none());
+}
+
+#[test]
+fn write_memory_with_tier_round_trip() {
+    use layer0::MemoryTier;
+    let e = Effect::WriteMemory {
+        scope: Scope::Global,
+        key: "k".into(),
+        value: json!(1),
+        tier: Some(MemoryTier::Warm),
+        lifetime: None,
+        content_kind: None,
+        salience: None,
+        ttl: None,
+    };
+    let json = serde_json::to_value(&e).unwrap();
+    let back: Effect = serde_json::from_value(json.clone()).unwrap();
+    let json2 = serde_json::to_value(&back).unwrap();
+    assert_eq!(json, json2);
+}
+
+#[test]
+fn write_memory_tier_omitted_when_none() {
+    let e = Effect::WriteMemory {
+        scope: Scope::Global,
+        key: "k".into(),
+        value: json!(1),
+        tier: None,
+        lifetime: None,
+        content_kind: None,
+        salience: None,
+        ttl: None,
+    };
+    let json = serde_json::to_value(&e).unwrap();
+    assert!(
+        json.get("tier").is_none(),
+        "tier: None must not appear in serialized JSON, got: {json}"
+    );
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Lifetime / ContentKind / StoreOptions round-trips (V32-16)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+#[test]
+fn test_lifetime_serde() {
+    use layer0::Lifetime;
+    for v in [Lifetime::Transient, Lifetime::Session, Lifetime::Durable] {
+        let json = serde_json::to_string(&v).unwrap();
+        let back: Lifetime = serde_json::from_str(&json).unwrap();
+        assert_eq!(v, back);
+    }
+}
+
+#[test]
+fn test_content_kind_serde() {
+    use layer0::ContentKind;
+    let cases = [
+        ContentKind::Episodic,
+        ContentKind::Semantic,
+        ContentKind::Procedural,
+        ContentKind::Structural,
+        ContentKind::Custom("domain::MyKind".into()),
+    ];
+    for v in cases {
+        let json = serde_json::to_string(&v).unwrap();
+        let back: ContentKind = serde_json::from_str(&json).unwrap();
+        assert_eq!(v, back);
+    }
+}
+
+#[test]
+fn test_store_options_serde() {
+    use layer0::state::StoreOptions;
+    use layer0::{ContentKind, DurationMs, Lifetime, MemoryTier};
+    let opts = StoreOptions {
+        tier: Some(MemoryTier::Hot),
+        lifetime: Some(Lifetime::Durable),
+        content_kind: Some(ContentKind::Semantic),
+        salience: Some(0.9),
+        ttl: Some(DurationMs::from_secs(3600)),
+    };
+    let json = serde_json::to_string(&opts).unwrap();
+    let back: StoreOptions = serde_json::from_str(&json).unwrap();
+    assert_eq!(back.lifetime, Some(Lifetime::Durable));
+    assert_eq!(back.content_kind, Some(ContentKind::Semantic));
+    assert_eq!(back.salience, Some(0.9));
+}
+
+#[test]
+fn test_write_memory_effect_with_new_fields_serde() {
+    use layer0::{ContentKind, DurationMs, Lifetime};
+    let e = Effect::WriteMemory {
+        scope: Scope::Global,
+        key: "k".into(),
+        value: serde_json::json!(42),
+        tier: None,
+        lifetime: Some(Lifetime::Session),
+        content_kind: Some(ContentKind::Episodic),
+        salience: Some(0.5),
+        ttl: Some(DurationMs::from_millis(60_000)),
+    };
+    let json = serde_json::to_string(&e).unwrap();
+    let back: Effect = serde_json::from_str(&json).unwrap();
+    if let Effect::WriteMemory {
+        lifetime,
+        content_kind,
+        salience,
+        ttl,
+        ..
+    } = back
+    {
+        assert_eq!(lifetime, Some(Lifetime::Session));
+        assert_eq!(content_kind, Some(ContentKind::Episodic));
+        assert_eq!(salience, Some(0.5));
+        assert!(ttl.is_some());
+    } else {
+        panic!("wrong variant");
+    }
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // OperatorConfig default
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -1080,6 +1236,60 @@ fn compaction_provider_managed_round_trip() {
     assert_eq!(json, json2);
 }
 
+#[test]
+fn compaction_failed_round_trip() {
+    let e = CompactionEvent::CompactionFailed {
+        agent: AgentId::new("a1"),
+        error: "timeout during summarization".into(),
+        strategy: "sliding_window".into(),
+    };
+    let json = serde_json::to_string(&e).unwrap();
+    let back: CompactionEvent = serde_json::from_str(&json).unwrap();
+    let json2 = serde_json::to_string(&back).unwrap();
+    assert_eq!(json, json2);
+}
+
+#[test]
+fn compaction_skipped_round_trip() {
+    let e = CompactionEvent::CompactionSkipped {
+        agent: AgentId::new("a1"),
+        reason: "below threshold".into(),
+    };
+    let json = serde_json::to_string(&e).unwrap();
+    let back: CompactionEvent = serde_json::from_str(&json).unwrap();
+    let json2 = serde_json::to_string(&back).unwrap();
+    assert_eq!(json, json2);
+}
+
+#[test]
+fn flush_failed_round_trip() {
+    let e = CompactionEvent::FlushFailed {
+        agent: AgentId::new("a1"),
+        scope: Scope::Session(SessionId::new("s1")),
+        key: "notes".into(),
+        error: "write timeout".into(),
+    };
+    let json = serde_json::to_string(&e).unwrap();
+    let back: CompactionEvent = serde_json::from_str(&json).unwrap();
+    let json2 = serde_json::to_string(&back).unwrap();
+    assert_eq!(json, json2);
+}
+
+#[test]
+fn compaction_quality_round_trip() {
+    let e = CompactionEvent::CompactionQuality {
+        agent: AgentId::new("a1"),
+        tokens_before: 80000,
+        tokens_after: 40000,
+        items_preserved: 10,
+        items_lost: 5,
+    };
+    let json = serde_json::to_string(&e).unwrap();
+    let back: CompactionEvent = serde_json::from_str(&json).unwrap();
+    let json2 = serde_json::to_string(&back).unwrap();
+    assert_eq!(json, json2);
+}
+
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // HookAction serde round-trips
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1142,6 +1352,70 @@ fn budget_event_all_variants_round_trip() {
         let json2 = serde_json::to_string(&back).unwrap();
         assert_eq!(json, json2);
     }
+}
+
+#[test]
+fn budget_event_step_limit_approaching_round_trip() {
+    let e = BudgetEvent::StepLimitApproaching {
+        agent: AgentId::new("a1"),
+        current: 8,
+        max: 10,
+    };
+    let json = serde_json::to_string(&e).unwrap();
+    let back: BudgetEvent = serde_json::from_str(&json).unwrap();
+    let json2 = serde_json::to_string(&back).unwrap();
+    assert_eq!(json, json2);
+}
+
+#[test]
+fn budget_event_step_limit_reached_round_trip() {
+    let e = BudgetEvent::StepLimitReached {
+        agent: AgentId::new("a1"),
+        total_tool_calls: 10,
+    };
+    let json = serde_json::to_string(&e).unwrap();
+    let back: BudgetEvent = serde_json::from_str(&json).unwrap();
+    let json2 = serde_json::to_string(&back).unwrap();
+    assert_eq!(json, json2);
+}
+
+#[test]
+fn budget_event_loop_detected_round_trip() {
+    let e = BudgetEvent::LoopDetected {
+        agent: AgentId::new("a1"),
+        tool_name: "search".to_string(),
+        consecutive_count: 3,
+        max: 3,
+    };
+    let json = serde_json::to_string(&e).unwrap();
+    let back: BudgetEvent = serde_json::from_str(&json).unwrap();
+    let json2 = serde_json::to_string(&back).unwrap();
+    assert_eq!(json, json2);
+}
+
+#[test]
+fn budget_event_timeout_approaching_round_trip() {
+    let e = BudgetEvent::TimeoutApproaching {
+        agent: AgentId::new("a1"),
+        elapsed: DurationMs::from_millis(8000),
+        max_duration: DurationMs::from_millis(10000),
+    };
+    let json = serde_json::to_string(&e).unwrap();
+    let back: BudgetEvent = serde_json::from_str(&json).unwrap();
+    let json2 = serde_json::to_string(&back).unwrap();
+    assert_eq!(json, json2);
+}
+
+#[test]
+fn budget_event_timeout_reached_round_trip() {
+    let e = BudgetEvent::TimeoutReached {
+        agent: AgentId::new("a1"),
+        elapsed: DurationMs::from_millis(10050),
+    };
+    let json = serde_json::to_string(&e).unwrap();
+    let back: BudgetEvent = serde_json::from_str(&json).unwrap();
+    let json2 = serde_json::to_string(&back).unwrap();
+    assert_eq!(json, json2);
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1372,3 +1646,114 @@ fn hook_action_modify_tool_output_round_trip() {
     let json2 = serde_json::to_string(&back).unwrap();
     assert_eq!(json, json2);
 }
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// GraphRAG: SearchOptions, MemoryLink, LinkMemory, UnlinkMemory
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+#[test]
+fn search_options_default_all_none() {
+    use layer0::SearchOptions;
+    let opts = SearchOptions::default();
+    assert!(opts.min_score.is_none());
+    assert!(opts.content_kind.is_none());
+    assert!(opts.tier.is_none());
+    assert!(opts.max_depth.is_none());
+}
+
+#[test]
+fn search_options_full_round_trip() {
+    use layer0::{ContentKind, MemoryTier, SearchOptions};
+    let opts = SearchOptions {
+        min_score: Some(0.75),
+        content_kind: Some(ContentKind::Semantic),
+        tier: Some(MemoryTier::Hot),
+        max_depth: Some(3),
+    };
+    let json = serde_json::to_string(&opts).unwrap();
+    let back: SearchOptions = serde_json::from_str(&json).unwrap();
+    assert_eq!(back.min_score, Some(0.75));
+    assert_eq!(back.content_kind, Some(ContentKind::Semantic));
+    assert_eq!(back.tier, Some(MemoryTier::Hot));
+    assert_eq!(back.max_depth, Some(3));
+}
+
+#[test]
+fn search_options_empty_omits_all_fields() {
+    use layer0::SearchOptions;
+    let opts = SearchOptions::default();
+    let json = serde_json::to_value(&opts).unwrap();
+    // All Option fields with skip_serializing_if must be absent
+    assert!(json.get("min_score").is_none());
+    assert!(json.get("content_kind").is_none());
+    assert!(json.get("tier").is_none());
+    assert!(json.get("max_depth").is_none());
+}
+
+#[test]
+fn memory_link_new_round_trip() {
+    use layer0::MemoryLink;
+    let link = MemoryLink::new("key/a", "key/b", "references");
+    assert_eq!(link.from_key, "key/a");
+    assert_eq!(link.to_key, "key/b");
+    assert_eq!(link.relation, "references");
+    assert!(link.metadata.is_none());
+    let json = serde_json::to_string(&link).unwrap();
+    let back: MemoryLink = serde_json::from_str(&json).unwrap();
+    assert_eq!(back.from_key, link.from_key);
+    assert_eq!(back.to_key, link.to_key);
+    assert_eq!(back.relation, link.relation);
+    assert!(back.metadata.is_none());
+}
+
+#[test]
+fn memory_link_with_metadata_round_trip() {
+    use layer0::MemoryLink;
+    let mut link = MemoryLink::new("a", "b", "supersedes");
+    link.metadata = Some(json!({"weight": 0.9}));
+    let json = serde_json::to_string(&link).unwrap();
+    let back: MemoryLink = serde_json::from_str(&json).unwrap();
+    assert_eq!(back.metadata.as_ref().unwrap()["weight"], json!(0.9));
+    // Verify the JSON round-trip is stable
+    let json2 = serde_json::to_string(&back).unwrap();
+    assert_eq!(json, json2);
+}
+
+#[test]
+fn effect_link_memory_round_trip() {
+    use layer0::MemoryLink;
+    let e = Effect::LinkMemory {
+        scope: Scope::Global,
+        link: MemoryLink::new("notes/meeting", "decisions/arch", "references"),
+    };
+    let json = serde_json::to_string(&e).unwrap();
+    let back: Effect = serde_json::from_str(&json).unwrap();
+    let json2 = serde_json::to_string(&back).unwrap();
+    assert_eq!(json, json2);
+    // Verify the type tag is correct
+    let val: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert_eq!(val["type"], "link_memory");
+}
+
+#[test]
+fn effect_unlink_memory_round_trip() {
+    let e = Effect::UnlinkMemory {
+        scope: Scope::Session(SessionId::new("s1")),
+        from_key: "notes/meeting".into(),
+        to_key: "decisions/arch".into(),
+        relation: "references".into(),
+    };
+    let json = serde_json::to_string(&e).unwrap();
+    let back: Effect = serde_json::from_str(&json).unwrap();
+    let json2 = serde_json::to_string(&back).unwrap();
+    assert_eq!(json, json2);
+    // Verify the type tag is correct
+    let val: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert_eq!(val["type"], "unlink_memory");
+}
+
+// Compile-time proof: Box<dyn StateStore> and Box<dyn StateReader> are still
+// object-safe after adding the new default methods.
+// The new methods use no generics and no Self in return position — safe.
+fn _assert_state_store_still_object_safe(_: &Box<dyn StateStore>) {}
+fn _assert_state_reader_still_object_safe(_: &Box<dyn StateReader>) {}

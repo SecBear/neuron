@@ -1,6 +1,8 @@
 //! Effect system — side-effects declared by operators for external execution.
 
+use crate::duration::DurationMs;
 use crate::id::*;
+use crate::state::{ContentKind, Lifetime, MemoryTier};
 use serde::{Deserialize, Serialize};
 
 /// A side-effect declared by an operator. NOT executed by the operator —
@@ -26,6 +28,22 @@ pub enum Effect {
         key: String,
         /// The value to store.
         value: serde_json::Value,
+        /// Advisory storage tier hint. Backends may ignore this.
+        /// Defaults to `None` (no hint).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        tier: Option<MemoryTier>,
+        /// Advisory persistence policy.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        lifetime: Option<Lifetime>,
+        /// Cognitive category of the memory.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        content_kind: Option<ContentKind>,
+        /// Write-time importance hint (0.0–1.0).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        salience: Option<f64>,
+        /// Auto-expire after this duration.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        ttl: Option<DurationMs>,
     },
 
     /// Delete a value from persistent state.
@@ -73,6 +91,26 @@ pub enum Effect {
         message: String,
         /// Optional structured data.
         data: Option<serde_json::Value>,
+    },
+
+    /// Create a link between two memory entries.
+    LinkMemory {
+        /// The scope for the link.
+        scope: Scope,
+        /// The link to create.
+        link: crate::state::MemoryLink,
+    },
+
+    /// Remove a link between two memory entries.
+    UnlinkMemory {
+        /// The scope for the unlink.
+        scope: Scope,
+        /// Source key.
+        from_key: String,
+        /// Target key.
+        to_key: String,
+        /// Relationship type.
+        relation: String,
     },
 
     /// Future effect types. Named string + arbitrary payload.

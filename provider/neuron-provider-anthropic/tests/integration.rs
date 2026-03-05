@@ -25,6 +25,7 @@ async fn real_haiku_simple_completion() {
         default_model: "claude-haiku-4-5-20251001".into(),
         default_max_tokens: 128,
         default_max_turns: 5,
+        ..ReactConfig::default()
     };
 
     let op = ReactOperator::new(provider, tools, strategy, hooks, store, config);
@@ -63,6 +64,7 @@ async fn neuron_turn_is_object_safe_as_arc_dyn_operator() {
         default_model: "claude-haiku-4-5-20251001".into(),
         default_max_tokens: 64,
         default_max_turns: 3,
+        ..ReactConfig::default()
     };
 
     // Prove ReactOperator<P> can be used as Arc<dyn Operator>

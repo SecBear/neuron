@@ -13,12 +13,21 @@ use std::sync::Arc;
 
 use neuron_tool::{AliasedTool, ToolDyn, ToolError};
 use rmcp::ServiceExt;
-use rmcp::model::{CallToolRequestParams, CallToolResult, Content, RawContent, Tool as McpTool};
+use rmcp::model::{
+    CallToolRequestParams, CallToolResult, Content, GetPromptRequestParams, PromptMessage,
+    RawContent, ReadResourceRequestParams, ResourceContents, Tool as McpTool,
+};
 use rmcp::service::{Peer, RoleClient, RunningService};
 use rmcp::transport::child_process::TokioChildProcess;
 use rmcp::transport::streamable_http_client::StreamableHttpClientTransport;
 
 use crate::error::McpError;
+
+/// Number of tools above which a [`tracing::warn`] is emitted about context pollution.
+///
+/// Tool definitions consume ~50-200 tokens each; beyond 20 tools the cumulative
+/// cost becomes a meaningful fraction of the context window.
+pub const TOOL_COUNT_WARN_THRESHOLD: usize = 20;
 
 /// An MCP client that connects to a server and discovers its tools.
 ///
@@ -79,6 +88,15 @@ impl McpClient {
             .await
             .map_err(|e| McpError::Protocol(e.to_string()))?;
 
+        let tool_count = result.len();
+        if tool_count > TOOL_COUNT_WARN_THRESHOLD {
+            tracing::warn!(
+                count = tool_count,
+                threshold = TOOL_COUNT_WARN_THRESHOLD,
+                "MCP tool count exceeds recommended limit; context pollution risk"
+            );
+        }
+
         let peer = self.service.peer().clone();
         let peer = Arc::new(peer);
 
@@ -115,6 +133,26 @@ impl McpClient {
         Ok(aliased)
     }
 
+    /// Estimate the total token budget consumed by a slice of MCP tool definitions.
+    ///
+    /// Uses the chars/4 heuristic — a common approximation for token count.
+    /// This is intentionally rough; accuracy is not the goal, awareness is.
+    /// The estimate covers tool names and descriptions, which are injected into
+    /// the model context on every turn.
+    ///
+    /// Emit a warning by calling [`discover_tools`](McpClient::discover_tools),
+    /// which checks the count against [`TOOL_COUNT_WARN_THRESHOLD`] automatically.
+    pub fn tool_budget_tokens(tools: &[McpTool]) -> usize {
+        tools
+            .iter()
+            .map(|t| {
+                let name_chars = t.name.len();
+                let desc_chars = t.description.as_deref().unwrap_or("").len();
+                (name_chars + desc_chars) / 4
+            })
+            .sum()
+    }
+
     /// Shut down the MCP client connection.
     ///
     /// # Errors
@@ -126,6 +164,154 @@ impl McpClient {
             .await
             .map_err(|e| McpError::Connection(e.to_string()))?;
         Ok(())
+    }
+
+    /// Discover all resources advertised by the connected MCP server.
+    ///
+    /// Returns a vector of [`McpResourceWrapper`] instances, each capable
+    /// of reading the resource's content via the live connection.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`McpError::Protocol`] if the resource listing request fails.
+    pub async fn discover_resources(&self) -> Result<Vec<McpResourceWrapper>, McpError> {
+        let resources = self
+            .service
+            .list_all_resources()
+            .await
+            .map_err(|e| McpError::Protocol(e.to_string()))?;
+        let peer = Arc::new(self.service.peer().clone());
+        Ok(resources
+            .into_iter()
+            .map(|r| McpResourceWrapper {
+                resource: r,
+                peer: Arc::clone(&peer),
+            })
+            .collect())
+    }
+
+    /// Discover all prompts advertised by the connected MCP server.
+    ///
+    /// Returns a vector of [`McpPromptWrapper`] instances, each capable
+    /// of fetching rendered messages from the live connection.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`McpError::Protocol`] if the prompt listing request fails.
+    pub async fn discover_prompts(&self) -> Result<Vec<McpPromptWrapper>, McpError> {
+        let prompts = self
+            .service
+            .list_all_prompts()
+            .await
+            .map_err(|e| McpError::Protocol(e.to_string()))?;
+        let peer = Arc::new(self.service.peer().clone());
+        Ok(prompts
+            .into_iter()
+            .map(|p| McpPromptWrapper {
+                prompt: p,
+                peer: Arc::clone(&peer),
+            })
+            .collect())
+    }
+}
+
+/// Wrapper around an MCP resource, exposing its metadata and content.
+///
+/// Holds a reference to the MCP peer for making remote resource reads.
+pub struct McpResourceWrapper {
+    resource: rmcp::model::Resource,
+    peer: Arc<Peer<RoleClient>>,
+}
+
+impl McpResourceWrapper {
+    /// The URI identifying this resource.
+    pub fn uri(&self) -> &str {
+        &self.resource.uri
+    }
+
+    /// The human-readable name of this resource.
+    pub fn name(&self) -> &str {
+        &self.resource.name
+    }
+
+    /// An optional description of what the resource contains.
+    pub fn description(&self) -> Option<&str> {
+        self.resource.description.as_deref()
+    }
+
+    /// Read the resource contents from the server.
+    ///
+    /// Fetches the resource identified by [`uri`](McpResourceWrapper::uri) and
+    /// returns all text content blocks joined with newlines.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`McpError::Protocol`] if the remote call fails.
+    pub async fn read(&self) -> Result<String, McpError> {
+        let params = ReadResourceRequestParams {
+            meta: None,
+            uri: self.resource.uri.clone(),
+        };
+        let result = self
+            .peer
+            .read_resource(params)
+            .await
+            .map_err(|e| McpError::Protocol(e.to_string()))?;
+        let text = result
+            .contents
+            .into_iter()
+            .filter_map(|c| match c {
+                ResourceContents::TextResourceContents { text, .. } => Some(text),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        Ok(text)
+    }
+}
+
+/// Wrapper around an MCP prompt, exposing its metadata and rendering.
+///
+/// Holds a reference to the MCP peer for making remote prompt requests.
+pub struct McpPromptWrapper {
+    prompt: rmcp::model::Prompt,
+    peer: Arc<Peer<RoleClient>>,
+}
+
+impl McpPromptWrapper {
+    /// The name used to identify this prompt.
+    pub fn name(&self) -> &str {
+        &self.prompt.name
+    }
+
+    /// An optional description of what the prompt does.
+    pub fn description(&self) -> Option<&str> {
+        self.prompt.description.as_deref()
+    }
+
+    /// Retrieve rendered messages for this prompt from the server.
+    ///
+    /// The `arguments` map corresponds to the prompt's declared arguments.
+    /// Pass `None` when the prompt takes no arguments.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`McpError::Protocol`] if the remote call fails.
+    pub async fn get(
+        &self,
+        arguments: Option<serde_json::Map<String, serde_json::Value>>,
+    ) -> Result<Vec<PromptMessage>, McpError> {
+        let params = GetPromptRequestParams {
+            meta: None,
+            name: self.prompt.name.clone(),
+            arguments,
+        };
+        let result = self
+            .peer
+            .get_prompt(params)
+            .await
+            .map_err(|e| McpError::Protocol(e.to_string()))?;
+        Ok(result.messages)
     }
 }
 
@@ -282,6 +468,119 @@ mod tests {
     fn mcp_tool_wrapper_is_send_sync() {
         fn assert_send_sync<T: Send + Sync>() {}
         assert_send_sync::<McpToolWrapper>();
+    }
+
+    /// Verify that McpResourceWrapper exposes correct metadata from the underlying model.
+    ///
+    /// `McpResourceWrapper` requires a live `Peer` to construct, so these assertions
+    /// cover the identical field-access expressions used in the wrapper methods.
+    #[test]
+    fn mcp_resource_wrapper_exposes_metadata() {
+        let raw = rmcp::model::RawResource {
+            uri: "state://global/config".to_string(),
+            name: "config".to_string(),
+            title: None,
+            description: Some("Server configuration".to_string()),
+            mime_type: Some("application/json".into()),
+            size: None,
+            icons: None,
+            meta: None,
+        };
+        let resource = rmcp::model::Annotated::new(raw, None);
+        // Same as McpResourceWrapper::uri()
+        assert_eq!(resource.uri, "state://global/config");
+        // Same as McpResourceWrapper::name()
+        assert_eq!(resource.name, "config");
+        // Same as McpResourceWrapper::description()
+        assert_eq!(
+            resource.description.as_deref(),
+            Some("Server configuration")
+        );
+    }
+
+    /// Verify that McpResourceWrapper handles missing description.
+    #[test]
+    fn mcp_resource_wrapper_missing_description() {
+        let raw = rmcp::model::RawResource {
+            uri: "state://global/x".to_string(),
+            name: "x".to_string(),
+            title: None,
+            description: None,
+            mime_type: None,
+            size: None,
+            icons: None,
+            meta: None,
+        };
+        let resource = rmcp::model::Annotated::new(raw, None);
+        assert_eq!(resource.description.as_deref(), None);
+    }
+
+    /// Verify that McpPromptWrapper exposes correct metadata from the underlying model.
+    ///
+    /// Mirrors the pattern of `mcp_tool_metadata_extraction` - tests the same
+    /// field-access expressions used in the wrapper without a live Peer.
+    #[test]
+    fn mcp_prompt_wrapper_exposes_metadata() {
+        let prompt = rmcp::model::Prompt {
+            name: "greet".to_string(),
+            title: None,
+            description: Some("A greeting".to_string()),
+            arguments: None,
+            icons: None,
+            meta: None,
+        };
+        // Same as McpPromptWrapper::name()
+        assert_eq!(prompt.name, "greet");
+        // Same as McpPromptWrapper::description()
+        assert_eq!(prompt.description.as_deref(), Some("A greeting"));
+    }
+
+    /// Verify that McpPromptWrapper handles missing description.
+    #[test]
+    fn mcp_prompt_wrapper_missing_description() {
+        let prompt = rmcp::model::Prompt {
+            name: "bare".to_string(),
+            title: None,
+            description: None,
+            arguments: None,
+            icons: None,
+            meta: None,
+        };
+        assert_eq!(prompt.description.as_deref(), None);
+    }
+
+    /// Verify that McpResourceWrapper and McpPromptWrapper are Send + Sync.
+    #[test]
+    fn mcp_resource_and_prompt_wrapper_are_send_sync() {
+        fn assert_send_sync<T: Send + Sync>() {}
+        assert_send_sync::<McpResourceWrapper>();
+        assert_send_sync::<McpPromptWrapper>();
+    }
+
+    /// `tool_budget_tokens` returns 0 for an empty tool list.
+    #[test]
+    fn tool_budget_tokens_empty() {
+        let tools: Vec<McpTool> = vec![];
+        assert_eq!(McpClient::tool_budget_tokens(&tools), 0);
+    }
+
+    /// `tool_budget_tokens` sums (name_len + desc_len) / 4 per tool.
+    ///
+    /// "search" (6) + "Searches the web" (16) = 22 / 4 = 5
+    /// "read" (4) + "Read a file" (11) = 15 / 4 = 3
+    /// Total = 8
+    #[test]
+    fn tool_budget_tokens_counts_descriptions() {
+        let tools = vec![
+            make_test_tool("search", "Searches the web"),
+            make_test_tool("read", "Read a file"),
+        ];
+        let estimate = McpClient::tool_budget_tokens(&tools);
+        assert!(
+            estimate > 0,
+            "non-empty tool list must produce a non-zero estimate"
+        );
+        assert_eq!(estimate, 8);
     }
 
     /// Integration test that connects to a real MCP server.

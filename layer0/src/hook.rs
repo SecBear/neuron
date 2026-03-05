@@ -1,5 +1,6 @@
 //! The Hook interface — observation and intervention in the turn's inner loop.
 
+use crate::state::StoreOptions;
 use crate::{content::Content, error::HookError};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -21,6 +22,13 @@ pub enum HookPoint {
     ExitCheck,
     /// During tool execution: a streaming update chunk is available.
     ToolExecutionUpdate,
+    /// After steering source returns messages, before they enter context.
+    /// Guardrails can Halt to reject the steering injection.
+    PreSteeringInject,
+    /// After tools are skipped due to steering. Observation only.
+    PostSteeringSkip,
+    /// Before a WriteMemory effect executes. Guardrails can Halt to prevent the write.
+    PreMemoryWrite,
 }
 
 /// What context is available to a hook at its firing point.
@@ -36,7 +44,6 @@ pub struct HookContext {
     /// Tool input (only at PreToolUse).
     pub tool_input: Option<serde_json::Value>,
     /// Tool result (only at PostToolUse).
-    /// Tool result (only at PostToolUse).
     pub tool_result: Option<String>,
     /// Model response (only at PostInference).
     pub model_output: Option<Content>,
@@ -50,6 +57,23 @@ pub struct HookContext {
     pub elapsed: crate::duration::DurationMs,
     /// Streaming chunk text (only at ToolExecutionUpdate).
     pub tool_chunk: Option<String>,
+    /// Steering messages about to be injected (only at PreSteeringInject).
+    #[serde(default)]
+    pub steering_messages: Option<Vec<String>>,
+    /// Tool names skipped due to steering (only at PostSteeringSkip).
+    #[serde(default)]
+    pub skipped_tools: Option<Vec<String>>,
+    /// Memory key being written (only at PreMemoryWrite).
+    #[serde(default)]
+    pub memory_key: Option<String>,
+    /// Memory value being written (only at PreMemoryWrite).
+    #[serde(default)]
+    pub memory_value: Option<serde_json::Value>,
+    /// Advisory storage options for the write being evaluated (only at PreMemoryWrite).
+    ///
+    /// Contains tier, lifetime, content_kind, salience, and ttl hints.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub memory_options: Option<StoreOptions>,
 }
 
 impl HookContext {
@@ -66,6 +90,11 @@ impl HookContext {
             turns_completed: 0,
             elapsed: crate::duration::DurationMs::ZERO,
             tool_chunk: None,
+            steering_messages: None,
+            skipped_tools: None,
+            memory_key: None,
+            memory_value: None,
+            memory_options: None,
         }
     }
 }
@@ -130,4 +159,47 @@ pub trait Hook: Send + Sync {
     /// Returning an error does NOT halt the turn — it logs the error
     /// and continues. Use HookAction::Halt to halt.
     async fn on_event(&self, ctx: &HookContext) -> Result<HookAction, HookError>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hookpoint_serde_roundtrip() {
+        let variants = [
+            HookPoint::PreSteeringInject,
+            HookPoint::PostSteeringSkip,
+            HookPoint::PreMemoryWrite,
+        ];
+        for variant in variants {
+            let json = serde_json::to_string(&variant).expect("serialize");
+            let roundtripped: HookPoint = serde_json::from_str(&json).expect("deserialize");
+            assert_eq!(variant, roundtripped);
+        }
+    }
+
+    #[test]
+    fn hookcontext_new_steering_fields_are_none() {
+        let ctx = HookContext::new(HookPoint::PreSteeringInject);
+        assert!(ctx.steering_messages.is_none());
+        assert!(ctx.skipped_tools.is_none());
+    }
+
+    #[test]
+    fn hookcontext_new_memory_fields_are_none() {
+        let ctx = HookContext::new(HookPoint::PreMemoryWrite);
+        assert!(ctx.memory_key.is_none());
+        assert!(ctx.memory_value.is_none());
+        assert!(ctx.memory_options.is_none());
+    }
+
+    #[test]
+    fn hookcontext_steering_fields_populated() {
+        let mut ctx = HookContext::new(HookPoint::PreSteeringInject);
+        ctx.steering_messages = Some(vec!["msg".to_string()]);
+        let msgs = ctx.steering_messages.as_ref().expect("should be Some");
+        assert_eq!(msgs.len(), 1);
+        assert_eq!(msgs[0], "msg");
+    }
 }

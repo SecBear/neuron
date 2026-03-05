@@ -111,6 +111,17 @@ pub enum ExitReason {
     },
     /// Unrecoverable error during execution.
     Error,
+    /// Provider safety system stopped generation (HTTP 200, content filtered).
+    ///
+    /// Semantically distinct from `Error` (not a transport or execution failure)
+    /// and `Complete` (model did not finish naturally). Arrives via
+    /// `StopReason::ContentFilter` in the provider response — the provider
+    /// acknowledged the request but refused to complete it. Not retriable
+    /// without modification to the context or request.
+    SafetyStop {
+        /// Human-readable reason string supplied by the provider or runtime.
+        reason: String,
+    },
     /// Future exit reasons.
     Custom(String),
 }

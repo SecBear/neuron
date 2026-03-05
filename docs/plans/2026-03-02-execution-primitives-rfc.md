@@ -1,7 +1,7 @@
-# RFC: Execution Primitives for Rho‑Class Operators (Planner, Steering, Streaming, Effects)
+ Execution Primitives for Composable Operators (Planner, Steering, Streaming, Effects)
 
 ## Summary
-We just added three opt‑in capabilities to support Rho‑like systems:
+We just added three opt‑in capabilities to support composable operator systems:
 - ToolExecutionPlanner + ConcurrencyDecider (with BarrierPlanner)
 - SteeringSource (mid‑loop message injection with batch skip semantics)
 - Streaming tools + ToolExecutionUpdate hook (read‑only)

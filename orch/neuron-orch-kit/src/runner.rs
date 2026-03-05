@@ -1,10 +1,12 @@
+use neuron_hooks::HookRegistry;
+
 use async_trait::async_trait;
 use layer0::effect::Effect;
 use layer0::error::{OrchError, StateError};
 use layer0::id::{AgentId, WorkflowId};
 use layer0::operator::{OperatorInput, OperatorOutput, TriggerType};
 use layer0::orchestrator::Orchestrator;
-use layer0::state::StateStore;
+use layer0::state::{StateStore, StoreOptions};
 use std::sync::Arc;
 use thiserror::Error;
 
@@ -109,12 +111,22 @@ pub trait EffectInterpreter: Send + Sync {
 pub struct LocalEffectInterpreter<S: StateStore + ?Sized> {
     /// State backend used for memory effects.
     pub state: Arc<S>,
+    hooks: Option<Arc<HookRegistry>>,
 }
 
 impl<S: StateStore + ?Sized> LocalEffectInterpreter<S> {
     /// Create a new local effect interpreter.
     pub fn new(state: Arc<S>) -> Self {
-        Self { state }
+        Self { state, hooks: None }
+    }
+
+    /// Attach a hook registry. `PreMemoryWrite` fires before every `WriteMemory` effect.
+    ///
+    /// If a guardrail returns `Halt`, the write is skipped without error.
+    /// If a transformer returns `ModifyToolOutput`, its value replaces the original.
+    pub fn with_hooks(mut self, hooks: Arc<HookRegistry>) -> Self {
+        self.hooks = Some(hooks);
+        self
     }
 }
 
@@ -127,8 +139,53 @@ impl<S: StateStore + ?Sized + 'static> EffectInterpreter for LocalEffectInterpre
         trace: &mut ExecutionTrace,
     ) -> Result<(), KitError> {
         match effect {
-            Effect::WriteMemory { scope, key, value } => {
-                self.state.write(scope, key, value.clone()).await?;
+            Effect::WriteMemory {
+                scope,
+                key,
+                value,
+                tier,
+                lifetime,
+                content_kind,
+                salience,
+                ttl,
+            } => {
+                let effective_value = if let Some(hooks) = &self.hooks {
+                    use layer0::hook::{HookAction, HookContext, HookPoint};
+                    let mut ctx = HookContext::new(HookPoint::PreMemoryWrite);
+                    ctx.memory_key = Some(key.clone());
+                    ctx.memory_value = Some(value.clone());
+                    ctx.memory_options = Some(layer0::StoreOptions {
+                        tier: *tier,
+                        lifetime: *lifetime,
+                        content_kind: content_kind.clone(),
+                        salience: *salience,
+                        ttl: *ttl,
+                    });
+                    match hooks.dispatch(&ctx).await {
+                        HookAction::Halt { reason } => {
+                            tracing::warn!(
+                                key = %key,
+                                reason = %reason,
+                                "PreMemoryWrite hook halted write"
+                            );
+                            return Ok(());
+                        }
+                        HookAction::ModifyToolOutput { new_output } => new_output,
+                        _ => value.clone(),
+                    }
+                } else {
+                    value.clone()
+                };
+                let opts = StoreOptions {
+                    tier: *tier,
+                    lifetime: *lifetime,
+                    content_kind: content_kind.clone(),
+                    salience: *salience,
+                    ttl: *ttl,
+                };
+                self.state
+                    .write_hinted(scope, key, effective_value, &opts)
+                    .await?;
                 trace
                     .events
                     .push(ExecutionEvent::MemoryWritten { key: key.clone() });

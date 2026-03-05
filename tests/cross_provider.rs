@@ -59,6 +59,7 @@ fn react_config(model: &str) -> ReactConfig {
         default_model: model.into(),
         default_max_tokens: 256,
         default_max_turns: 3,
+        ..ReactConfig::default()
     }
 }
 

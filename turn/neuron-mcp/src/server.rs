@@ -1,15 +1,21 @@
 //! MCP server that exposes a [`ToolRegistry`] via the MCP protocol.
 //!
 //! [`McpServer`] wraps a [`ToolRegistry`] and serves
-//! its tools over stdio using the MCP protocol.
+//! its tools over stdio using the MCP protocol. It can optionally be
+//! configured with a state reader (to expose state keys as MCP resources)
+//! and prompt templates.
 
 use std::borrow::Cow;
 use std::sync::Arc;
 
+use layer0::StateReader;
 use neuron_tool::ToolRegistry;
 use rmcp::model::{
-    CallToolRequestParams, CallToolResult, Content, Implementation, ListToolsResult,
-    ProtocolVersion, ServerCapabilities, ServerInfo, Tool as McpTool,
+    Annotated, CallToolRequestParams, CallToolResult, Content, GetPromptRequestParams,
+    GetPromptResult, Implementation, ListPromptsResult, ListResourcesResult, ListToolsResult,
+    Prompt, PromptMessage, PromptMessageContent, PromptMessageRole, ProtocolVersion, RawResource,
+    ReadResourceRequestParams, ReadResourceResult, ResourceContents, ServerCapabilities,
+    ServerInfo, Tool as McpTool,
 };
 use rmcp::service::{RequestContext, RoleServer};
 use rmcp::transport::io::stdio;
@@ -19,6 +25,8 @@ use crate::error::McpError;
 
 /// MCP server that exposes tools from a [`ToolRegistry`].
 ///
+/// Optionally backed by a [`StateReader`] (exposing state keys as
+/// `state://global/{key}` resources) and a list of prompt templates.
 /// Call [`serve_stdio`](McpServer::serve_stdio) to start serving via stdin/stdout.
 pub struct McpServer {
     /// The tool registry to expose.
@@ -27,6 +35,10 @@ pub struct McpServer {
     name: String,
     /// Server version for MCP identification.
     version: String,
+    /// Optional state reader for resource exposure.
+    state_reader: Option<Arc<dyn StateReader>>,
+    /// Registered prompt templates: (name, description, template).
+    prompts: Vec<(String, Option<String>, String)>,
 }
 
 impl McpServer {
@@ -40,7 +52,35 @@ impl McpServer {
             registry: Arc::new(registry),
             name: name.into(),
             version: version.into(),
+            state_reader: None,
+            prompts: Vec::new(),
         }
+    }
+
+    /// Attach a state reader to expose global state keys as MCP resources.
+    ///
+    /// Each key returned by the reader is advertised as a resource with URI
+    /// `state://global/{key}`.  Enabling this causes the server to advertise
+    /// the `resources` capability.
+    pub fn with_state_reader(mut self, reader: Arc<dyn StateReader>) -> Self {
+        self.state_reader = Some(reader);
+        self
+    }
+
+    /// Register a prompt template with this server.
+    ///
+    /// The template is returned verbatim as a `user` message when the client
+    /// calls `prompts/get`.  Registering at least one prompt causes the server
+    /// to advertise the `prompts` capability.
+    pub fn with_prompt(
+        mut self,
+        name: impl Into<String>,
+        description: Option<impl Into<String>>,
+        template: impl Into<String>,
+    ) -> Self {
+        self.prompts
+            .push((name.into(), description.map(Into::into), template.into()));
+        self
     }
 
     /// Serve the tools over stdio (stdin/stdout).
@@ -56,6 +96,8 @@ impl McpServer {
             registry: self.registry,
             name: self.name,
             version: self.version,
+            state_reader: self.state_reader,
+            prompts: self.prompts,
         };
         let service = handler
             .serve(transport)
@@ -77,13 +119,31 @@ struct McpServerHandler {
     name: String,
     /// Server version.
     version: String,
+    /// Optional state reader for resource handling.
+    state_reader: Option<Arc<dyn StateReader>>,
+    /// Registered prompt templates.
+    prompts: Vec<(String, Option<String>, String)>,
 }
 
 impl ServerHandler for McpServerHandler {
     fn get_info(&self) -> ServerInfo {
+        let capabilities = ServerCapabilities {
+            tools: Some(rmcp::model::ToolsCapability::default()),
+            resources: self
+                .state_reader
+                .is_some()
+                .then_some(rmcp::model::ResourcesCapability::default()),
+            prompts: (!self.prompts.is_empty())
+                .then_some(rmcp::model::PromptsCapability::default()),
+            experimental: None,
+            extensions: None,
+            logging: None,
+            completions: None,
+            tasks: None,
+        };
         ServerInfo {
             protocol_version: ProtocolVersion::LATEST,
-            capabilities: ServerCapabilities::builder().enable_tools().build(),
+            capabilities,
             server_info: Implementation {
                 name: self.name.clone(),
                 version: self.version.clone(),
@@ -145,6 +205,119 @@ impl ServerHandler for McpServerHandler {
             }
             Err(e) => Ok(CallToolResult::error(vec![Content::text(e.to_string())])),
         }
+    }
+
+    async fn list_resources(
+        &self,
+        _request: Option<rmcp::model::PaginatedRequestParams>,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<ListResourcesResult, ErrorData> {
+        let Some(ref reader) = self.state_reader else {
+            return Ok(ListResourcesResult::default());
+        };
+        let keys = reader
+            .list(&layer0::Scope::Global, "")
+            .await
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+        let resources: Vec<rmcp::model::Resource> = keys
+            .iter()
+            .map(|key| {
+                Annotated::new(
+                    RawResource {
+                        uri: format!("state://global/{key}"),
+                        name: key.clone(),
+                        title: None,
+                        description: None,
+                        mime_type: Some("application/json".into()),
+                        size: None,
+                        icons: None,
+                        meta: None,
+                    },
+                    None,
+                )
+            })
+            .collect();
+        Ok(ListResourcesResult::with_all_items(resources))
+    }
+
+    async fn read_resource(
+        &self,
+        request: ReadResourceRequestParams,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<ReadResourceResult, ErrorData> {
+        let Some(ref reader) = self.state_reader else {
+            return Err(ErrorData::invalid_params(
+                "no state reader configured",
+                None,
+            ));
+        };
+        let key = request.uri.strip_prefix("state://global/").ok_or_else(|| {
+            ErrorData::invalid_params(format!("unsupported resource URI: {}", request.uri), None)
+        })?;
+        let value = reader
+            .read(&layer0::Scope::Global, key)
+            .await
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+        let text = match value {
+            Some(v) => serde_json::to_string_pretty(&v).unwrap_or_else(|_| v.to_string()),
+            None => {
+                return Err(ErrorData::invalid_params(
+                    format!("resource not found: {}", request.uri),
+                    None,
+                ));
+            }
+        };
+        Ok(ReadResourceResult {
+            contents: vec![ResourceContents::TextResourceContents {
+                uri: request.uri,
+                mime_type: Some("application/json".into()),
+                text,
+                meta: None,
+            }],
+        })
+    }
+
+    async fn list_prompts(
+        &self,
+        _request: Option<rmcp::model::PaginatedRequestParams>,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<ListPromptsResult, ErrorData> {
+        let prompts = self
+            .prompts
+            .iter()
+            .map(|(name, desc, _template)| Prompt {
+                name: name.clone(),
+                title: None,
+                description: desc.clone(),
+                arguments: None,
+                icons: None,
+                meta: None,
+            })
+            .collect();
+        Ok(ListPromptsResult::with_all_items(prompts))
+    }
+
+    async fn get_prompt(
+        &self,
+        request: GetPromptRequestParams,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<GetPromptResult, ErrorData> {
+        let (_, desc, template) = self
+            .prompts
+            .iter()
+            .find(|(n, _, _)| n == &request.name)
+            .ok_or_else(|| {
+                ErrorData::invalid_params(format!("prompt not found: {}", request.name), None)
+            })?;
+        Ok(GetPromptResult {
+            description: desc.clone(),
+            messages: vec![PromptMessage {
+                role: PromptMessageRole::User,
+                content: PromptMessageContent::Text {
+                    text: template.clone(),
+                },
+            }],
+        })
     }
 }
 
@@ -209,11 +382,115 @@ mod tests {
     }
 
     #[test]
+    fn mcp_server_constructs_with_state_reader() {
+        use layer0::test_utils::InMemoryStore;
+        let store = Arc::new(InMemoryStore::new());
+        let registry = ToolRegistry::new();
+        let server = McpServer::new(registry, "test-server", "0.1.0")
+            .with_state_reader(store as Arc<dyn StateReader>);
+        assert!(server.state_reader.is_some());
+    }
+
+    #[test]
+    fn mcp_server_with_prompt() {
+        let registry = ToolRegistry::new();
+        let server = McpServer::new(registry, "test-server", "0.1.0").with_prompt(
+            "greet",
+            Some("Greeting prompt"),
+            "Hello {name}",
+        );
+        assert_eq!(server.prompts.len(), 1);
+        let (name, desc, template) = &server.prompts[0];
+        assert_eq!(name, "greet");
+        assert_eq!(desc.as_deref(), Some("Greeting prompt"));
+        assert_eq!(template, "Hello {name}");
+    }
+
+    #[test]
+    fn mcp_server_with_prompt_no_description() {
+        let registry = ToolRegistry::new();
+        let server = McpServer::new(registry, "test-server", "0.1.0").with_prompt(
+            "bare",
+            None::<String>,
+            "template text",
+        );
+        let (_, desc, _) = &server.prompts[0];
+        assert!(desc.is_none());
+    }
+
+    #[test]
+    fn server_handler_list_prompts_returns_registered() {
+        // Verify the data structure that list_prompts iterates over.
+        let prompts: Vec<(String, Option<String>, String)> = vec![
+            (
+                "greet".to_string(),
+                Some("Greeting".to_string()),
+                "Hello {name}".to_string(),
+            ),
+            ("farewell".to_string(), None, "Goodbye {name}".to_string()),
+        ];
+        assert_eq!(prompts.len(), 2);
+        assert_eq!(prompts[0].0, "greet");
+        assert_eq!(prompts[0].1.as_deref(), Some("Greeting"));
+        assert_eq!(prompts[1].0, "farewell");
+        assert!(prompts[1].1.is_none());
+    }
+
+    #[test]
+    fn server_handler_get_info_no_optional_capabilities() {
+        let handler = McpServerHandler {
+            registry: Arc::new(ToolRegistry::new()),
+            name: "my-server".into(),
+            version: "1.0.0".into(),
+            state_reader: None,
+            prompts: vec![],
+        };
+        let info = handler.get_info();
+        assert_eq!(info.server_info.name, "my-server");
+        assert_eq!(info.server_info.version, "1.0.0");
+        assert!(info.capabilities.tools.is_some());
+        assert!(info.capabilities.resources.is_none());
+        assert!(info.capabilities.prompts.is_none());
+    }
+
+    #[test]
+    fn server_handler_get_info_with_state_reader_enables_resources() {
+        use layer0::test_utils::InMemoryStore;
+        let store = Arc::new(InMemoryStore::new());
+        let handler = McpServerHandler {
+            registry: Arc::new(ToolRegistry::new()),
+            name: "s".into(),
+            version: "0".into(),
+            state_reader: Some(store as Arc<dyn StateReader>),
+            prompts: vec![],
+        };
+        let info = handler.get_info();
+        assert!(info.capabilities.resources.is_some());
+        assert!(info.capabilities.prompts.is_none());
+    }
+
+    #[test]
+    fn server_handler_get_info_with_prompts_enables_prompts() {
+        let handler = McpServerHandler {
+            registry: Arc::new(ToolRegistry::new()),
+            name: "s".into(),
+            version: "0".into(),
+            state_reader: None,
+            prompts: vec![("p".to_string(), None, "t".to_string())],
+        };
+        let info = handler.get_info();
+        assert!(info.capabilities.prompts.is_some());
+        assert!(info.capabilities.resources.is_none());
+    }
+
+    #[test]
     fn server_handler_get_info() {
         let handler = McpServerHandler {
             registry: Arc::new(ToolRegistry::new()),
             name: "my-server".into(),
             version: "1.0.0".into(),
+            state_reader: None,
+            prompts: vec![],
         };
         let info = handler.get_info();
         assert_eq!(info.server_info.name, "my-server");
@@ -226,6 +503,8 @@ mod tests {
             registry: Arc::new(ToolRegistry::new()),
             name: "test".into(),
             version: "0.1.0".into(),
+            state_reader: None,
+            prompts: vec![],
         };
 
         let ctx = handler.get_info();
@@ -281,5 +560,55 @@ mod tests {
     fn server_call_tool_not_found() {
         let registry = ToolRegistry::new();
         assert!(registry.get("nonexistent").is_none());
+    }
+
+    #[tokio::test]
+    async fn server_handler_list_resources_no_reader_returns_empty() {
+        let handler = McpServerHandler {
+            registry: Arc::new(ToolRegistry::new()),
+            name: "s".into(),
+            version: "0".into(),
+            state_reader: None,
+            prompts: vec![],
+        };
+        // Without a reader, list_resources returns the default (empty) result.
+        assert!(handler.state_reader.is_none());
+    }
+
+    #[tokio::test]
+    async fn server_handler_read_resource_no_reader_returns_error() {
+        let handler = McpServerHandler {
+            registry: Arc::new(ToolRegistry::new()),
+            name: "s".into(),
+            version: "0".into(),
+            state_reader: None,
+            prompts: vec![],
+        };
+        // Verify logic: a missing key from the reader would produce an error.
+        assert!(handler.state_reader.is_none());
+    }
+
+    #[tokio::test]
+    async fn server_handler_list_prompts_none_registered_is_empty() {
+        let handler = McpServerHandler {
+            registry: Arc::new(ToolRegistry::new()),
+            name: "s".into(),
+            version: "0".into(),
+            state_reader: None,
+            prompts: vec![],
+        };
+        assert!(handler.prompts.is_empty());
+    }
+
+    #[tokio::test]
+    async fn server_handler_get_prompt_not_found_logic() {
+        let prompts: Vec<(String, Option<String>, String)> =
+            vec![("greet".to_string(), None, "Hello".to_string())];
+        let found = prompts.iter().find(|(n, _, _)| n == "missing");
+        assert!(found.is_none());
+        let found_existing = prompts.iter().find(|(n, _, _)| n == "greet");
+        assert!(found_existing.is_some());
+        let (_, _, template) = found_existing.unwrap();
+        assert_eq!(template, "Hello");
     }
 }

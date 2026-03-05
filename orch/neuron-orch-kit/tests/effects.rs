@@ -89,6 +89,11 @@ async fn executes_write_read_delete_sequence_and_delete_missing_ok() {
         scope: Scope::Global,
         key: "k1".into(),
         value: json!({"v": 1}),
+        tier: None,
+        lifetime: None,
+        content_kind: None,
+        salience: None,
+        ttl: None,
     }])
     .await
     .expect("write ok");
@@ -187,6 +192,11 @@ async fn preserves_effect_order_across_memory_and_orch_calls() {
             scope: Scope::Global,
             key: "k_order".into(),
             value: json!(42),
+            tier: None,
+            lifetime: None,
+            content_kind: None,
+            salience: None,
+            ttl: None,
         },
         Effect::Signal {
             target: WorkflowId::new("wf_order"),

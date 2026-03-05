@@ -8,8 +8,9 @@
 use async_trait::async_trait;
 use layer0::effect::Scope;
 use layer0::error::StateError;
-use layer0::state::{SearchResult, StateStore};
+use layer0::state::{SearchResult, StateStore, StoreOptions};
 use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Filesystem-backed state store.
 ///
@@ -18,6 +19,7 @@ use std::path::{Path, PathBuf};
 /// root/
 ///   <scope-hash>/
 ///     <url-encoded-key>.json
+///     <url-encoded-key>_meta.json  (optional TTL sidecar)
 /// ```
 ///
 /// Suitable for development, single-machine deployments, and cases
@@ -50,7 +52,9 @@ fn scope_dir_name(scope: &Scope) -> String {
     format!("scope-{hash:016x}")
 }
 
-/// Encode a key into a safe filename.
+/// Encode a key into a percent-encoded filename stem (without extension).
+///
+/// The data file for a key is `{stem}.json`; its TTL sidecar is `{stem}_meta.json`.
 fn key_to_filename(key: &str) -> String {
     let mut encoded = String::new();
     for ch in key.chars() {
@@ -63,10 +67,10 @@ fn key_to_filename(key: &str) -> String {
             }
         }
     }
-    format!("{encoded}.json")
+    encoded
 }
 
-/// Decode a filename back to a key.
+/// Decode a filename (with `.json` extension) back to a key.
 fn filename_to_key(filename: &str) -> Option<String> {
     let name = filename.strip_suffix(".json")?;
     let mut result = Vec::new();
@@ -86,6 +90,37 @@ fn filename_to_key(filename: &str) -> Option<String> {
     String::from_utf8(result).ok()
 }
 
+/// Returns `true` if the entry has expired and should be treated as absent.
+fn is_expired(meta_path: &Path) -> bool {
+    let Ok(data) = std::fs::read(meta_path) else {
+        return false;
+    };
+    let Ok(val) = serde_json::from_slice::<serde_json::Value>(&data) else {
+        return false;
+    };
+    let Some(expires_at) = val.get("expires_at").and_then(|v| v.as_u64()) else {
+        return false;
+    };
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    now >= expires_at
+}
+
+/// Read the raw contents of a data file, without any expiry check.
+async fn read_raw(path: &Path) -> Result<Option<serde_json::Value>, StateError> {
+    match tokio::fs::read_to_string(path).await {
+        Ok(contents) => {
+            let value: serde_json::Value = serde_json::from_str(&contents)
+                .map_err(|e| StateError::Serialization(e.to_string()))?;
+            Ok(Some(value))
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(StateError::WriteFailed(e.to_string())),
+    }
+}
+
 #[async_trait]
 impl StateStore for FsStore {
     async fn read(
@@ -93,19 +128,19 @@ impl StateStore for FsStore {
         scope: &Scope,
         key: &str,
     ) -> Result<Option<serde_json::Value>, StateError> {
-        let path = self
-            .root
-            .join(scope_dir_name(scope))
-            .join(key_to_filename(key));
-        match tokio::fs::read_to_string(&path).await {
-            Ok(contents) => {
-                let value: serde_json::Value = serde_json::from_str(&contents)
-                    .map_err(|e| StateError::Serialization(e.to_string()))?;
-                Ok(Some(value))
-            }
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-            Err(e) => Err(StateError::WriteFailed(e.to_string())),
+        let scope_path = self.root.join(scope_dir_name(scope));
+        let stem = key_to_filename(key);
+        let data_path = scope_path.join(format!("{stem}.json"));
+        let meta_path = scope_path.join(format!("{stem}_meta.json"));
+
+        // Check expiry lazily: if expired, delete both files and return None.
+        if meta_path.exists() && is_expired(&meta_path) {
+            let _ = std::fs::remove_file(&data_path);
+            let _ = std::fs::remove_file(&meta_path);
+            return Ok(None);
         }
+
+        read_raw(&data_path).await
     }
 
     async fn write(
@@ -119,7 +154,8 @@ impl StateStore for FsStore {
             .await
             .map_err(|e| StateError::WriteFailed(e.to_string()))?;
 
-        let path = dir.join(key_to_filename(key));
+        let stem = key_to_filename(key);
+        let path = dir.join(format!("{stem}.json"));
         let contents = serde_json::to_string_pretty(&value)
             .map_err(|e| StateError::Serialization(e.to_string()))?;
         tokio::fs::write(&path, contents)
@@ -129,10 +165,9 @@ impl StateStore for FsStore {
     }
 
     async fn delete(&self, scope: &Scope, key: &str) -> Result<(), StateError> {
-        let path = self
-            .root
-            .join(scope_dir_name(scope))
-            .join(key_to_filename(key));
+        let dir = self.root.join(scope_dir_name(scope));
+        let stem = key_to_filename(key);
+        let path = dir.join(format!("{stem}.json"));
         match tokio::fs::remove_file(&path).await {
             Ok(()) => Ok(()),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
@@ -155,9 +190,17 @@ impl StateStore for FsStore {
             .map_err(|e| StateError::WriteFailed(e.to_string()))?
         {
             if let Some(filename) = entry.file_name().to_str()
+                // Explicitly skip TTL sidecar files — they must not appear as keys.
+                && !filename.ends_with("_meta.json")
                 && let Some(key) = filename_to_key(filename)
                 && key.starts_with(prefix)
             {
+                // Skip expired entries without deleting them (lazy cleanup on read).
+                let stem = filename.strip_suffix(".json").unwrap_or(filename);
+                let meta_path = dir.join(format!("{stem}_meta.json"));
+                if meta_path.exists() && is_expired(&meta_path) {
+                    continue;
+                }
                 keys.push(key);
             }
         }
@@ -172,6 +215,39 @@ impl StateStore for FsStore {
     ) -> Result<Vec<SearchResult>, StateError> {
         // Filesystem store does not support semantic search.
         Ok(vec![])
+    }
+
+    async fn write_hinted(
+        &self,
+        scope: &Scope,
+        key: &str,
+        value: serde_json::Value,
+        options: &StoreOptions,
+    ) -> Result<(), StateError> {
+        // Write the data file first (also ensures the scope directory exists).
+        self.write(scope, key, value).await?;
+
+        // If a TTL was specified, write a sidecar recording the expiry timestamp.
+        if let Some(ttl) = options.ttl {
+            let dir = self.root.join(scope_dir_name(scope));
+            let stem = key_to_filename(key);
+            let meta_path = dir.join(format!("{stem}_meta.json"));
+
+            let now_ms = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_millis() as u64)
+                .unwrap_or(0);
+            let expires_at = now_ms.saturating_add(ttl.as_millis());
+
+            let meta = serde_json::json!({ "expires_at": expires_at });
+            let contents = serde_json::to_string(&meta)
+                .map_err(|e| StateError::Serialization(e.to_string()))?;
+            tokio::fs::write(&meta_path, contents)
+                .await
+                .map_err(|e| StateError::WriteFailed(e.to_string()))?;
+        }
+
+        Ok(())
     }
 }
 
@@ -190,7 +266,8 @@ mod tests {
             "emoji🎉",
         ];
         for key in &keys {
-            let filename = key_to_filename(key);
+            let stem = key_to_filename(key);
+            let filename = format!("{stem}.json");
             let decoded = filename_to_key(&filename).unwrap();
             assert_eq!(*key, decoded, "roundtrip failed for {key}");
         }
@@ -212,9 +289,12 @@ mod tests {
     }
 
     #[test]
-    fn key_to_filename_produces_json_extension() {
-        let filename = key_to_filename("test");
-        assert!(filename.ends_with(".json"));
+    fn key_to_filename_returns_stem_without_extension() {
+        let stem = key_to_filename("test");
+        assert!(
+            !stem.ends_with(".json"),
+            "key_to_filename should return a stem without the .json extension"
+        );
     }
 
     #[test]
@@ -334,5 +414,104 @@ mod tests {
     fn fs_store_implements_state_store() {
         fn _assert_state_store<T: StateStore>() {}
         _assert_state_store::<FsStore>();
+    }
+
+    #[tokio::test]
+    async fn test_fsstore_ttl_expiration() {
+        use layer0::DurationMs;
+        use std::time::Duration;
+
+        let dir = tempfile::tempdir().unwrap();
+        let store = FsStore::new(dir.path());
+        let scope = Scope::Global;
+
+        let opts = StoreOptions {
+            ttl: Some(DurationMs::from_millis(1)),
+            ..Default::default()
+        };
+        store
+            .write_hinted(&scope, "expiring", serde_json::json!("value"), &opts)
+            .await
+            .unwrap();
+
+        // Wait long enough for the 1ms TTL to elapse.
+        tokio::time::sleep(Duration::from_millis(10)).await;
+
+        // Expired entry must return None.
+        let result = store.read(&scope, "expiring").await.unwrap();
+        assert!(result.is_none(), "expired entry should return None");
+
+        // List must not surface the expired key.
+        let keys = store.list(&scope, "").await.unwrap();
+        assert!(
+            !keys.contains(&"expiring".to_string()),
+            "expired entry must not appear in list"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_fsstore_no_ttl_reads_normally() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = FsStore::new(dir.path());
+        let scope = Scope::Global;
+
+        // Write with no TTL.
+        let opts = StoreOptions::default();
+        store
+            .write_hinted(&scope, "durable", serde_json::json!("keep"), &opts)
+            .await
+            .unwrap();
+
+        // Should still be present.
+        let result = store.read(&scope, "durable").await.unwrap();
+        assert_eq!(result, Some(serde_json::json!("keep")));
+
+        // Should appear in list.
+        let keys = store.list(&scope, "").await.unwrap();
+        assert!(keys.contains(&"durable".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_fsstore_durable_and_expiring_coexist() {
+        use layer0::DurationMs;
+        use std::time::Duration;
+
+        let dir = tempfile::tempdir().unwrap();
+        let store = FsStore::new(dir.path());
+        let scope = Scope::Global;
+
+        // Write a durable entry.
+        store
+            .write(&scope, "durable_a", serde_json::json!("stays"))
+            .await
+            .unwrap();
+
+        // Write a short-TTL entry.
+        let opts = StoreOptions {
+            ttl: Some(DurationMs::from_millis(1)),
+            ..Default::default()
+        };
+        store
+            .write_hinted(&scope, "expiring_b", serde_json::json!("gone"), &opts)
+            .await
+            .unwrap();
+
+        // Let the TTL expire.
+        tokio::time::sleep(Duration::from_millis(10)).await;
+
+        // Trigger expiry cleanup by reading the expired key.
+        let expired = store.read(&scope, "expiring_b").await.unwrap();
+        assert!(expired.is_none(), "expiring_b should have expired");
+
+        // List must show only the durable entry.
+        let keys = store.list(&scope, "").await.unwrap();
+        assert!(
+            keys.contains(&"durable_a".to_string()),
+            "durable_a should still be listed"
+        );
+        assert!(
+            !keys.contains(&"expiring_b".to_string()),
+            "expiring_b must not appear after expiry"
+        );
     }
 }

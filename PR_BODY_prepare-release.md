@@ -23,7 +23,6 @@ Summary
 Compatibility
 - Defaults remain slim: sequential tools, no steering/streaming unless explicitly enabled
 - Layering preserved: no execution policy in Layer 0; durable execution belongs to orchestrator/effect executor implementations
-- Rho UX unchanged (for later migration): no CLI/settings/TUI drift
 
 Migration notes
 - Prefer neuron-turn-kit APIs for planning/steering; operators declare effects only; effect executor handles side-effects

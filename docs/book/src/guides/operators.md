@@ -31,10 +31,13 @@ The ReAct operator implements the Reason-Act-Observe cycle:
 ### Construction
 
 ```rust,no_run
+use std::sync::Arc;
 use neuron_op_react::{ReactConfig, ReactOperator};
 use neuron_provider_anthropic::AnthropicProvider;
 use neuron_hooks::HookRegistry;
 use neuron_tool::ToolRegistry;
+use neuron_turn::NoCompaction;
+use neuron_state_memory::MemoryStore;
 
 let config = ReactConfig {
     system_prompt: "You are a coding assistant.".into(),
@@ -46,8 +49,16 @@ let config = ReactConfig {
 let provider = AnthropicProvider::new("sk-ant-...");
 let tools = ToolRegistry::new();   // add tools as needed
 let hooks = HookRegistry::new();   // add hooks as needed
+let state = Arc::new(MemoryStore::new());
 
-let operator = ReactOperator::new(provider, tools, hooks, config);
+let operator = ReactOperator::new(
+    provider,
+    tools,
+    Box::new(NoCompaction),
+    hooks,
+    state,
+    config,
+);
 ```
 
 ### Configuration
@@ -163,59 +174,26 @@ The provider's generic type parameter is erased at the `Operator` boundary. Call
 
 ## Custom operators: barrier scheduling and steering
 
-Some systems (Rho-like) prefer explicit, opt-in execution mechanics where the operator owns batching and when-to-call-tools decisions, and the orchestrator owns effect execution, signals, and queries. Neuron keeps defaults slim by putting that behavior behind explicit operator implementations.
+For detailed guidance on composing `ReactOperator` with `BarrierPlanner`, `SteeringSource`, and `BudgetEventSink`, see the dedicated guide:
 
-- Barrier scheduling: accumulate `tool_use` requests, execute them in batches at explicit barriers.
-- Steering: inject guidance/messages between batches without changing the default ReAct semantics.
-- Effects boundary: the operator declares `effects`, the orchestrator executes them.
+**[Building a custom operator](custom-operator.md)**
 
-Planned extension points (kept out of defaults):
-- ToolExecutionStrategy — per-batch policies (parallel vs sequential, retry/backoff).
-- SteeringSource — injects steering content between batches (policy-, safety-, or topology-driven).
+That guide covers:
+- The three-primitive wiring pattern (`with_planner`, `with_steering`, `with_budget_sink`)
+- Implementing and registering `HookKind`-aware hooks (guardrails, transformers, observers)
+- Implementing `SteeringSource` and making steering observable via hooks
 
-Example operator skeleton (see the `custom-operator-barrier` example crate for a runnable version):
-```rust
+The brief example skeleton below shows the shape of a custom operator that uses `ReactOperator` as its foundation. For a runnable version see the `custom-operator-barrier` example crate.
+
+```rust,no_run
 use std::sync::Arc;
-use layer0::content::{Content, ContentBlock};
 use layer0::operator::{Operator, OperatorInput, OperatorOutput, ExitReason};
+use neuron_op_react::{ReactConfig, ReactOperator, BarrierPlanner};
+use neuron_hooks::HookRegistry;
 use neuron_tool::ToolRegistry;
 
-struct BarrierOperator { tools: ToolRegistry }
-
-# #[allow(dead_code)]
-impl BarrierOperator {
-    fn new(tools: ToolRegistry) -> Self { Self { tools } }
-}
-
-# #[allow(dead_code)]
-#[async_trait::async_trait]
-impl Operator for BarrierOperator {
-    async fn execute(&self, input: OperatorInput) -> Result<OperatorOutput, layer0::error::OperatorError> {
-        let mut out = vec![];
-        let mut batch: Vec<(String, String, serde_json::Value)> = vec![];
-        // Treat `text == "BARRIER"` as a flush point
-        if let Content::Blocks(blocks) = input.message {
-            for b in blocks {
-                match b {
-                    ContentBlock::ToolUse { id, name, input } => batch.push((id, name, input)),
-                    ContentBlock::Text { text } if text.trim() == "BARRIER" => {
-                        // flush(batch) — call tools then inject steering text
-                        out.push(ContentBlock::Text { text: "[steer] batch flushed".into() });
-                    }
-                    other => out.push(other),
-                }
-            }
-            // final flush(batch)
-        }
-        Ok(OperatorOutput::new(Content::Blocks(out), ExitReason::Complete))
-    }
-}
+// Build a ReactOperator with barrier scheduling:
+// let op = ReactOperator::new(provider, tools, context_strategy, hooks, state_reader, config)
+//     .with_planner(Box::new(BarrierPlanner))
+//     .with_concurrency_decider(Box::new(my_decider));
 ```
-
-This keeps ReAct defaults unchanged. If you want this behavior, you opt into a different operator (or swap the inner loop via composition).
-
-### Migration from Rho
-
-- `rho-ai` model/providers → `neuron-turn` + concrete providers in `neuron-provider-*`.
-- `rho-tools` → implement `neuron_tool::ToolDyn` and register in a `ToolRegistry`.
-- `rho` loop → implement a custom operator that owns batching/steering (see example above).

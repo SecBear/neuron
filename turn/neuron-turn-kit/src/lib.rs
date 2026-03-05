@@ -33,6 +33,7 @@
 //! ```
 
 use serde_json::Value;
+use std::path::PathBuf;
 
 /// Concurrency hint for tool scheduling (strategy-defined).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -49,13 +50,64 @@ pub trait ConcurrencyDecider: Send + Sync {
     fn concurrency(&self, tool_name: &str) -> Concurrency;
 }
 
+/// Mid-session context manipulation command.
+///
+/// Delivered via [`SteeringSource`] and executed by the operator before
+/// the next inference call. These bypass the LLM entirely.
+#[derive(Debug, Clone)]
+pub enum ContextCommand {
+    /// Promote message at `index` to [`layer0::CompactionPolicy::Pinned`].
+    ///
+    /// Pinned messages survive all compaction. Index is into the current buffer.
+    Pin {
+        /// Zero-based index into the message buffer.
+        message_index: usize,
+    },
+    /// Drop the `count` oldest non-pinned messages.
+    ///
+    /// Pinned messages are never dropped.
+    DropOldest {
+        /// How many messages to drop.
+        count: usize,
+    },
+    /// Serialize the current context to a JSON file.
+    SaveSnapshot {
+        /// Destination path.
+        path: PathBuf,
+    },
+    /// Replace the current context by deserializing from a JSON file.
+    LoadSnapshot {
+        /// Source path.
+        path: PathBuf,
+    },
+    /// Clear all non-pinned messages from the buffer.
+    ///
+    /// Equivalent to `DropOldest { count: usize::MAX }`.
+    ClearWorking,
+}
+
+/// A command returned by [`SteeringSource::drain`].
+///
+/// Either injects a message into the context or executes a
+/// [`ContextCommand`] to manipulate the message buffer directly.
+#[derive(Debug, Clone)]
+pub enum SteeringCommand {
+    /// Inject a message into the context at the steering boundary.
+    Message(neuron_turn::types::ProviderMessage),
+    /// Execute a context manipulation command.
+    Context(ContextCommand),
+}
+
 /// Optional source of steering messages to inject mid-loop (provider-formatted).
 ///
 /// Boundary: this is not a "hook" — it does not inspect internal state or
 /// events. It is a narrow bridge for external steering signals only.
 pub trait SteeringSource: Send + Sync {
-    /// Drain any available provider-formatted messages to inject.
-    fn drain(&self) -> Vec<neuron_turn::types::ProviderMessage>;
+    /// Drain any pending steering commands.
+    ///
+    /// Returns a mix of [`SteeringCommand::Message`] (messages to inject) and
+    /// [`SteeringCommand::Context`] (context manipulation commands).
+    fn drain(&self) -> Vec<SteeringCommand>;
 }
 
 /// Planned batches for a turn.
@@ -197,7 +249,7 @@ mod tests {
 
     struct EmptySteering;
     impl SteeringSource for EmptySteering {
-        fn drain(&self) -> Vec<neuron_turn::types::ProviderMessage> {
+        fn drain(&self) -> Vec<super::SteeringCommand> {
             Vec::new()
         }
     }

@@ -122,15 +122,36 @@ Exceptions are allowed only for:
 
 - Sacred: operators declare, orchestrators/environments execute. No direct writes from operators.
 
-### Hooks vs Steering
+### Hooks vs Steering vs Planner (Three-Primitive Pattern)
 
-- **Hooks**: event-triggered observation/intervention at defined points (pre/post inference/tool, exit) with explicit actions (Halt/Skip/Modify). For policy/observability/redaction, not control flow.
-- **Steering**: operator-initiated control flow. Runtime decides when to poll, may inject messages, may skip current batches. Keep steering out of hooks.
+Operators compose three independent primitives:
 
-### Execution Mechanics (explicit, opt-in)
+```rust
+let operator = ReactOperator::new(provider, config)
+    .with_hooks(registry)        // observation + intervention
+    .with_steering(source)       // external control flow
+    .with_planner(barrier);      // execution strategy
+```
 
-- ToolExecutionStrategy (default: sequential). Optional barrier scheduling with Shared/Exclusive + batch flush + parallel shared tools.
-- SteeringSource polled at defined boundaries to inject mid-loop messages and optionally skip remaining tools.
+Each is optional. Each composes independently. They are NOT interchangeable:
+
+- **Hooks** (`HookRegistry`): event-driven observation/intervention at defined points. Return actions (Halt/Skip/Modify/Continue). Registered with a `HookKind` that determines composition:
+  - `Guardrail`: short-circuits on Halt/Skip. For policy enforcement.
+  - `Transformer`: chains — each feeds the next modified context. For redaction/formatting.
+  - `Observer`: all run, actions ignored. For logging/telemetry.
+
+  Dispatch order: observers first, then transformers, then guardrails.
+
+- **Steering** (`SteeringSource`): poll-driven external control flow. Returns messages to inject. Polled at boundaries; may skip remaining tools. NOT a HookKind because:
+  - Different control flow (poll vs event)
+  - Different returns (messages vs actions)
+  - Different composition (concatenate vs short-circuit/chain/parallel)
+  - Different statefulness (buffers between polls vs stateless per call)
+
+  Hooks **observe** steering via `PreSteeringInject` (guardrails can block) and `PostSteeringSkip` (observers log). This makes steering visible to security hooks without merging the concepts.
+
+- **Planner** (`ToolExecutionPlanner`): execution strategy for tool calls. Barrier scheduling, concurrency decisions. Observation-only (no policy/control flow).
+
 - Optional streaming tool API; forward chunks via ToolExecutionUpdate hook point. Streaming is observation-only; must not alter control flow.
 
 ### Defaults

@@ -52,6 +52,49 @@ pub enum BudgetEvent {
         /// The budget decision.
         action: BudgetDecision,
     },
+    /// Emitted by operator when tool call count approaches the configured limit.
+    StepLimitApproaching {
+        /// The agent approaching its step limit.
+        agent: AgentId,
+        /// Current tool call count.
+        current: u32,
+        /// Configured maximum tool calls.
+        max: u32,
+    },
+    /// Emitted by operator when the step limit is reached.
+    StepLimitReached {
+        /// The agent that hit its step limit.
+        agent: AgentId,
+        /// Total tool calls executed.
+        total_tool_calls: u32,
+    },
+    /// Emitted by operator when identical consecutive tool calls exceed the loop limit.
+    LoopDetected {
+        /// The agent stuck in a loop.
+        agent: AgentId,
+        /// Name of the tool being repeated.
+        tool_name: String,
+        /// Number of consecutive identical calls detected.
+        consecutive_count: u32,
+        /// Configured maximum consecutive calls.
+        max: u32,
+    },
+    /// Emitted by operator when elapsed time approaches the configured timeout.
+    TimeoutApproaching {
+        /// The agent approaching its timeout.
+        agent: AgentId,
+        /// Elapsed duration so far.
+        elapsed: DurationMs,
+        /// Configured maximum duration.
+        max_duration: DurationMs,
+    },
+    /// Emitted by operator when the timeout limit is reached.
+    TimeoutReached {
+        /// The agent that hit its timeout.
+        agent: AgentId,
+        /// Elapsed duration at timeout.
+        elapsed: DurationMs,
+    },
 }
 
 /// What the orchestrator decides to do about budget pressure.
@@ -124,6 +167,64 @@ pub enum CompactionEvent {
         /// Optional summary content produced by the provider.
         summary: Option<Content>,
     },
+    /// Emitted when compaction fails with an error.
+    CompactionFailed {
+        /// The agent whose compaction failed.
+        agent: AgentId,
+        /// Human-readable error description.
+        error: String,
+        /// The strategy that failed.
+        strategy: String,
+    },
+    /// Emitted when compaction is intentionally skipped (conditions not met or hook blocked).
+    CompactionSkipped {
+        /// The agent whose compaction was skipped.
+        agent: AgentId,
+        /// Why compaction was skipped.
+        reason: String,
+    },
+    /// Emitted when a pre-compaction memory flush fails.
+    FlushFailed {
+        /// The agent whose flush failed.
+        agent: AgentId,
+        /// The scope that failed to flush.
+        scope: Scope,
+        /// The key that failed to flush.
+        key: String,
+        /// The error description.
+        error: String,
+    },
+    /// Emitted after compaction with quality metrics.
+    CompactionQuality {
+        /// The agent that compacted.
+        agent: AgentId,
+        /// Token count before compaction.
+        tokens_before: u64,
+        /// Token count after compaction.
+        tokens_after: u64,
+        /// Number of messages preserved.
+        items_preserved: u32,
+        /// Number of messages lost.
+        items_lost: u32,
+    },
+}
+
+/// Policy controlling how a message survives compaction.
+///
+/// Attached to individual messages via [`AnnotatedMessage`] in the turn layer.
+/// All variants are advisory when used with strategies that don't inspect policy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CompactionPolicy {
+    /// Never compact this message. Architectural decisions, constraints, user instructions.
+    Pinned,
+    /// Subject to normal compaction. Default for all messages.
+    #[default]
+    Normal,
+    /// Compress this message preferentially (verbose output, build logs).
+    CompressFirst,
+    /// Discard when the originating tool session or MCP session ends.
+    DiscardWhenDone,
 }
 
 /// Observability events — the common vocabulary all layers emit.

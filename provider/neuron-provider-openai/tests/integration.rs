@@ -25,6 +25,7 @@ async fn real_gpt4o_mini_simple_completion() {
         default_model: "gpt-4o-mini".into(),
         default_max_tokens: 128,
         default_max_turns: 5,
+        ..ReactConfig::default()
     };
 
     let op = ReactOperator::new(provider, tools, strategy, hooks, store, config);
@@ -63,6 +64,7 @@ async fn openai_provider_is_object_safe_as_arc_dyn_operator() {
         default_model: "gpt-4o-mini".into(),
         default_max_tokens: 64,
         default_max_turns: 3,
+        ..ReactConfig::default()
     };
 
     // Prove ReactOperator<P> can be used as Arc<dyn Operator>
