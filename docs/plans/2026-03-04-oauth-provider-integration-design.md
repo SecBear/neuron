@@ -4,7 +4,6 @@
 **Status:** Draft
 **Crate:** `neuron/auth/neuron-auth/` (trait), `neuron/auth/neuron-auth-oauth/` (new impl)
 **Depends on:** `neuron-auth`, `neuron-secret`, `layer0`
-**Golden Decisions:** D4B (Credentials), D2A (Identity)
 
 ---
 

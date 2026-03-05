@@ -37,7 +37,7 @@ Rules:
     - `specs/03-effects-and-execution-semantics.md`: Effect Variants section with all 7 WriteMemory fields (scope, key, value, tier, lifetime, content_kind, salience, ttl) as struct literal + field table; all other Effect variants documented; Executor Guidance section (MUST use write_hinted() with StoreOptions, MAY ignore any field); stale 'required next step' note removed
   - Verify: Doc review only
 
-- 2026-03-03: V32-27 — Constitution sync with golden framework v3.2
+- 2026-03-03: V32-27 — Constitution sync with v3.2 architectural decisions
   - Adds:
     - `CONSTITUTION.md`: L2 (TieredStrategy + recursive degradation + AnnotatedMessage/CompactionPolicy); D2B (SaveSnapshot/LoadSnapshot); D2D (API-to-MCP antipattern); C4 (AG-UI cross-protocol); L5 (context introspection as unimplemented emerging requirement); Open Questions section (L7 eval candidate, C6, L6, hook cross-type composition)
     - `docs/architecture/agentic-decision-map-v3.md`: D2B serialized snapshots row; D2D antipattern paragraph; D3C safety stops language; D5 safety stop row; L2 tiered compaction row + recursive degradation + message-level metadata paragraphs; L5 context introspection row + paragraph

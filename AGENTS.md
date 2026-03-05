@@ -188,7 +188,7 @@ ContextAssembler, ToolExecutionPlanner, ConcurrencyDecider, BatchExecutor, Steer
 
 ### Conformance
 
-- Golden tests prove provider swap, state swap, operator swap, and orchestration compose deterministically.
+- Integration tests prove provider swap, state swap, operator swap, and orchestration compose deterministically.
 - Enforce CI backpressure (fmt, clippy -D warnings, tests).
 
 ## Codifying Learnings (Build Your Stdlib)

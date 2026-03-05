@@ -6,8 +6,7 @@
 ## Mission
 
 Implement all V32 items from `ralph_queue.md` in two batches, then verify
-Neuron's implementation matches the golden decision framework at
-`/Users/bear/dev/golden`.
+Neuron's implementation matches the v3.2 architectural decisions.
 
 ## Required Load Order
 
@@ -22,7 +21,7 @@ Neuron's implementation matches the golden decision framework at
 
 - Branch: `feature/gap-analysis-implementation`
 - Last commit: `e70bf55` — governing docs updated with v3.2 decisions
-- Golden repo: `/Users/bear/dev/golden` at `fc5f7c2` (v3.2, all pushed)
+- V3.2 architectural decisions finalized
 - All V32 items are in `ralph_queue.md` with full context
 - Governing docs (CONSTITUTION, AGENTS, specs 04/09) already reflect the target architecture
 - RFC-ExecPrimitives: COMPLETE (verified, in Completed section of queue)
@@ -69,15 +68,10 @@ If R4 runs before R2, use current `add()` API — R2 migration will update it.
 
 After both batches merge and all tests pass:
 
-### 1. Golden doc comparison
+### 1. Architectural decision comparison
 
-Compare Neuron's implementation against golden v3.2 decision positions:
-
-```bash
-# In /Users/bear/dev/golden
-cat CONSTITUTION.md  # Hook architecture section, hook viability table, composition rules
-cat evidence/_candidates/hooks-architecture/analysis.md  # 8-framework synthesis
-```
+Compare Neuron's implementation against v3.2 decision positions as documented
+in the project's governing specs (CONSTITUTION.md, specs/04, specs/09).
 
 Check that Neuron implements:
 - [ ] Hook viability: 9 hookable decisions have hook points (D2D=PreToolUse, D3C via retry errors, D5=ExitCheck, C1/C2=future, C3=future, C5=PostInference+ExitCheck, L1=PreMemoryWrite, L5=ToolExecutionUpdate+observers)

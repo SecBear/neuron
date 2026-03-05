@@ -153,7 +153,7 @@ Concerns that span multiple turns and agents. They cut across all protocols.
 
 ## Open Questions
 
-Tracked for investigation. Candidates for future decision positions. Synced from golden framework v3.2.
+Tracked for investigation. Candidates for future decision positions.
 
 - D2C may warrant splitting into memory-form (factual/procedural/episodic) and memory-access (hot/warm/cold/structural).
 - D2E may need a sub-decision on information density optimization vs size allocation.

@@ -50,7 +50,7 @@ Exit reasons are explicit and stable. Orchestrators use them to decide what happ
 | `Custom("stuck_detected")` | Identical consecutive tool calls exceed `max_repeat_calls` | — | No (without context change) |
 | `Error` | Unrecoverable execution failure | — | Depends |
 
-### SafetyStop (golden D5 — V32-28 pending)
+### SafetyStop (V32-28 pending)
 
 Provider safety stops are semantically distinct from all `ExitReason` variants above. They arrive as `StopReason::ContentFilter` in the provider response — an HTTP 200 from the provider, not a network or API error.
 

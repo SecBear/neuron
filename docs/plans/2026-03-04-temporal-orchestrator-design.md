@@ -4,7 +4,6 @@
 **Status:** Draft
 **Crate:** `neuron/orch/neuron-orch-temporal/`
 **Depends on:** `layer0`, `temporal-sdk-core` (or `temporal-client`)
-**Golden Decisions:** D3B (Durable execution), L3 (Crash recovery), D3C (Retry/heartbeat)
 
 ---
 
@@ -438,20 +437,20 @@ Each phase is independently deployable. Phase 1 is useful on its own for basic d
 
 ---
 
-## 10. Golden Decision Alignment
+## 10. Architectural Decision Alignment
 
-### D3B: Durable Execution and Crash Recovery
+### Durable Execution and Crash Recovery
 
-This crate **is** the implementation of D3B. The decision table in D3B identifies "durable
-execution" (framework replays workflow from event history, activities skip cached results) as
-the most robust approach. `neuron-orch-temporal` implements exactly this:
+This crate implements the durable execution strategy. The decision to use durable
+execution (framework replays workflow from event history, activities skip cached results)
+is the most robust approach. `neuron-orch-temporal` implements exactly this:
 
 - Activity results are cached in Temporal's event history.
 - On crash, the workflow replays from history — completed activities return their cached
   results without re-execution.
-- Zero token waste on crash recovery (the primary motivation from D3B).
+- Zero token waste on crash recovery.
 
-### L3: Crash Recovery
+### Crash Recovery
 
 Temporal replay **is** crash recovery. When a worker crashes:
 
@@ -460,10 +459,9 @@ Temporal replay **is** crash recovery. When a worker crashes:
 3. The workflow replays from event history — all completed activities skip.
 4. Execution resumes from the exact point of failure.
 
-This maps to the "durable execution" row in L3's decision table: "automatic, exact state
-restoration."
+This maps to the durable execution approach: automatic, exact state restoration.
 
-### D3C: Heartbeat and Corrective Retry
+### Heartbeat and Corrective Retry
 
 Temporal activities natively support both:
 
@@ -474,7 +472,7 @@ Temporal activities natively support both:
   backoff coefficient, non-retryable error types. Transient failures (network, rate limit)
   retry automatically. Permanent failures (invalid input, auth failure) fail fast.
 
----
+
 
 ## Appendix A: Edge Cases
 

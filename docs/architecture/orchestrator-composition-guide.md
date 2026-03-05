@@ -164,9 +164,9 @@ Create a new orchestrator implementation when you need different composition sem
 
 Each implementation gives the same operators different durability, retry, and communication guarantees. The operators don't change.
 
-## Relationship to golden decisions
+## Composition and lifecycle implementation
 
-The orchestrator is where most of golden's composition and lifecycle decisions get implemented:
+The orchestrator is where most composition and lifecycle decisions get implemented:
 
 - **C1** (child context): The orchestrator builds OperatorInput for child dispatches
 - **C2** (result return): `dispatch()` returns OperatorOutput synchronously

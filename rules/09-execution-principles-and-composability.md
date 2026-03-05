@@ -18,7 +18,7 @@ Neuron’s value is composability. We avoid monoliths by drawing firm boundaries
 ## Process
 - Behavior-preserving refactors MUST pass the full test suite before adding new capabilities via decomposed traits.
 - New execution features MUST ship as traited, opt-in components and include targeted tests and docs.
-- Composition conformance MUST be maintained with golden tests for: provider swap, state swap, operator swap, orchestration behaviors.
+- Composition conformance MUST be maintained with integration tests for: provider swap, state swap, operator swap, orchestration behaviors.
 
 ## Anti-patterns
 - Encoding scheduling, steering, or effect execution inside hooks.
