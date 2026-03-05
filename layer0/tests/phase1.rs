@@ -1054,7 +1054,7 @@ fn write_memory_tier_omitted_when_none() {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// Lifetime / ContentKind / StoreOptions round-trips (V32-16)
+// Lifetime / ContentKind / StoreOptions round-trips
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 #[test]

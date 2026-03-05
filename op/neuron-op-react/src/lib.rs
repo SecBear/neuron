@@ -900,7 +900,7 @@ impl<P: Provider + 'static> Operator for ReactOperator<P> {
                                     DurationMs::ZERO,
                                     true,
                                 ));
-                                // V32-09: track effect tool call
+                                // track effect tool call
                                 total_tool_calls += 1;
                                 {
                                     use std::hash::{Hash, Hasher};
@@ -1092,7 +1092,7 @@ impl<P: Provider + 'static> Operator for ReactOperator<P> {
                                     content: result_content,
                                     is_error,
                                 });
-                                // V32-09: track regular tool call
+                                // track regular tool call
                                 total_tool_calls += 1;
                                 {
                                     use std::hash::{Hash, Hasher};
@@ -1233,7 +1233,7 @@ impl<P: Provider + 'static> Operator for ReactOperator<P> {
                                 is_error: false,
                             });
                             tool_records.push(ToolCallRecord::new(&name, DurationMs::ZERO, true));
-                            // V32-09: track effect tool call
+                            // track effect tool call
                             total_tool_calls += 1;
                             {
                                 use std::hash::{Hash, Hasher};
@@ -1399,7 +1399,7 @@ impl<P: Provider + 'static> Operator for ReactOperator<P> {
                             content: result_content,
                             is_error,
                         });
-                        // V32-09: track tool call
+                        // track tool call
                         total_tool_calls += 1;
                         {
                             use std::hash::{Hash, Hasher};
@@ -2824,7 +2824,7 @@ mod tests {
         assert_eq!(output.metadata.tools_called.len(), 2);
         assert_eq!(output.metadata.turns_used, 2);
     }
-    // ── V32 new mock structures ──────────────────────────────────────────────
+    // ── mock structures ──────────────────────────────────────────────
 
     /// A hook that always returns Halt when it fires at one of its points.
     struct HaltHook {
@@ -2907,7 +2907,7 @@ mod tests {
         }
     }
 
-    // ── V32-01 tests ─────────────────────────────────────────────────────────
+    // ── tests ─────────────────────────────────────────────────────────
 
     #[tokio::test]
     async fn exit_priority_hook_before_limits() {
@@ -2946,7 +2946,7 @@ mod tests {
         }
     }
 
-    // ── V32-04 tests ─────────────────────────────────────────────────────────
+    // ── tests ─────────────────────────────────────────────────────────
 
     #[tokio::test]
     async fn steering_guardrail_blocks_injection() {
@@ -3081,7 +3081,7 @@ mod tests {
         assert_eq!(output.metadata.turns_used, 2);
     }
 
-    // ── V32-05 tests ─────────────────────────────────────────────────────────
+    // ── tests ─────────────────────────────────────────────────────────
 
     #[tokio::test]
     async fn compaction_reserve_enforced() {
@@ -3121,7 +3121,7 @@ mod tests {
         );
     }
 
-    // ── V32-09 tests ─────────────────────────────────────────────────────────
+    // ── tests ─────────────────────────────────────────────────────────
 
     #[tokio::test]
     async fn max_tool_calls_exits_with_budget_exhausted() {
@@ -3238,7 +3238,7 @@ mod tests {
         assert_eq!(output.metadata.tools_called.len(), 2);
     }
 
-    // ── V32-10 tests ─────────────────────────────────────────────────────────
+    // ── tests ─────────────────────────────────────────────────────────
 
     #[tokio::test]
     async fn model_selector_overrides_model() {
@@ -3402,7 +3402,7 @@ mod tests {
         );
     }
 
-    // ── V32-22 ContextCommand tests ───────────────────────────────────────────
+    // ── ContextCommand tests ───────────────────────────────────────────
 
     #[allow(dead_code)]
     /// Steering source that returns an arbitrary list of SteeringCommand.
@@ -3531,7 +3531,7 @@ mod tests {
         // Buffer unchanged
         assert_eq!(msgs.len(), 1);
     }
-    // ── V32-29 ContextSnapshot tests ──────────────────────────────────────────────
+    // ── ContextSnapshot tests ──────────────────────────────────────────────
 
     #[test]
     fn context_snapshot_empty_before_execute() {
