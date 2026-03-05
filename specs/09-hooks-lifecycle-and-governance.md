@@ -21,17 +21,17 @@ Hook errors MUST be logged via `tracing::warn` — silent swallowing is prohibit
 All hook points carry a common baseline context: `tokens_used`, `cost`, `turns_completed`,
 and `elapsed`. The table lists only the fields that are *unique* to each point.
 
-| HookPoint | When | Key Context Fields | Hookable Decisions |
-|---|---|---|---|
-| `PreInference` | Before each model call | *(baseline only)* | D3A (model selection) |
-| `PostInference` | After model responds, before tool execution | `model_output` | D5 (exit check on response) |
-| `PreToolUse` | Before each tool executes | `tool_name`, `tool_input` | D2D (tool policy), D4A/D4B (isolation/creds) |
-| `PostToolUse` | After tool completes, before result enters context | `tool_name`, `tool_result` | D4C (backfill/redaction) |
-| `ExitCheck` | At each exit-condition check | *(baseline only)* | D5 (exit) |
-| `ToolExecutionUpdate` | Streaming chunk available | `tool_name`, `tool_chunk` | L5 (observability) |
-| `PreSteeringInject` | After steering drain, before messages enter context | `steering_messages` | Steering guardrail |
-| `PostSteeringSkip` | After tools skipped due to steering | `skipped_tools` | Steering observability |
-| `PreMemoryWrite` | Before WriteMemory effect executes | `memory_key`, `memory_value`, `memory_options` | L1 (memory persistence) |
+| HookPoint | When | Key Context Fields |
+|---|---|---|
+| `PreInference` | Before each model call | *(baseline only)* |
+| `PostInference` | After model responds, before tool execution | `model_output` |
+| `PreToolUse` | Before each tool executes | `tool_name`, `tool_input` |
+| `PostToolUse` | After tool completes, before result enters context | `tool_name`, `tool_result` |
+| `ExitCheck` | At each exit-condition check | *(baseline only)* |
+| `ToolExecutionUpdate` | Streaming chunk available | `tool_name`, `tool_chunk` |
+| `PreSteeringInject` | After steering drain, before messages enter context | `steering_messages` |
+| `PostSteeringSkip` | After tools skipped due to steering | `skipped_tools` |
+| `PreMemoryWrite` | Before WriteMemory effect executes | `memory_key`, `memory_value`, `memory_options` |
 
 ### Hook Kinds and Composition
 

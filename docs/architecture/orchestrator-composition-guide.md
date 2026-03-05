@@ -95,7 +95,7 @@ This code works unchanged with any orchestrator:
 - `TemporalOrch`: each dispatch is a Temporal activity, workflow replays on crash
 - `RestateOrch`: each dispatch is a Restate handler, automatic checkpointing
 
-**Same operators. Same workflow code. Different durability guarantees.** That's the Constitution's promise: "deployment choice, not code change."
+**Same operators. Same workflow code. Different durability guarantees.** That's the architectural position: "deployment choice, not code change."
 
 ## Where each concern lives
 
@@ -113,8 +113,8 @@ This code works unchanged with any orchestrator:
 | Crash recovery | Orchestrator implementation | Operator |
 | Retry policy | Orchestrator implementation | Operator |
 | Budget enforcement | Operator (per-turn) + Orchestrator (cross-turn) | Either alone |
-| Communication (C4) | Orchestrator implementation | Operator |
-| Result return (C2) | Orchestrator (dispatch returns OperatorOutput) | Operator |
+| Communication | Orchestrator implementation | Operator |
+| Result return | Orchestrator (dispatch returns OperatorOutput) | Operator |
 
 ## Anti-patterns
 
@@ -151,7 +151,7 @@ The Orchestrator trait already handles this. `dispatch()` returns results. Seque
 
 **Wrong**: Creating `neuron-client-parallel-ai` or `neuron-client-github`.
 
-Per the Constitution: HTTP clients are implementation details inside provider/effect crates. They embed inside the operator or effect executor that uses them. The Orchestrator doesn't need to know about HTTP.
+Per the architecture: HTTP clients are implementation details inside provider/effect crates. They embed inside the operator or effect executor that uses them. The Orchestrator doesn't need to know about HTTP.
 
 ## When to create a new orchestrator implementation
 
@@ -168,12 +168,12 @@ Each implementation gives the same operators different durability, retry, and co
 
 The orchestrator is where most composition and lifecycle decisions get implemented:
 
-- **C1** (child context): The orchestrator builds OperatorInput for child dispatches
-- **C2** (result return): `dispatch()` returns OperatorOutput synchronously
-- **C3** (lifecycle): The orchestrator manages agent lifetimes
-- **C4** (communication): The orchestrator routes signals, queries, and events
-- **D3B** (durability): The orchestrator implementation provides durability
-- **D3C** (retry): The orchestrator implementation decides retry policy
-- **L3** (crash recovery): The orchestrator implementation handles recovery
+- **Child context assembly**: The orchestrator builds OperatorInput for child dispatches
+- **Result return**: `dispatch()` returns OperatorOutput synchronously
+- **Lifecycle management**: The orchestrator manages agent lifetimes
+- **Communication routing**: The orchestrator routes signals, queries, and events
+- **Durability**: The orchestrator implementation provides durability
+- **Retry policy**: The orchestrator implementation decides retry policy
+- **Crash recovery**: The orchestrator implementation handles recovery
 
-Single-turn decisions (D1 trigger, D2A-E agent internals, D5 exit, L1 memory writes, L2 compaction, L4 budget, L5 observability) live in the operator and its support crates.
+Single-turn decisions (trigger, agent internals, exit conditions, memory writes, compaction, budget, observability) live in the operator and its support crates.

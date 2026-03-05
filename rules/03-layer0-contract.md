@@ -15,5 +15,4 @@ Layer 0 (`layer0` crate) is the protocol boundary. It is treated as a stability 
 ## Where To Look
 
 1. Specs: `specs/02-layer0-protocol-contract.md`
-2. Deep details: `docs/architecture/HANDOFF.md`
 

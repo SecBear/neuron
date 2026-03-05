@@ -18,7 +18,7 @@ Every agent MUST read and internalize the protocol trait's philosophy BEFORE wri
 
 1. **The trait definition** in `layer0/src/` — read every doc comment, default method, and the trait-level rustdoc.
 2. **The governing spec** in `specs/` — find the spec that covers this trait. Read it fully.
-3. **The Constitution entry** — find the relevant core value or architectural position.
+3. **The architectural position** in `ARCHITECTURE.md` — find the relevant core value or design principle.
 4. **At least one existing implementation** — read a complete, reviewed implementation of the same trait to understand the established patterns.
 
 An agent MUST NOT begin writing code until it can answer these questions:

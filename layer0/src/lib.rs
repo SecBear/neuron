@@ -29,8 +29,7 @@
 //!
 //! ## Companion Documents
 //!
-//! - Agentic Decision Map: enumerates all 23 architectural decisions
-//! - Composable Agentic Architecture: the 4+2 protocol boundary design
+//! - See `ARCHITECTURE.md` for design rationale
 //!
 //! ## Dependency Notes
 //!

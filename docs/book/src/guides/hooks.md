@@ -1,6 +1,6 @@
 # Hooks
 
-> **Note:** The hook system's patterns are still evolving. This page provides a summary of the current design. For the full specification, see `docs/architecture/HANDOFF.md` in the repository.
+> **Note:** The hook system's patterns are still evolving. This page provides a summary of the current design. For the full specification, see `specs/09-hooks-lifecycle-and-governance.md` in the repository.
 
 Hooks provide observation and intervention at defined points inside the operator's inner loop. They fire before and after model inference, before and after tool execution, and at exit-condition checks.
 

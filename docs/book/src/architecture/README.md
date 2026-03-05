@@ -7,4 +7,4 @@ This section describes the structural design of neuron in detail:
 - **[Design Decisions](design-decisions.md)** -- Key architectural choices and the reasoning behind them.
 - **[Dependency Graph](dependency-graph.md)** -- How crates depend on each other, with an ASCII diagram.
 
-For the full design rationale, see the source documents in `docs/architecture/` in the repository: the Agentic Decision Map (23 architectural decisions), the Composable Agentic Architecture (4+2 protocol boundary design), and the Implementation Handoff (trait signatures and module structure).
+For the full design rationale, see `ARCHITECTURE.md` in the repository root and the detailed specifications in `specs/`.

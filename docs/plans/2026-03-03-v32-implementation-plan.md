@@ -15,7 +15,7 @@ Neuron's implementation matches the v3.2 architectural decisions.
 3. `ralph_queue.md` (full item specs with files, changes, tests, verify commands)
 4. `specs/09-hooks-lifecycle-and-governance.md` (hook architecture spec)
 5. `specs/04-operator-turn-runtime.md` (operator spec with exit priority + three-primitive)
-6. `CONSTITUTION.md` (architectural positions — three-primitive, HookKind, exit priority)
+6. `ARCHITECTURE.md` (architectural positions — three-primitive, HookKind, exit priority)
 
 ## Current State
 
@@ -23,7 +23,7 @@ Neuron's implementation matches the v3.2 architectural decisions.
 - Last commit: `e70bf55` — governing docs updated with v3.2 decisions
 - V3.2 architectural decisions finalized
 - All V32 items are in `ralph_queue.md` with full context
-- Governing docs (CONSTITUTION, AGENTS, specs 04/09) already reflect the target architecture
+- Governing docs (ARCHITECTURE, AGENTS, specs 04/09) already reflect the target architecture
 - RFC-ExecPrimitives: COMPLETE (verified, in Completed section of queue)
 - DX-04 through DX-07: NOT started, in queue after V32 items
 
@@ -71,10 +71,10 @@ After both batches merge and all tests pass:
 ### 1. Architectural decision comparison
 
 Compare Neuron's implementation against v3.2 decision positions as documented
-in the project's governing specs (CONSTITUTION.md, specs/04, specs/09).
+in the project's governing specs (ARCHITECTURE.md, specs/04, specs/09).
 
 Check that Neuron implements:
-- [ ] Hook viability: 9 hookable decisions have hook points (D2D=PreToolUse, D3C via retry errors, D5=ExitCheck, C1/C2=future, C3=future, C5=PostInference+ExitCheck, L1=PreMemoryWrite, L5=ToolExecutionUpdate+observers)
+- [ ] Hook viability: 9 hookable concerns have hook points (tools, retry, exit, child context, result routing, lifecycle, observation, memory writes, observability)
 - [ ] Hook composition: guardrail=short-circuit, transformer=chain, observer=parallel
 - [ ] Hook scope principle: pre-hooks see more and can change more; post-hooks observe
 - [ ] Exit priority: safety halt > budget > max turns > model done
@@ -86,7 +86,7 @@ For each governing doc, verify the code matches the spec:
 
 | Spec | Code | Check |
 |---|---|---|
-| `CONSTITUTION.md` §Three-Primitive | `op/neuron-op-react` builder API | with_hooks/with_steering/with_planner all work |
+| `ARCHITECTURE.md` §Three-Primitive | `op/neuron-op-react` builder API | with_hooks/with_steering/with_planner all work |
 | `specs/09` HookPoint table | `layer0/src/hook.rs` HookPoint enum | All 9 points exist |
 | `specs/09` HookKind table | `hooks/neuron-hooks/src/lib.rs` | Guardrail/Transformer/Observer dispatch correct |
 | `specs/09` Hooks vs Steering table | `op/neuron-op-react` steering sections | PreSteeringInject/PostSteeringSkip fire |

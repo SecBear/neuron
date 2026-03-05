@@ -546,21 +546,6 @@ let secrets = SecretRegistry::new()
 let env = LocalEnv::new(operator); // ignores secrets (dev mode)
 ```
 
-## Mapping to 23 Decision Points
-
-| Decision | How secrets design maps |
-|----------|----------------------|
-| **D4A (Isolation)** | Environment owns SecretRegistry. Different isolation = different resolution. |
-| **D4B (Credentials)** | Primary. Full spectrum: keystore (local) -> Vault+OIDC (production) -> sidecar. |
-| **D4C (Backfill)** | RedactionHook sanitizes tool output before re-entering context. |
-| **D2D (Tools)** | Operators get capability tools, not secrets. Tool has secret injected at boundary. |
-| **C1 (Child context)** | CredentialRef (with source) passes to children. Value resolved by child's Environment. |
-| **C4 (Communication)** | SecretValue has no Serialize. Cannot travel through signals/events/state. |
-| **C5 (Observation)** | RedactionHook + ExfilGuardHook = guardrail pattern from decision map. |
-| **L1 (Memory writes)** | SecretAccessEvent persisted. SecretValue never persisted. |
-| **L3 (Crash recovery)** | SecretLease expires. On recovery, re-resolve from backend. |
-| **L5 (Observability)** | SecretAccessEvent with outcome, identity, correlation, lease tracking. |
-
 ## Dependencies
 
 ### layer0/secret.rs

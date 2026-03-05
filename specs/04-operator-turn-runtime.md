@@ -31,7 +31,7 @@ let operator = ReactOperator::new(provider, config)
     .with_planner(barrier);      // execution strategy
 ```
 
-Each is optional. Each composes independently. Default: no hooks, no steering, sequential planner. See `CONSTITUTION.md` §Three-Primitive and `specs/09-hooks-lifecycle-and-governance.md` for full architectural position.
+Each is optional. Each composes independently. Default: no hooks, no steering, sequential planner. See `ARCHITECTURE.md` §Three-Primitive and `specs/09-hooks-lifecycle-and-governance.md` for full architectural position.
 
 ## Exit Reasons
 
@@ -133,7 +133,7 @@ An unannotated `ProviderMessage` wrapped via `AnnotatedMessage::from(msg)` behav
 
 ## Compaction Strategy
 
-### TieredStrategy (L2)
+### TieredStrategy
 
 `TieredStrategy` (`turn/neuron-turn/src/tiered.rs`) implements `ContextStrategy` using a four-zone partition. It eliminates recursive-summarization degradation: the summary is always first-generation, derived from original messages, never from a previous summary.
 
@@ -161,7 +161,7 @@ An unannotated `ProviderMessage` wrapped via `AnnotatedMessage::from(msg)` behav
 - `CompactionError::Transient` — API error during summarization; retriable.
 - `CompactionError::Semantic` — Bad summary quality; not retriable with the same strategy.
 
-### Pre-Compaction Flush (L2↔D2C Bridge)
+### Pre-Compaction Flush
 
 Before compaction destroys in-memory context, important state must be written to persistent storage. This is the `PreCompactionFlush` lifecycle event pattern.
 
@@ -172,7 +172,7 @@ Flow:
 4. Compaction runs; context shrinks
 5. New turns access persisted state via memory tools
 
-This bridges compaction (L2) and persistent memory (D2C). The flush writes to persistent tiers; the compacted context reads them back via tools. Without the flush, compaction is irreversible information loss.
+This bridges compaction and persistent memory. The flush writes to persistent tiers; the compacted context reads them back via tools. Without the flush, compaction is irreversible information loss.
 
 If the flush fails, `CompactionEvent::FlushFailed` is emitted with the scope and key that failed.
 
@@ -248,7 +248,7 @@ Implemented:
 - Compaction reserve enforcement via `compaction_reserve_pct` (V32-05 ✓).
 - Step/loop limits (`max_tool_calls`, `max_repeat_calls`) with BudgetEvent emission (V32-09 ✓).
 - Model selector callback (V32-10 ✓).
-- `TieredStrategy` with zone-partitioned compaction (L2 ✓).
+- `TieredStrategy` with zone-partitioned compaction.
 - `AnnotatedMessage` and `CompactionPolicy` enabling per-message compaction metadata.
 - `BudgetEventSink` and `CompactionEventSink` opt-in sinks on `ReactOperator`.
 

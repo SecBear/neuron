@@ -19,7 +19,7 @@ Rules:
 
 - 2026-03-03: V32-23 — Spec refresh — operator/turn runtime (spec 04)
   - Adds:
-    - `specs/04-operator-turn-runtime.md`: SafetyStop exit row; TieredStrategy zone table (Pinned/Active/Summary/Noise); AnnotatedMessage/CompactionPolicy context assembly section; BudgetEvent (8 variants) and CompactionEvent (8 variants) with firing conditions; pre-compaction flush L2↔D2C bridge; exit reason table with all 8 variants
+    - `specs/04-operator-turn-runtime.md`: SafetyStop exit row; TieredStrategy zone table (Pinned/Active/Summary/Noise); AnnotatedMessage/CompactionPolicy context assembly section; BudgetEvent (8 variants) and CompactionEvent (8 variants) with firing conditions; pre-compaction flush bridge; exit reason table with all 8 variants
   - Verify: Doc review only (no code changes)
 
 - 2026-03-03: V32-24 — Spec refresh — state core (spec 07)
@@ -37,10 +37,9 @@ Rules:
     - `specs/03-effects-and-execution-semantics.md`: Effect Variants section with all 7 WriteMemory fields (scope, key, value, tier, lifetime, content_kind, salience, ttl) as struct literal + field table; all other Effect variants documented; Executor Guidance section (MUST use write_hinted() with StoreOptions, MAY ignore any field); stale 'required next step' note removed
   - Verify: Doc review only
 
-- 2026-03-03: V32-27 — Constitution sync with v3.2 architectural decisions
+- 2026-03-03: V32-27 — Architectural sync with v3.2 decisions
   - Adds:
-    - `CONSTITUTION.md`: L2 (TieredStrategy + recursive degradation + AnnotatedMessage/CompactionPolicy); D2B (SaveSnapshot/LoadSnapshot); D2D (API-to-MCP antipattern); C4 (AG-UI cross-protocol); L5 (context introspection as unimplemented emerging requirement); Open Questions section (L7 eval candidate, C6, L6, hook cross-type composition)
-    - `docs/architecture/agentic-decision-map-v3.md`: D2B serialized snapshots row; D2D antipattern paragraph; D3C safety stops language; D5 safety stop row; L2 tiered compaction row + recursive degradation + message-level metadata paragraphs; L5 context introspection row + paragraph
+    - `ARCHITECTURE.md`: Tiered compaction strategy, recursive degradation, annotated messages; serialized snapshots; API-to-MCP antipattern; cross-protocol guidance; context introspection as emerging requirement; open questions section
   - Verify: Doc review only
 
 - 2026-03-03: V32-28 — ExitReason::SafetyStop variant
@@ -51,7 +50,7 @@ Rules:
     - `layer0/tests/phase1.rs`: `exit_reason_safety_stop_round_trip` serde test; `content_filter_returns_safety_stop` behavioral test
   - Verify: `nix develop -c cargo test --workspace --all-targets` (pass, 0 failures); `nix develop -c cargo clippy --workspace --all-targets -- -D warnings` (0 errors)
 
-- 2026-03-03: V32-29 — L5 context introspection query
+- 2026-03-03: V32-29 — Context introspection query
   - Specs: `specs/04-operator-turn-runtime.md`
   - Adds:
     - `op/neuron-op-react/src/lib.rs`: `ContextSnapshot { messages: Vec<AnnotatedMessage>, token_count: usize, pinned_count: usize, last_compaction_removed: usize }` struct (Debug/Clone/Serialize/Deserialize); `ReactOperator::context_snapshot()` method; `current_context: Arc<Mutex<Vec<AnnotatedMessage>>>` and `last_compaction_removed: Arc<Mutex<usize>>` private fields; 3 update points in execute() (after assembly, after tool results, after compaction); 6 unit tests

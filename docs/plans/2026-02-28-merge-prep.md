@@ -38,7 +38,7 @@
 ### Docs assessment
 - **mdbook:** Solid — 2,257 lines, 14 chapters covering all 6 layers, builds clean. Ready for merge.
 - **llms.txt:** Good — accurate crate map, reading order, all 14 specs linked. One issue: links to `docs/architecture/*.md` are internal design docs (HANDOFF, decision map) — fine for agent consumption but check if these should be in the book too.
-- **Stale docs:** `NEURON-REDESIGN-PLAN.md` references old crate names (`neuron-loop`, `neuron-types`) as historical design context — acceptable, but add a deprecation header.
+- **Stale docs:** Historical redesign documents have been removed or archived. For current architecture, refer to `ARCHITECTURE.md` and `docs/book/`.
 - **Missing:** No per-crate README for the new crates (`layer0`, `neuron-turn`, `neuron-hooks`, etc.) — these inherit `description` from Cargo.toml but have no README.md. Not blocking for merge, but needed before crates.io publish.
 
 ### ralph_queue.md
@@ -240,24 +240,6 @@ git add ralph_queue.md && git commit -m "chore: clean ralph_queue of deleted bra
 
 ---
 
-### Task 5: Add deprecation header to NEURON-REDESIGN-PLAN.md
-
-**Files:**
-- Modify: `NEURON-REDESIGN-PLAN.md`
-
-**Step 1: Add header**
-
-```markdown
-> **⚠️ Historical document.** This was the original redesign plan. The redesign is now implemented.
-> Crate names referenced here (neuron-types, neuron-loop, neuron-runtime, neuron-otel) no longer
-> exist in the workspace. For current architecture, see `SPECS.md` and `docs/book/`.
-```
-
-**Step 2: Commit**
-
-```bash
-git add NEURON-REDESIGN-PLAN.md && git commit -m "docs: mark redesign plan as historical"
-```
 
 ---
 
@@ -277,7 +259,6 @@ The reading order currently starts with the redesign plan (now historical). Upda
 2. [Architecture: 6-Layer Model](docs/book/src/architecture/layers.md)
 3. [Architecture: Protocol Traits](docs/book/src/architecture/protocol-traits.md)
 4. [Crate Map](docs/book/src/reference/crate-map.md)
-5. [Redesign Plan (historical)](NEURON-REDESIGN-PLAN.md)
 ```
 
 **Step 2: Commit**
@@ -306,7 +287,7 @@ mdbook build docs/book
 # No brain references in code
 grep -rn 'brain' --include='*.rs' --include='*.toml' | grep -v target/
 # No references to deleted specs in non-historical files
-grep -rn 'specs/1[4-9]\|specs/2' --include='*.md' | grep -v target/ | grep -v ralph_queue | grep -v DEVELOPMENT-LOG | grep -v plans/
+grep -rn 'specs/1[4-9]\|specs/2' --include='*.md' | grep -v target/ | grep -v ralph_queue | grep -v plans/
 ```
 
 **Step 3: Verify git status clean**

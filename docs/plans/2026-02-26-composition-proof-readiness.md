@@ -376,7 +376,6 @@ git commit -m "docs: add 0.4.0 readiness docs and ci baseline"
 
 **Files:**
 - Create: `docs/plans/2026-02-26-composition-proof-readiness-validation.md`
-- Modify: `DEVELOPMENT-LOG.md`
 - Test: full workspace verification
 
 **Step 1: Capture release checklist**
@@ -409,6 +408,6 @@ Add summary entry for phases `2 -> 3 -> 1`.
 **Step 5: Commit**
 
 ```bash
-git add docs/plans/2026-02-26-composition-proof-readiness-validation.md DEVELOPMENT-LOG.md
+git add docs/plans/2026-02-26-composition-proof-readiness-validation.md
 git commit -m "chore: record 0.4.0 composition readiness validation"
 ```

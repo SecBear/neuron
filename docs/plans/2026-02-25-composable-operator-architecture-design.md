@@ -4,7 +4,7 @@
 
 **Date:** 2026-02-25
 **Status:** Approved design, pending implementation plan
-**Supersedes:** NEURON-REDESIGN-PLAN.md Phase 6-8 (Phases 1-5 remain valid and are complete)
+**Supersedes:** Earlier redesign plan Phase 6-8 (Phases 1-5 remain valid and are complete)
 
 ---
 
@@ -443,63 +443,8 @@ Same orchestrator config. Same flow. Different operator behind the AgentId.
 
 ---
 
-## 10. 23-Decision Coverage Map
 
-Every architectural decision mapped to the architecture:
-
-### Turn-Level Decisions (D1-D5)
-
-| ID | Decision | Owner | Swappable | Distributed |
-|---|---|---|---|---|
-| D1 | Trigger type | Environment | Yes | Yes |
-| D2A | Identity/behavior | Hook + ContextStrategy | Yes | Yes |
-| D2B | Conversation history | StateStore | Yes | Yes |
-| D2C | Memory (cross-session) | StateStore + Hook | Yes | Yes |
-| D2D | Tool surface | neuron-tool + neuron-mcp | Yes | Yes |
-| D2E | Context budget | ContextStrategy | Yes | Local |
-| D3A | Model selection | Provider | Yes | Yes |
-| D3B | Inference durability | Orchestrator | Partial | Yes |
-| D3C | Retry strategy | Provider + Orchestrator | Partial | Partial |
-| D4A | Tool isolation | Environment | Yes | Yes |
-| D4B | Credential handling | Environment + Hook | Yes | Yes |
-| D4C | Result backfill | Hook + ContextStrategy | Yes | Local |
-| D5 | Exit condition | Operator + Hook | Yes | Partial |
-
-### Composition Decisions (C1-C5)
-
-| ID | Decision | Owner | Swappable | Distributed |
-|---|---|---|---|---|
-| C1 | Child context inheritance | Orchestrator | Yes | Yes |
-| C2 | Result flow back | Orchestrator + StateStore | Yes | Yes |
-| C3 | Child lifecycle | Orchestrator | Yes | Yes |
-| C4 | Agent communication | Orchestrator + StateStore | Yes | Yes |
-| C5 | Observation/intervention | Hook | Yes | Yes |
-
-### Lifecycle Decisions (L1-L5)
-
-| ID | Decision | Owner | Swappable | Distributed |
-|---|---|---|---|---|
-| L1 | Memory writes | Hook + StateStore | Yes | Yes |
-| L2 | Compaction | ContextStrategy + Hook | Yes | Partial |
-| L3 | Crash recovery | Orchestrator | Partial | Yes |
-| L4 | Budget control | Hook + Provider | Yes | Yes |
-| L5 | Observability | Hook + StateStore | Yes | Yes |
-
-### Known gaps (3/23)
-
-All three relate to durability — an Orchestrator implementation property:
-
-| Gap | Nature | Resolution |
-|-----|--------|------------|
-| D3B | neuron-orch-local has no durability | By design — use neuron-orch-temporal for durability |
-| D3C | No standard RetryPolicy trait | Add to neuron-turn toolkit as an optional trait |
-| L3 | Crash recovery only in Temporal orchestrator | By design — durability is an orchestrator choice |
-
-These are intentional tradeoffs, not architectural flaws. The protocol supports durability; the implementation chooses whether to provide it.
-
----
-
-## 11. Distribution Model
+## 10. Distribution Model
 
 Every trait boundary is transport-agnostic. The trait doesn't know if the implementation is a function call or a network hop.
 
@@ -552,7 +497,7 @@ Each component independently local or remote:
 
 ---
 
-## 12. Example Workflows
+## 11. Example Workflows
 
 ### Simple: Morning news digest
 
@@ -691,7 +636,7 @@ flow:
 
 ---
 
-## 13. What to Implement Now
+## 12. What to Implement Now
 
 ### Immediate (this session / next sessions)
 
@@ -722,7 +667,7 @@ flow:
 
 ---
 
-## 14. Dependency Graph (Updated)
+## 13. Dependency Graph (Updated)
 
 ```
 layer0                              (serde, async-trait, thiserror, rust_decimal)
@@ -749,7 +694,7 @@ layer0                              (serde, async-trait, thiserror, rust_decimal
 
 ---
 
-## 15. Design Principles (Unchanged)
+## 14. Design Principles (Unchanged)
 
 1. **Protocol-first.** layer0 traits are the stability contract. Everything else is pluggable.
 2. **Object-safe at boundaries.** `Arc<dyn Operator>`, `Arc<dyn Orchestrator>`, etc. Internal traits (Provider) use RPITIT.

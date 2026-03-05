@@ -63,7 +63,7 @@ layer0 (traits: Orchestrator, Operator, Effect, OperatorInput/Output)
         └── serde_json         (already transitive from layer0)
 ```
 
-Per the CONSTITUTION, `TemporalOrch` does **not** export the Temporal client. All Temporal
+Per the architecture, `TemporalOrch` does **not** export the Temporal client. All Temporal
 internals are private. Consumers depend only on `layer0::Orchestrator`.
 
 ---
@@ -319,7 +319,7 @@ pub struct RetryPolicyConfig {
 
 ### Connection management
 
-`TemporalClient` is an internal wrapper (not exported, per CONSTITUTION). It handles:
+`TemporalClient` is an internal wrapper (not exported, per architectural rules). It handles:
 
 - Lazy connection establishment
 - Reconnection on transient failures

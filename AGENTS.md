@@ -33,25 +33,19 @@ If you are unsure which spec applies, read `specs/00-vision-and-non-goals.md` an
 
 For deep architectural context, continue with:
 
-5. `CONSTITUTION.md` — Agent constitution. Core values, positions on all 23 architectural decisions, authority hierarchy.
-6. `NEURON-REDESIGN-PLAN.md` — Authoritative plan. 6-layer architecture, workspace structure, phased implementation.
-7. `docs/architecture/HANDOFF.md` — Layer 0 implementation spec. Trait signatures, type definitions, module structure.
-8. `docs/architecture/composable-agentic-architecture.md` — Design rationale. 4 protocols + 2 interfaces, gap analysis.
-9. `docs/architecture/platform-scope-mapping.md` — Where features live (Neuron vs platform vs external infra).
-10. `docs/architecture/agentic-decision-map-v3.md` — Full design space. All 23 architectural decisions.
-11. `DEVELOPMENT-LOG.md` — Complete history of all decisions, research, and rationale.
+5. `ARCHITECTURE.md` — Design philosophy, architectural positions, core values.
 
 ## Where Truth Lives
 
-1. Architectural values and positions on the 23 decisions live in `CONSTITUTION.md`.
+1. Architectural values and design positions live in `ARCHITECTURE.md`.
 2. Requirements and intended behavior live in `specs/`.
 3. Operational constraints (how we work, how to verify, how to avoid repeated failure modes)
    live in `rules/`.
-4. Deep rationale and history live in `docs/` and `DEVELOPMENT-LOG.md`.
+4. Deep rationale lives in `docs/`.
 
 If there is a conflict:
 
-1. Constitution overrides specs.
+1. ARCHITECTURE.md overrides specs.
 2. Specs override rules.
 3. Rules override ad-hoc agent behavior.
 4. If the specs are ambiguous, update the specs (do not invent behavior).
@@ -80,18 +74,17 @@ Do not claim "done" unless you have fresh evidence from the relevant command(s) 
 
 ### Do
 
-- Follow `NEURON-REDESIGN-PLAN.md` for all structural decisions
+- Follow `ARCHITECTURE.md` for all structural decisions
 - Match layer0 trait signatures exactly — they are the stability contract
 - Use `#[deny(missing_docs)]` on every public item
 - Test that every message type round-trips through serde_json
 - Test that every trait is object-safe (`Box<dyn Trait>` compiles and is `Send + Sync`)
 - Keep layer0 dependencies minimal (serde, async-trait, thiserror, rust_decimal — that's it)
-- Update `DEVELOPMENT-LOG.md` after each phase
 
 ### Do Not
 
 - Add dependencies to layer0 beyond what's already there
-- Add methods to layer0 protocol traits beyond what `HANDOFF.md` defines
+- Add methods to layer0 protocol traits beyond what specs and `ARCHITECTURE.md` define
 - Change layer0's trait signatures — they are the stability contract
 - Make layer0 traits non-object-safe
 - Skip phases — the phased approach is sequential
