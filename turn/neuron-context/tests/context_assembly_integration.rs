@@ -104,7 +104,7 @@ async fn seed_store(store: &MemoryStore, decision_id: &str) {
 #[tokio::test]
 async fn assemble_full_pipeline() {
     let store = MemoryStore::new();
-    let decision_id = "D3B";
+    let decision_id = "topic-3b";
     seed_store(&store, decision_id).await;
 
     let assembler = ContextAssembler::new(ContextAssemblyConfig::default());
@@ -211,14 +211,14 @@ async fn assemble_system_prompt_only() {
 async fn assemble_respects_max_deltas() {
     let store = MemoryStore::new();
     let scope = sweep_scope();
-    let decision_id = "D1";
+    let decision_id = "topic-1";
 
     // Write a card
     store
         .write(
             &scope,
             &format!("card:{decision_id}"),
-            serde_json::Value::String("Decision D1 card".into()),
+            serde_json::Value::String("Topic-1 card".into()),
         )
         .await
         .unwrap();
@@ -270,15 +270,15 @@ async fn assemble_card_without_deltas() {
     store
         .write(
             &scope,
-            "card:D5",
-            serde_json::Value::String("Decision D5 summary".into()),
+            "card:topic-5",
+            serde_json::Value::String("Topic-5 summary".into()),
         )
         .await
         .unwrap();
 
     let assembler = ContextAssembler::new(ContextAssemblyConfig::default());
     let messages = assembler
-        .assemble(&store, &scope, "D5", None)
+        .assemble(&store, &scope, "topic-5", None)
         .await
         .unwrap();
 
@@ -290,7 +290,7 @@ async fn assemble_card_without_deltas() {
 #[tokio::test]
 async fn assemble_fts_hits_excluded_from_card_and_deltas() {
     let store = MemoryStore::new();
-    let decision_id = "D3B";
+    let decision_id = "topic-3b";
     seed_store(&store, decision_id).await;
 
     let assembler = ContextAssembler::new(ContextAssemblyConfig::default());

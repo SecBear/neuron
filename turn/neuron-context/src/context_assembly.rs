@@ -358,22 +358,22 @@ mod tests {
 
     #[test]
     fn parse_delta_timestamp_valid() {
-        let ts = parse_delta_timestamp("delta:D3B:1709500000000000", "D3B");
+        let ts = parse_delta_timestamp("delta:topic-3b:1709500000000000", "topic-3b");
         assert_eq!(ts, Some(1_709_500_000_000_000));
     }
 
     #[test]
     fn parse_delta_timestamp_wrong_prefix() {
-        assert!(parse_delta_timestamp("card:D3B", "D3B").is_none());
+        assert!(parse_delta_timestamp("card:topic-3b", "topic-3b").is_none());
     }
 
     #[test]
     fn parse_delta_timestamp_wrong_decision() {
-        assert!(parse_delta_timestamp("delta:D2A:123", "D3B").is_none());
+        assert!(parse_delta_timestamp("delta:topic-2a:123", "topic-3b").is_none());
     }
 
     #[test]
     fn parse_delta_timestamp_non_numeric() {
-        assert!(parse_delta_timestamp("delta:D3B:abc", "D3B").is_none());
+        assert!(parse_delta_timestamp("delta:topic-3b:abc", "topic-3b").is_none());
     }
 }
