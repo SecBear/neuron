@@ -1,0 +1,34 @@
+[package]
+name = "skg-op-compute-runtime"
+version = "0.4.1"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Programmable execution runtime for Skelegent agents"
+readme = "README.md"
+categories = ["asynchronous"]
+keywords = ["skelegent", "ai", "agent", "runtime", "python"]
+
+[dependencies]
+layer0 = { path = "../../layer0", version = "0.4.1" }
+skg-turn = { path = "../../turn/skg-turn", version = "0.4.1" }
+async-trait = "0.1"
+tokio = { version = "1", features = [
+   "process",
+   "sync",
+   "time",
+   "io-util",
+   "macros",
+   "rt-multi-thread",
+] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tracing = "0.1"
+thiserror = "2"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+skg-turn = { path = "../../turn/skg-turn", version = "0.4.1", features = [
+   "test-utils",
+] }

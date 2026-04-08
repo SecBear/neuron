@@ -206,6 +206,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "compute-python-poc"
+version = "0.1.0"
+dependencies = [
+ "layer0",
+ "serde_json",
+ "skg-op-compute-runtime",
+ "skg-turn",
+ "tokio",
+]
+
+[[package]]
 name = "core-foundation-sys"
 version = "0.8.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1749,6 +1760,20 @@ dependencies = [
  "serde",
  "serde_json",
  "skg-tool",
+ "thiserror",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "skg-op-compute-runtime"
+version = "0.4.1"
+dependencies = [
+ "async-trait",
+ "layer0",
+ "serde",
+ "serde_json",
+ "skg-turn",
  "thiserror",
  "tokio",
  "tracing",

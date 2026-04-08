@@ -29,6 +29,8 @@ members = [
    "examples/workflow",
    "examples/react-chatbot",
    "examples/multi-agent",
+   "op/skg-op-compute-runtime",
+   "examples/compute-python-poc",
 ]
 
 [workspace.package]
