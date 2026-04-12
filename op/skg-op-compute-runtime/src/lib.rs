@@ -5,7 +5,7 @@
 pub mod backend;
 /// Error types for compute runtime operations.
 pub mod error;
-/// Placeholder operator surface for the compute runtime.
+/// Compute operator surface for delegating model-generated code into the runtime.
 pub mod operator;
 /// Execution and session profile types.
 pub mod profile;

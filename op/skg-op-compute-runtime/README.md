@@ -11,14 +11,15 @@ This crate adds a reusable execution substrate with these public nouns:
 - `ComputeRuntime` — session-scoped programmable execution contract
 - `ComputeBackend` — where/how code runs
 - `ComputeSession` — session metadata and lifecycle identity
-- `ExecutionProfile` — declared environment + session policy
+- `ExecutionProfile` — declared environment, working-directory, and session policy
 - `SessionPolicy` / `SessionReuseMode` — session reuse, lifetime, reset behavior
 - `ExecutionReport` — structured execution result decoupled from transcript updates
 
 The current v0 implementation is:
 
 - a persistent **local Python subprocess worker**
-- a generated **core Python prelude**
+- a generated **core + fs Python prelude**
+- an explicit `working_dir` on `ExecutionProfile` so file access is deterministic when the backend supports it
 - a minimal `ComputeOperator` that asks a model for fenced Python, executes it, and returns the result
 
 ## What it is not
@@ -41,7 +42,7 @@ src/
   backend.rs        # ComputeBackend + request/response types
   error.rs          # ComputeError
   operator.rs       # minimal ComputeOperator PoC
-  profile.rs        # ExecutionProfile + SessionPolicy
+  profile.rs        # ExecutionProfile + SessionPolicy + SessionReuseMode
   report.rs         # ExecutionReport + ExecutionMetrics
   runtime.rs        # ComputeRuntime + InMemoryComputeRuntime
   session.rs        # ComputeSession
@@ -83,6 +84,11 @@ The worker installs a small generated prelude into the interpreter namespace:
 - `note(text)`
 - `capabilities()`
 - `help_bindings(module=None, name=None)`
+- `read(path, offset=1, limit=None)`
+- `write(path, content)`
+- `append(path, content)`
+- `find(pattern, path='.', hidden=False, limit=1000)`
+- `grep(pattern, path, ignore_case=False, literal=False)`
 
 So the model writes normal Python like:
 
@@ -95,6 +101,8 @@ final({"answer": x + y})
 
 Not JSON-ish tool payloads.
 Not file-write plus bash indirection.
+
+The operator prompt now explicitly tells the model that these helpers exist and that `capabilities()` / `help_bindings()` are the discovery path for built-ins.
 
 ## Sessions
 
@@ -114,6 +122,11 @@ Not file-write plus bash indirection.
 - `reset(session)` recreates the backend handle for the same session id
 - `close(session)` terminates the session and removes it from the session map
 
+### Working directory
+- `ExecutionProfile.working_dir` lets callers pin the backend cwd explicitly
+- the local Python backend applies it at worker startup
+- fs helpers operate relative to that directory when paths are relative
+
 ## Backend
 
 The current backend is `python::LocalPythonBackend`.
@@ -122,6 +135,7 @@ The current backend is `python::LocalPythonBackend`.
 - stdio
 - 4-byte big-endian length-prefixed JSON messages
 - `init`, `exec`, `reset`, `close`
+- worker startup honors `ExecutionProfile.working_dir` when present
 
 ### Worker responsibilities
 `python/worker.py`:
@@ -140,8 +154,8 @@ The current backend is `python::LocalPythonBackend`.
 
 The Python prelude includes capability discovery in v0:
 
-- `capabilities()` returns the projected core capability descriptors
-- `help_bindings()` returns human-readable summaries
+- `capabilities()` returns the projected capability descriptors for the active prelude modules
+- `help_bindings()` returns human-readable summaries, with optional module/name filtering
 
 This keeps the runtime self-describing and avoids overloading the prompt with all future capability text.
 
@@ -163,17 +177,18 @@ Locks the public compute nouns and session behavior:
 
 ### `tests/python_worker.rs`
 Locks the Python-specific substrate:
-- prelude exposes the core functions
-- capability projection matches prelude payload
+- prelude exposes the core and fs functions
+- capability projection matches the generated payload
 - direct worker protocol round-trip works
 - namespace persists across execs
 - reset clears namespace
-- backend exec preserves state
+- backend exec respects `working_dir` and fs helpers
 
 ### `tests/operator.rs`
 Locks the minimal operator behavior:
 - return stdout when there is no `final_result`
 - prefer `final_result` over stdout when present
+- pass a configured `ExecutionProfile` through `ComputeConfig`
 
 ## Example
 
@@ -221,7 +236,7 @@ The `ComputeRuntime` / `ComputeBackend` split held up well. The local subprocess
 
 Not in this PoC yet:
 
-- fs/web/state/dispatch binding modules
+- web/state/dispatch binding modules
 - Nix / bubblewrap backend
 - Docker backend
 - microVM / remote backend
@@ -246,7 +261,8 @@ The crate is usable as a PoC today, but still intentionally narrow. It proves:
 
 - generic compute-runtime nouns
 - persistent Python execution
-- core prelude generation
+- composable core + fs prelude generation
 - capability discovery in-session
+- explicit working-directory control for file-oriented compute tasks
 - structured final result return
 - separation between user-facing operator and compute substrate

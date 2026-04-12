@@ -1,5 +1,6 @@
 use layer0::environment::EnvironmentSpec;
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 use std::time::Duration;
 
 /// Session reuse policy.
@@ -40,6 +41,10 @@ impl Default for SessionPolicy {
 pub struct ExecutionProfile {
     /// Environment policy reused from layer0.
     pub environment: EnvironmentSpec,
+    /// Working directory inside the compute environment, when supported.
+    ///
+    /// When `None`, the backend may inherit its host process default.
+    pub working_dir: Option<PathBuf>,
     /// Session lifecycle policy.
     pub session: SessionPolicy,
 }
@@ -48,6 +53,7 @@ impl Default for ExecutionProfile {
     fn default() -> Self {
         Self {
             environment: EnvironmentSpec::default(),
+            working_dir: None,
             session: SessionPolicy::default(),
         }
     }

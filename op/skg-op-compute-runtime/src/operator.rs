@@ -10,11 +10,14 @@ use skg_turn::infer::InferRequest;
 use skg_turn::provider::Provider;
 use std::sync::Arc;
 
-use crate::{ExecutionProfile, ComputeRuntime};
+use crate::{ComputeRuntime, ExecutionProfile};
 
-/// Static configuration for a future compute operator.
-#[derive(Debug, Default, Clone)]
-pub struct ComputeConfig;
+/// Static configuration for a compute operator.
+#[derive(Debug, Clone, Default)]
+pub struct ComputeConfig {
+    /// Execution profile applied to every runtime execution.
+    pub profile: ExecutionProfile,
+}
 
 /// Minimal compute operator: ask model for a fenced Python block,
 /// execute it in the compute runtime, and return the result.
@@ -22,12 +25,23 @@ pub struct ComputeConfig;
 pub struct ComputeOperator<P, R> {
     provider: P,
     runtime: Arc<R>,
+    config: ComputeConfig,
 }
 
 impl<P, R> ComputeOperator<P, R> {
     /// Create a new compute operator with a provider and compute runtime.
     pub fn new(provider: P, runtime: Arc<R>) -> Self {
-        Self { provider, runtime }
+        Self {
+            provider,
+            runtime,
+            config: ComputeConfig::default(),
+        }
+    }
+
+    /// Replace the operator configuration.
+    pub fn with_config(mut self, config: ComputeConfig) -> Self {
+        self.config = config;
+        self
     }
 }
 
@@ -37,7 +51,7 @@ where
     R: ComputeRuntime + 'static,
 {
     fn system_prompt() -> &'static str {
-        "You are a Python code generator. Given the user's request, return ONLY a single fenced code block containing valid Python. Use triple backticks with language tag 'python'. Do not include explanations or extra fences. End your program by calling final(...) when producing a structured answer, otherwise just print to stdout."
+        "You are a Python code generator. Given the user's request, return ONLY a single fenced code block containing valid Python. Use triple backticks with language tag 'python'. Do not include explanations or extra fences. A persistent Python session already provides helper functions such as final(...), note(...), capabilities(), and help_bindings(...); inspect capabilities when you need to discover available built-ins. End your program by calling final(...) when producing a structured answer, otherwise print to stdout."
     }
 
     fn extract_python(content: &Content) -> Option<String> {
@@ -86,18 +100,17 @@ where
         let code = Self::extract_python(&resp.content)
             .ok_or_else(|| ProtocolError::internal("model did not return a fenced python block"))?;
 
-        // 2) Execute via runtime under current or per-dispatch fallback session
+        // 2) Execute via runtime under current or per-dispatch fallback session.
         let session_id = input
             .session
             .unwrap_or_else(|| SessionId::new(format!("compute-{}", ctx.dispatch_id.as_str())));
-        let profile = ExecutionProfile::default();
         let report = self
             .runtime
-            .exec(&session_id, &code, &profile)
+            .exec(&session_id, &code, &self.config.profile)
             .await
             .map_err(|e| ProtocolError::internal(e.to_string()))?;
 
-        // 3) Prefer structured final_result, else stdout
+        // 3) Prefer structured final_result, else stdout.
         let message = if let Some(data) = report.final_result {
             Content::Blocks(vec![ContentBlock::Data {
                 data,
@@ -109,9 +122,11 @@ where
 
         let mut out = OperatorOutput::new(
             message,
-            Outcome::Terminal { terminal: TerminalOutcome::Completed },
+            Outcome::Terminal {
+                terminal: TerminalOutcome::Completed,
+            },
         );
-        // Minimal honest metadata — no turns/tools for this PoC
+        // Minimal honest metadata — no turns/tools for this PoC.
         out.metadata.turns_used = 1;
         Ok(out)
     }

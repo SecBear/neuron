@@ -76,7 +76,7 @@ impl LocalPythonBackend {
             .join("worker.py")
     }
 
-    async fn spawn_worker(&self) -> Result<ProcIo, BackendError> {
+    async fn spawn_worker(&self, profile: &ExecutionProfile) -> Result<ProcIo, BackendError> {
         let script = Self::worker_script_path();
         if !script.exists() {
             return Err(BackendError::Unavailable(format!(
@@ -90,6 +90,9 @@ impl LocalPythonBackend {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+        if let Some(working_dir) = &profile.working_dir {
+            cmd.current_dir(working_dir);
+        }
         let mut child = cmd
             .spawn()
             .map_err(|e| BackendError::Unavailable(e.to_string()))?;
@@ -117,9 +120,9 @@ impl LocalPythonBackend {
 impl ComputeBackend for LocalPythonBackend {
     type Handle = LocalPythonHandle;
 
-    async fn start(&self, _profile: &ExecutionProfile) -> Result<Self::Handle, BackendError> {
-        let io = self.spawn_worker().await?;
-        let prelude = prelude_generator::render_core_prelude();
+    async fn start(&self, profile: &ExecutionProfile) -> Result<Self::Handle, BackendError> {
+        let io = self.spawn_worker(profile).await?;
+        let prelude = prelude_generator::render_default_prelude();
         self.send(&io, &WorkerRequest::Init { prelude }).await?;
         let resp = self.recv(&io).await?;
         if !resp.ok {

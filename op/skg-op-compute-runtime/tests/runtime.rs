@@ -18,11 +18,14 @@ use std::time::Duration;
 fn execution_profile_reuses_environment_spec() {
     let profile = ExecutionProfile {
         environment: EnvironmentSpec::default(),
+        working_dir: None,
         session: SessionPolicy::default(),
     };
 
     assert!(profile.environment.credentials.is_empty());
+    assert!(profile.working_dir.is_none());
 }
+
 
 #[test]
 fn session_policy_has_stable_defaults() {
