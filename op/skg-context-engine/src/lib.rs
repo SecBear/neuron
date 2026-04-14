@@ -12,14 +12,23 @@
 //! - [`Pipeline`] — ordered before-send / after-send middleware phases.
 //! - [`Context::compile()`] → [`CompiledContext`] — snapshot to inference request.
 
+pub mod agent_event;
+pub mod context_op;
+
 pub mod compile;
 pub mod context;
 pub mod error;
 pub mod middleware;
 pub mod pipeline;
+pub mod reactive_pipeline;
+pub mod sync_operator;
 
 pub use compile::{CompileConfig, CompiledContext, InferResult};
 pub use context::{Context, Extensions, TurnMetrics};
 pub use error::EngineError;
 pub use middleware::{ErasedMiddleware, Middleware, MiddlewareFn, middleware_fn};
 pub use pipeline::Pipeline;
+pub use reactive_pipeline::ReactivePipeline;
+pub use sync_operator::{SyncOperator, SyncOperatorAdapter};
+pub use agent_event::{AgentEvent, EventKind, TimeoutKind};
+pub use context_op::{ContextOp, ErasedContextOp, OpResult, Trigger, on};
