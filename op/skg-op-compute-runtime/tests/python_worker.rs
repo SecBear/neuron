@@ -68,12 +68,11 @@ fn python_default_prelude_exposes_core_and_fs_bindings() {
 
 #[test]
 fn python_default_capabilities_include_core_and_fs_modules() {
-    let mut ids: Vec<_> = prelude_generator::binding_descriptors(
-        prelude_generator::default_binding_modules(),
-    )
-    .iter()
-    .map(|d| d.id.as_str().to_string())
-    .collect();
+    let mut ids: Vec<_> =
+        prelude_generator::binding_descriptors(prelude_generator::default_binding_modules())
+            .iter()
+            .map(|d| d.id.as_str().to_string())
+            .collect();
     ids.sort();
     assert_eq!(
         ids,
@@ -90,10 +89,11 @@ fn python_default_capabilities_include_core_and_fs_modules() {
         ]
     );
 
-    let read_cap = prelude_generator::binding_descriptors(prelude_generator::default_binding_modules())
-        .into_iter()
-        .find(|d| d.id.as_str() == "compute.fs.read")
-        .expect("read capability");
+    let read_cap =
+        prelude_generator::binding_descriptors(prelude_generator::default_binding_modules())
+            .into_iter()
+            .find(|d| d.id.as_str() == "compute.fs.read")
+            .expect("read capability");
     assert_eq!(read_cap.kind, CapabilityKind::Tool);
     assert_eq!(read_cap.name, "read");
     assert!(read_cap.description.contains("Read UTF-8 text"));
@@ -139,18 +139,24 @@ fn python_worker_protocol_round_trips_persists_and_exposes_fs_helpers() {
     let mut stdin = child.stdin.take().unwrap();
     let mut stdout = child.stdout.take().unwrap();
 
-    write_msg(&mut stdin, &serde_json::json!({"op":"init","prelude": prelude}));
+    write_msg(
+        &mut stdin,
+        &serde_json::json!({"op":"init","prelude": prelude}),
+    );
     let init_resp = read_msg(&mut stdout);
     assert_eq!(init_resp.get("ok").and_then(|v| v.as_bool()), Some(true));
 
-    write_msg(&mut stdin, &serde_json::json!({"op":"exec","code": r#"x = 41
+    write_msg(
+        &mut stdin,
+        &serde_json::json!({"op":"exec","code": r#"x = 41
 print(read('alpha.txt', offset=2, limit=1))
 print(find('*.txt'))
 print(grep('line3', 'alpha.txt'))
 write('beta.txt', 'hello')
 append('beta.txt', ' world')
 note(help_bindings('fs'))
-final({'answer': x + 1, 'beta': read('beta.txt')})"# }));
+final({'answer': x + 1, 'beta': read('beta.txt')})"# }),
+    );
     let resp1 = read_msg(&mut stdout);
     if resp1.get("exit_code").and_then(|v| v.as_i64()) != Some(0) {
         panic!(
@@ -162,7 +168,10 @@ final({'answer': x + 1, 'beta': read('beta.txt')})"# }));
     assert!(stdout_text.contains("line2"));
     assert!(stdout_text.contains("alpha.txt"));
     assert!(stdout_text.contains("line3"));
-    assert_eq!(resp1.get("final_result").unwrap()["answer"].as_i64(), Some(42));
+    assert_eq!(
+        resp1.get("final_result").unwrap()["answer"].as_i64(),
+        Some(42)
+    );
     assert_eq!(
         resp1.get("final_result").unwrap()["beta"].as_str(),
         Some("hello world")
@@ -171,16 +180,28 @@ final({'answer': x + 1, 'beta': read('beta.txt')})"# }));
     assert_eq!(notes.len(), 1);
     assert!(notes[0].as_str().unwrap().contains("read:"));
 
-    write_msg(&mut stdin, &serde_json::json!({"op":"exec","code": "print(x)"}));
+    write_msg(
+        &mut stdin,
+        &serde_json::json!({"op":"exec","code": "print(x)"}),
+    );
     let resp2 = read_msg(&mut stdout);
     assert_eq!(resp2.get("exit_code").and_then(|v| v.as_i64()), Some(0));
-    assert_eq!(resp2.get("stdout").and_then(|v| v.as_str()).unwrap().trim(), "41");
+    assert_eq!(
+        resp2.get("stdout").and_then(|v| v.as_str()).unwrap().trim(),
+        "41"
+    );
 
     write_msg(&mut stdin, &serde_json::json!({"op":"reset"}));
     let _ = read_msg(&mut stdout);
-    write_msg(&mut stdin, &serde_json::json!({"op":"exec","code": "print('x' in globals())"}));
+    write_msg(
+        &mut stdin,
+        &serde_json::json!({"op":"exec","code": "print('x' in globals())"}),
+    );
     let resp3 = read_msg(&mut stdout);
-    assert_eq!(resp3.get("stdout").and_then(|v| v.as_str()).unwrap().trim(), "False");
+    assert_eq!(
+        resp3.get("stdout").and_then(|v| v.as_str()).unwrap().trim(),
+        "False"
+    );
 
     write_msg(&mut stdin, &serde_json::json!({"op":"close"}));
 

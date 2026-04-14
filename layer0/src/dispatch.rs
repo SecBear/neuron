@@ -58,40 +58,11 @@
 //! that tracks call depth per session.
 
 use crate::content::Content;
-use crate::dispatch_context::DispatchContext;
 use crate::error::ProtocolError;
 use crate::id::DispatchId;
-use crate::operator::{OperatorInput, OperatorOutput};
-use async_trait::async_trait;
+use crate::operator::OperatorOutput;
 use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, watch};
-
-/// The single invocation primitive for operators.
-///
-/// Every orchestrator implements this. Operators that need to invoke
-/// siblings hold `Arc<dyn Dispatcher>` as a field.
-///
-/// The implementation decides routing: in-process, through middleware,
-/// across gRPC, over HTTP. Callers don't know and don't care.
-///
-/// Returns a [`DispatchHandle`] for streaming events. Use
-/// [`DispatchHandle::collect`] when you only need the final output.
-#[async_trait]
-pub trait Dispatcher: Send + Sync {
-    /// Start a dispatch and return a streaming handle.
-    ///
-    /// The caller provides a [`DispatchContext`] carrying the dispatch ID,
-    /// target operator, and optional trace/parent context.
-    ///
-    /// The handle emits [`DispatchEvent`]s as the dispatch progresses.
-    /// Call [`DispatchHandle::collect`] to consume all events and return
-    /// the terminal [`OperatorOutput`].
-    async fn dispatch(
-        &self,
-        ctx: &DispatchContext,
-        input: OperatorInput,
-    ) -> Result<DispatchHandle, ProtocolError>;
-}
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // DISPATCH EVENTS

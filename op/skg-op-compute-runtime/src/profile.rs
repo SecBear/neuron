@@ -37,7 +37,7 @@ impl Default for SessionPolicy {
 }
 
 /// Declarative execution requirements.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ExecutionProfile {
     /// Environment policy reused from layer0.
     pub environment: EnvironmentSpec,
@@ -47,14 +47,4 @@ pub struct ExecutionProfile {
     pub working_dir: Option<PathBuf>,
     /// Session lifecycle policy.
     pub session: SessionPolicy,
-}
-
-impl Default for ExecutionProfile {
-    fn default() -> Self {
-        Self {
-            environment: EnvironmentSpec::default(),
-            working_dir: None,
-            session: SessionPolicy::default(),
-        }
-    }
 }

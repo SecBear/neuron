@@ -26,7 +26,6 @@ fn execution_profile_reuses_environment_spec() {
     assert!(profile.working_dir.is_none());
 }
 
-
 #[test]
 fn session_policy_has_stable_defaults() {
     let policy = SessionPolicy::default();
@@ -154,9 +153,8 @@ async fn runtime_trait_compiles_with_dummy() {
     let _rt = DummyRuntime;
 }
 
-
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 #[derive(Default, Clone)]
 struct CountingBackend {
@@ -197,7 +195,8 @@ impl ComputeBackend for CountingBackend {
 }
 
 fn extract_handle(stdout: &str) -> Option<usize> {
-    stdout.strip_prefix('h')
+    stdout
+        .strip_prefix('h')
         .and_then(|s| s.split(':').next())
         .and_then(|n| n.parse::<usize>().ok())
 }
@@ -205,7 +204,8 @@ fn extract_handle(stdout: &str) -> Option<usize> {
 #[tokio::test]
 async fn in_memory_runtime_reuses_session_by_default() {
     let backend = CountingBackend::default();
-    let rt = skg_op_compute_runtime::runtime::InMemoryComputeRuntime::new(backend.clone(), "python");
+    let rt =
+        skg_op_compute_runtime::runtime::InMemoryComputeRuntime::new(backend.clone(), "python");
     let sid = SessionId::new("s-reuse");
     let profile = ExecutionProfile::default();
 
@@ -225,7 +225,8 @@ async fn in_memory_runtime_reuses_session_by_default() {
 #[tokio::test]
 async fn in_memory_runtime_reset_recreates_handle() {
     let backend = CountingBackend::default();
-    let rt = skg_op_compute_runtime::runtime::InMemoryComputeRuntime::new(backend.clone(), "python");
+    let rt =
+        skg_op_compute_runtime::runtime::InMemoryComputeRuntime::new(backend.clone(), "python");
     let sid = SessionId::new("s-reset");
     let profile = ExecutionProfile::default();
 
@@ -245,7 +246,8 @@ async fn in_memory_runtime_reset_recreates_handle() {
 #[tokio::test]
 async fn in_memory_runtime_close_drops_session() {
     let backend = CountingBackend::default();
-    let rt = skg_op_compute_runtime::runtime::InMemoryComputeRuntime::new(backend.clone(), "python");
+    let rt =
+        skg_op_compute_runtime::runtime::InMemoryComputeRuntime::new(backend.clone(), "python");
     let sid = SessionId::new("s-close");
     let profile = ExecutionProfile::default();
 
@@ -263,7 +265,8 @@ async fn in_memory_runtime_close_drops_session() {
 #[tokio::test]
 async fn fresh_policy_avoids_persistent_reuse() {
     let backend = CountingBackend::default();
-    let rt = skg_op_compute_runtime::runtime::InMemoryComputeRuntime::new(backend.clone(), "python");
+    let rt =
+        skg_op_compute_runtime::runtime::InMemoryComputeRuntime::new(backend.clone(), "python");
     let sid = SessionId::new("s-fresh");
     let mut profile = ExecutionProfile::default();
     profile.session.reuse = SessionReuseMode::Fresh;
@@ -273,7 +276,10 @@ async fn fresh_policy_avoids_persistent_reuse() {
 
     let h1 = extract_handle(&r1.stdout).unwrap();
     let h2 = extract_handle(&r2.stdout).unwrap();
-    assert_ne!(h1, h2, "fresh executions should not reuse persistent session");
+    assert_ne!(
+        h1, h2,
+        "fresh executions should not reuse persistent session"
+    );
 
     // Inspect should not find a persistent session for Fresh policy
     let err = rt.inspect(&sid).await.err().expect("expected error");
@@ -294,7 +300,10 @@ async fn reused_session_rejects_profile_changes() {
     profile_b.session.reset_on_error = true;
 
     let _ = rt.exec(&sid, "A", &profile_a).await.expect("exec1");
-    let err = rt.exec(&sid, "B", &profile_b).await.expect_err("profile mismatch expected");
+    let err = rt
+        .exec(&sid, "B", &profile_b)
+        .await
+        .expect_err("profile mismatch expected");
     match err {
         ComputeError::Execution(msg) => assert!(msg.contains("different execution profile")),
         other => panic!("unexpected error: {other:?}"),
@@ -347,7 +356,10 @@ async fn reused_session_reset_on_error_recreates_handle() {
 
     let first = rt.exec(&sid, "A", &profile).await.expect("first exec");
     let h1 = extract_handle(&first.stdout).unwrap();
-    let err = rt.exec(&sid, "boom", &profile).await.expect_err("boom expected");
+    let err = rt
+        .exec(&sid, "boom", &profile)
+        .await
+        .expect_err("boom expected");
     match err {
         ComputeError::Backend(_) => {}
         other => panic!("unexpected error: {other:?}"),
@@ -396,7 +408,11 @@ async fn nonzero_exit_with_reset_on_error_recreates_handle() {
             let exit_code = if req.code == "boom" { 1 } else { 0 };
             Ok(BackendExecResponse {
                 stdout: format!("h{}:{}", handle.0, req.code),
-                stderr: if exit_code == 0 { String::new() } else { "python failed".into() },
+                stderr: if exit_code == 0 {
+                    String::new()
+                } else {
+                    "python failed".into()
+                },
                 exit_code,
                 final_result: None,
                 notes: vec![],
@@ -416,14 +432,20 @@ async fn nonzero_exit_with_reset_on_error_recreates_handle() {
 
     let first = rt.exec(&sid, "A", &profile).await.expect("first exec");
     let h1 = extract_handle(&first.stdout).unwrap();
-    let err = rt.exec(&sid, "boom", &profile).await.expect_err("non-zero exit expected");
+    let err = rt
+        .exec(&sid, "boom", &profile)
+        .await
+        .expect_err("non-zero exit expected");
     match err {
         ComputeError::Execution(msg) => assert!(msg.contains("python failed")),
         other => panic!("unexpected error: {other:?}"),
     }
     let second = rt.exec(&sid, "B", &profile).await.expect("second exec");
     let h2 = extract_handle(&second.stdout).unwrap();
-    assert_ne!(h1, h2, "reset_on_error should also replace the handle on non-zero exits");
+    assert_ne!(
+        h1, h2,
+        "reset_on_error should also replace the handle on non-zero exits"
+    );
 }
 
 #[tokio::test]
@@ -473,5 +495,8 @@ async fn close_failure_keeps_session_retryable() {
         other => panic!("unexpected error: {other:?}"),
     }
     // Close is terminal: even if backend stop fails, the session is removed so it cannot be reused.
-    assert!(matches!(rt.inspect(&sid).await, Err(ComputeError::SessionNotFound(_))));
+    assert!(matches!(
+        rt.inspect(&sid).await,
+        Err(ComputeError::SessionNotFound(_))
+    ));
 }

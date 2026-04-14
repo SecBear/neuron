@@ -1,53 +1,7 @@
 //! The Environment protocol — isolation, credentials, and resource constraints.
 
-use crate::dispatch_context::DispatchContext;
-use crate::{
-    error::EnvError, operator::OperatorInput, operator::OperatorOutput, secret::SecretSource,
-};
-use async_trait::async_trait;
+use crate::secret::SecretSource;
 use serde::{Deserialize, Serialize};
-
-/// Protocol ④ — Environment
-///
-/// How an operator executes within an isolated context. Handles isolation,
-/// credentials, and resource constraints. The environment mediates
-/// between the caller and the execution context.
-///
-/// Implementations:
-/// - LocalEnvironment: no isolation, direct execution (dev mode)
-/// - DockerEnvironment: spin up container, execute, tear down
-/// - K8sEnvironment: create pod with network policy, execute, delete
-/// - WasmEnvironment: sandboxed Wasm runtime
-///
-/// The critical insight: the Environment owns or has access to whatever
-/// it needs to execute an operator — the same pattern as Dispatcher.
-/// `run()` takes only data (`OperatorInput` + `EnvironmentSpec`), not a
-/// function reference. How the Environment resolves and invokes an Operator
-/// is an internal concern.
-///
-/// For `LocalEnvironment`, the operator is stored as an `Arc<dyn Operator>`
-/// field at construction time. For `DockerEnvironment`, container
-/// configuration is stored — it serializes the `OperatorInput`, runs an
-/// operator process inside the container, and deserializes the `OperatorOutput`.
-/// Same trait, radically different isolation.
-#[async_trait]
-pub trait Environment: Send + Sync {
-    /// Execute an operator within this environment's isolation boundary.
-    ///
-    /// The implementation:
-    /// 1. Provisions any required isolation (container, sandbox, etc.)
-    /// 2. Injects credentials according to the spec
-    /// 3. Applies resource limits
-    /// 4. Executes the operator (mechanism is internal to the implementation)
-    /// 5. Captures the output
-    /// 6. Tears down the isolation context
-    async fn run(
-        &self,
-        ctx: &DispatchContext,
-        input: OperatorInput,
-        spec: &EnvironmentSpec,
-    ) -> Result<OperatorOutput, EnvError>;
-}
 
 /// Declarative specification for an execution environment.
 /// This is serializable so it can live in config files (YAML, TOML).

@@ -30,11 +30,13 @@ pub trait ComputeRuntime: Send + Sync {
     async fn inspect(&self, session_id: &SessionId) -> Result<ComputeSession, ComputeError>;
 }
 
+type SessionMap<H> = HashMap<SessionId, Arc<Mutex<SessionEntry<H>>>>;
+
 /// Simple in-memory sessioned compute runtime backed by a `ComputeBackend`.
 pub struct InMemoryComputeRuntime<B: ComputeBackend> {
     backend: B,
     runtime_kind: String,
-    sessions: Mutex<HashMap<SessionId, Arc<Mutex<SessionEntry<B::Handle>>>>>,
+    sessions: Mutex<SessionMap<B::Handle>>,
 }
 
 struct SessionEntry<H> {
@@ -123,7 +125,9 @@ impl<B: ComputeBackend> InMemoryComputeRuntime<B> {
         profile: &ExecutionProfile,
     ) -> Result<(), ComputeError> {
         if entry.closed {
-            return Err(ComputeError::SessionNotFound(session_id.as_str().to_string()));
+            return Err(ComputeError::SessionNotFound(
+                session_id.as_str().to_string(),
+            ));
         }
         let requested_hash = Self::profile_hash(profile)?;
         if entry.profile_hash != requested_hash {
@@ -210,14 +214,16 @@ where
                     Ok(resp) => {
                         let report = Self::report_from_backend(resp);
                         if report.is_err() && profile.session.reset_on_error {
-                            self.recycle_session_after_failure(&mut entry, profile).await?;
+                            self.recycle_session_after_failure(&mut entry, profile)
+                                .await?;
                         }
                         entry.session.last_used_at = std::time::Instant::now();
                         report
                     }
                     Err(err) => {
                         if profile.session.reset_on_error {
-                            self.recycle_session_after_failure(&mut entry, profile).await?;
+                            self.recycle_session_after_failure(&mut entry, profile)
+                                .await?;
                         }
                         Err(err.into())
                     }
@@ -236,7 +242,9 @@ where
         };
         let mut entry = entry.lock().await;
         if entry.closed {
-            return Err(ComputeError::SessionNotFound(session_id.as_str().to_string()));
+            return Err(ComputeError::SessionNotFound(
+                session_id.as_str().to_string(),
+            ));
         }
         let new_handle = self.backend.start(&entry.last_profile).await?;
         let old_handle = entry
@@ -282,7 +290,9 @@ where
         };
         let entry = entry.lock().await;
         if entry.closed {
-            return Err(ComputeError::SessionNotFound(session_id.as_str().to_string()));
+            return Err(ComputeError::SessionNotFound(
+                session_id.as_str().to_string(),
+            ));
         }
         Ok(entry.session.clone())
     }

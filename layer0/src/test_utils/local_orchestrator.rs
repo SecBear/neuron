@@ -1,6 +1,10 @@
-//! LocalOrchestrator — in-process orchestrator with a HashMap of operators.
+//! LocalOrchestrator — in-process operator router with a HashMap of child operators.
 
-use crate::dispatch::{DispatchEvent, DispatchHandle, DispatchSender};
+use crate::capability::{
+    ApprovalFacts, AuthFacts, CapabilityDescriptor, CapabilityId, CapabilityKind, ExecutionClass,
+    SchedulingFacts,
+};
+use crate::dispatch::DispatchHandle;
 use crate::dispatch_context::DispatchContext;
 use crate::error::ProtocolError;
 use crate::id::OperatorId;
@@ -9,8 +13,10 @@ use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-/// In-process orchestrator that dispatches operator invocations to registered operators.
-/// Uses `Arc<dyn Operator>` for true concurrent dispatch via `tokio::spawn`.
+/// In-process operator router that dispatches invocations to registered child operators.
+///
+/// Acts as an `Operator` itself: `descriptor()` advertises it as a router, and
+/// `handle()` uses `ctx.operator_id` to look up and delegate to the matching child.
 pub struct LocalOrchestrator {
     operators: HashMap<String, Arc<dyn Operator>>,
 }
@@ -23,7 +29,7 @@ impl LocalOrchestrator {
         }
     }
 
-    /// Register an operator with the orchestrator.
+    /// Register a child operator with the orchestrator.
     pub fn register(&mut self, id: OperatorId, operator: Arc<dyn Operator>) {
         self.operators.insert(id.0, operator);
     }
@@ -36,11 +42,23 @@ impl Default for LocalOrchestrator {
 }
 
 #[async_trait]
-impl crate::dispatch::Dispatcher for LocalOrchestrator {
-    async fn dispatch(
+impl Operator for LocalOrchestrator {
+    fn descriptor(&self) -> CapabilityDescriptor {
+        CapabilityDescriptor::new(
+            CapabilityId::new("test.local_orchestrator"),
+            CapabilityKind::Service,
+            "local_orchestrator",
+            "Routes invocations to registered child operators by operator_id",
+            SchedulingFacts::new(ExecutionClass::Shared, false, false, false, None),
+            ApprovalFacts::None,
+            AuthFacts::Open,
+        )
+    }
+
+    async fn handle(
         &self,
-        ctx: &DispatchContext,
         input: OperatorInput,
+        ctx: &DispatchContext,
     ) -> Result<DispatchHandle, ProtocolError> {
         let op = self
             .operators
@@ -50,30 +68,6 @@ impl crate::dispatch::Dispatcher for LocalOrchestrator {
             })?
             .clone();
 
-        let (handle, sender) = DispatchHandle::channel(ctx.dispatch_id.clone());
-
-        tokio::spawn(run_dispatch(op, input, ctx.clone(), sender));
-
-        Ok(handle)
-    }
-}
-
-/// Run an operator and send events through the dispatch channel.
-async fn run_dispatch(
-    op: Arc<dyn Operator>,
-    input: OperatorInput,
-    ctx: DispatchContext,
-    sender: DispatchSender,
-) {
-    if sender.is_cancelled() {
-        return;
-    }
-    match op.execute(input, &ctx).await {
-        Ok(output) => {
-            let _ = sender.send(DispatchEvent::Completed { output }).await;
-        }
-        Err(error) => {
-            let _ = sender.send(DispatchEvent::Failed { error }).await;
-        }
+        op.handle(input, ctx).await
     }
 }

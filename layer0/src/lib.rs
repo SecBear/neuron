@@ -107,11 +107,11 @@ pub use content::{Content, ContentBlock};
 pub use context::{Message, MessageMeta, Role};
 pub use dispatch::{
     Artifact, CollectedDispatch, CollectedInvocation, DispatchEvent, DispatchHandle,
-    DispatchSender, Dispatcher, InvocationHandle,
+    DispatchSender, InvocationHandle,
 };
 pub use dispatch_context::{AuthIdentity, DispatchContext, Extensions, TraceContext};
 pub use duration::DurationMs;
-pub use environment::{Environment, EnvironmentSpec};
+pub use environment::EnvironmentSpec;
 pub use id::{DispatchId, OperatorId, SessionId, WorkflowId};
 pub use lifecycle::CompactionPolicy;
 pub use middleware::{
@@ -120,7 +120,7 @@ pub use middleware::{
 };
 pub use operator::{
     Operator, OperatorConfig, OperatorInput, OperatorMeta, OperatorMetadata, OperatorOutput,
-    SubDispatchRecord, ToolMetadata,
+    SubDispatchRecord, ToolMetadata, completed_handle, failed_handle,
 };
 pub use reducer::{AppendList, MergeObject, Overwrite, ReducerRegistry, StateReducer, Sum};
 pub use secret::{SecretAccessEvent, SecretAccessOutcome, SecretSource};

@@ -1,4 +1,9 @@
-//! The Operator protocol — what one operator does per cycle.
+//! The Operator protocol — the universal primitive for agentic systems.
+//!
+//! Everything is an Operator: tools, agents, routers, supervisors.
+//! Streaming-first: [`Operator::handle`] returns an [`OperatorHandle`]
+//! that emits [`OperatorEvent`]s. Simple operators emit one `Completed`
+//! event. Complex operators emit progress, artifacts, and completion.
 
 use crate::context::Message;
 use crate::dispatch_context::DispatchContext;
@@ -471,57 +476,6 @@ impl ToolMetadata {
     }
 }
 
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// THE TRAIT
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-/// Protocol ① — The Operator
-///
-/// What one operator does per cycle. Receives input, assembles context,
-/// reasons (model call), acts (tool execution), produces output.
-///
-/// The ReAct while-loop, the agentic loop, the augmented LLM —
-/// whatever you call it, this trait is its boundary.
-///
-/// Implementations:
-/// - skelegent's AgentLoop (full-featured operator with tools + context mgmt)
-/// - A raw API call wrapper (minimal, no tools)
-/// - A human-in-the-loop adapter (waits for human input)
-/// - A mock (for testing)
-///
-/// The trait is intentionally one method. The operator is atomic from the
-/// outside — you send input, you get output. Everything that happens
-/// inside (how many model calls, how many tool uses, what context
-/// strategy) is the implementation's concern.
-#[async_trait]
-pub trait Operator: Send + Sync {
-    /// Execute a single operator invocation.
-    ///
-    /// The operator runtime:
-    /// 1. Assembles context (identity + history + memory + tools)
-    /// 2. Runs the ReAct loop (reason → act → observe → repeat)
-    /// 3. Returns the output + effects
-    ///
-    /// The operator MAY read from a StateStore during context assembly.
-    /// The operator MUST NOT write to external state directly — it
-    /// declares writes as Effects in the output.
-    ///
-    /// The `ctx` parameter carries dispatch context including identity,
-    /// tracing, operator ID, and typed extensions.
-    ///
-    /// Effects (progress, artifacts) are declared via `Context::push_effect()`
-    /// / `Context::extend_effects()` rather than a streaming parameter.
-    ///
-    /// Operators that compose (invoke siblings) hold `Arc<dyn Dispatcher>`
-    /// as a field via constructor injection. The execute signature stays
-    /// clean — non-composing operators never see dispatch infrastructure.
-    async fn execute(
-        &self,
-        input: OperatorInput,
-        ctx: &DispatchContext,
-    ) -> Result<OperatorOutput, ProtocolError>;
-}
-
 /// Optional metadata about an operator's capabilities and requirements.
 ///
 /// Operators that implement this trait can be introspected by discovery
@@ -549,6 +503,86 @@ pub trait OperatorMeta: Send + Sync {
     fn output_schema(&self) -> Option<serde_json::Value> {
         None
     }
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// OPERATOR TRAIT (v2 streaming-first)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+use crate::capability::CapabilityDescriptor;
+use crate::dispatch::{DispatchEvent, DispatchHandle};
+
+/// The universal primitive. Everything is an Operator.
+///
+/// Tools, agents, supervisors, routers — all implement this trait.
+/// Streaming-first: [`handle`](Self::handle) returns a
+/// [`DispatchHandle`] that emits [`DispatchEvent`]s as the
+/// operator progresses.
+///
+/// # Simple implementations
+///
+/// For tools and one-shot computations, use the [`SyncOperator`]
+/// convenience trait (provided by `skg-context-engine`) which
+/// implements `Operator` via a blanket impl.
+///
+/// # Streaming implementations
+///
+/// Operators that produce incremental output (agents, long-running
+/// workflows) implement this trait directly, sending events through
+/// the [`DispatchSender`] as they progress.
+///
+/// # Discovery
+///
+/// Every operator describes its capabilities via [`descriptor`](Self::descriptor),
+/// enabling runtime discovery, routing, and documentation generation.
+#[async_trait]
+pub trait Operator: Send + Sync {
+    /// What this operator can do. Used for discovery, routing, and
+    /// documentation. The descriptor includes the operator's name,
+    /// description, input/output schemas, scheduling hints, and
+    /// approval requirements.
+    fn descriptor(&self) -> CapabilityDescriptor;
+
+    /// Handle an invocation. Returns a streaming event handle.
+    ///
+    /// The returned [`DispatchHandle`] emits [`DispatchEvent`]s as the
+    /// operator progresses. Callers that don't need streaming can
+    /// use [`DispatchHandle::collect()`] to get the terminal output.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ProtocolError`] if the operator cannot even begin
+    /// processing (invalid input, missing configuration). Errors that
+    /// occur during processing are emitted as [`DispatchEvent::Failed`]
+    /// through the handle.
+    async fn handle(
+        &self,
+        input: OperatorInput,
+        ctx: &DispatchContext,
+    ) -> Result<DispatchHandle, ProtocolError>;
+}
+
+/// Convenience for creating a single-event [`DispatchHandle`] from a
+/// terminal [`OperatorOutput`].
+///
+/// Used by [`SyncOperator`] blanket impls and simple operator
+/// implementations that compute a result and return immediately.
+pub fn completed_handle(id: DispatchId, output: OperatorOutput) -> DispatchHandle {
+    let (handle, sender) = DispatchHandle::channel(id);
+    tokio::spawn(async move {
+        let _ = sender.send(DispatchEvent::Completed { output }).await;
+    });
+    handle
+}
+
+/// Convenience for creating a single-event [`DispatchHandle`] from a
+/// [`ProtocolError`].
+pub fn failed_handle(id: DispatchId, error: ProtocolError) -> DispatchHandle {
+    let (handle, sender) = DispatchHandle::channel(id);
+    tokio::spawn(async move {
+        let _ = sender.send(DispatchEvent::Failed { error }).await;
+    });
+    handle
 }
 
 #[cfg(test)]
@@ -679,25 +713,44 @@ mod tests {
 
     #[tokio::test]
     async fn operator_with_meta() {
+        use crate::capability::{
+            ApprovalFacts, AuthFacts, CapabilityId, CapabilityKind, ExecutionClass, SchedulingFacts,
+        };
         use crate::content::Content;
+        use crate::dispatch::DispatchHandle;
         use crate::dispatch_context::DispatchContext;
-        use crate::error::ProtocolError;
         use crate::id::{DispatchId, OperatorId};
 
         struct Echo;
 
         #[async_trait]
         impl Operator for Echo {
-            async fn execute(
+            fn descriptor(&self) -> CapabilityDescriptor {
+                CapabilityDescriptor::new(
+                    CapabilityId::new("test.echo"),
+                    CapabilityKind::Tool,
+                    "echo",
+                    "Echoes input back unchanged",
+                    SchedulingFacts::new(ExecutionClass::Shared, false, false, false, None),
+                    ApprovalFacts::None,
+                    AuthFacts::Open,
+                )
+            }
+
+            async fn handle(
                 &self,
                 input: OperatorInput,
-                _ctx: &DispatchContext,
-            ) -> Result<OperatorOutput, ProtocolError> {
-                Ok(OperatorOutput::new(
+                ctx: &DispatchContext,
+            ) -> Result<DispatchHandle, crate::error::ProtocolError> {
+                let output = OperatorOutput::new(
                     input.message,
                     Outcome::Terminal {
                         terminal: TerminalOutcome::Completed,
                     },
+                );
+                Ok(crate::operator::completed_handle(
+                    ctx.dispatch_id.clone(),
+                    output,
                 ))
             }
         }
@@ -732,7 +785,13 @@ mod tests {
         // Verify it still works as an Operator
         let input = OperatorInput::new(Content::text("hello"), TriggerType::User);
         let ctx = DispatchContext::new(DispatchId::new("test"), OperatorId::new("test"));
-        let output = echo.execute(input, &ctx).await.unwrap();
+        let output = echo
+            .handle(input, &ctx)
+            .await
+            .unwrap()
+            .collect()
+            .await
+            .unwrap();
         assert_eq!(
             output.outcome,
             Outcome::Terminal {

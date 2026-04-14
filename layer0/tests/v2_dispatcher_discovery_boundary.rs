@@ -1,53 +1,44 @@
 use async_trait::async_trait;
 use layer0::operator::TriggerType;
 use layer0::{
-    CapabilityDescriptor, CapabilityFilter, CapabilityId, CapabilitySource, Content,
-    DispatchContext, DispatchEvent, DispatchId, Dispatcher, InvocationHandle, Operator, OperatorId,
-    OperatorInput, OperatorOutput, Outcome, ProtocolError, TerminalOutcome,
+    ApprovalFacts, AuthFacts, CapabilityDescriptor, CapabilityFilter, CapabilityId, CapabilityKind,
+    CapabilitySource, Content, DispatchContext, DispatchHandle, DispatchId, ExecutionClass,
+    Operator, OperatorId, OperatorInput, Outcome, ProtocolError, SchedulingFacts, TerminalOutcome,
 };
+
+fn noop_descriptor() -> CapabilityDescriptor {
+    CapabilityDescriptor::new(
+        CapabilityId::new("test.noop"),
+        CapabilityKind::Tool,
+        "noop",
+        "Returns ok",
+        SchedulingFacts::new(ExecutionClass::Shared, false, false, false, None),
+        ApprovalFacts::None,
+        AuthFacts::Open,
+    )
+}
 
 struct NoopOperator;
 
 #[async_trait]
 impl Operator for NoopOperator {
-    async fn execute(
+    fn descriptor(&self) -> CapabilityDescriptor {
+        noop_descriptor()
+    }
+
+    async fn handle(
         &self,
         _input: OperatorInput,
-        _ctx: &DispatchContext,
-    ) -> Result<OperatorOutput, ProtocolError> {
-        Ok(OperatorOutput::new(
+        ctx: &DispatchContext,
+    ) -> Result<DispatchHandle, ProtocolError> {
+        use layer0::{OperatorOutput, completed_handle};
+        let output = OperatorOutput::new(
             Content::text("ok"),
             Outcome::Terminal {
                 terminal: TerminalOutcome::Completed,
             },
-        ))
-    }
-}
-
-struct InvokeOnly;
-
-#[async_trait]
-impl Dispatcher for InvokeOnly {
-    async fn dispatch(
-        &self,
-        ctx: &DispatchContext,
-        input: OperatorInput,
-    ) -> Result<InvocationHandle, ProtocolError> {
-        let operator = NoopOperator;
-        let ctx = ctx.clone();
-        let (handle, sender) = InvocationHandle::channel(ctx.dispatch_id.clone());
-        tokio::spawn(async move {
-            let result = operator.execute(input, &ctx).await;
-            match result {
-                Ok(output) => {
-                    let _ = sender.send(DispatchEvent::Completed { output }).await;
-                }
-                Err(error) => {
-                    let _ = sender.send(DispatchEvent::Failed { error }).await;
-                }
-            }
-        });
-        Ok(handle)
+        );
+        Ok(completed_handle(ctx.dispatch_id.clone(), output))
     }
 }
 
@@ -68,26 +59,26 @@ impl CapabilitySource for DiscoverOnly {
 }
 
 #[test]
-fn dispatcher_and_capability_source_are_distinct_traits() {
-    fn accepts_dispatcher(_: &dyn Dispatcher) {}
+fn operator_and_capability_source_are_distinct_traits() {
+    fn accepts_operator(_: &dyn Operator) {}
     fn accepts_source(_: &dyn CapabilitySource) {}
 
-    let dispatcher = InvokeOnly;
+    let op = NoopOperator;
     let source = DiscoverOnly;
 
-    accepts_dispatcher(&dispatcher);
+    accepts_operator(&op);
     accepts_source(&source);
 }
 
 #[tokio::test]
-async fn dispatcher_remains_invocation_only() {
-    let dispatcher = InvokeOnly;
+async fn operator_handle_returns_completed_output() {
+    let op = NoopOperator;
     let ctx = DispatchContext::new(DispatchId::new("dispatch-1"), OperatorId::new("noop"));
     let input = OperatorInput::new(Content::text("{}"), TriggerType::Task);
-    let output = dispatcher
-        .dispatch(&ctx, input)
+    let output = op
+        .handle(input, &ctx)
         .await
-        .expect("dispatch handle")
+        .expect("handle")
         .collect()
         .await
         .expect("completed");
