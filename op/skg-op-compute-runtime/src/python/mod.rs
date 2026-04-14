@@ -3,6 +3,9 @@
 //! Binding catalogs, prelude generation, worker protocol, and bridge wiring stay
 //! internal to the crate until the extension surface is proven stable.
 
+/// Embedded Python worker script (compiled into the binary).
+pub(crate) const WORKER_PY: &str = include_str!("worker.py");
+
 pub(crate) mod bridge;
 pub(crate) mod prelude_generator;
 pub(crate) mod worker_protocol;
@@ -10,7 +13,8 @@ pub(crate) mod worker_protocol;
 use crate::backend::{BackendError, BackendExecRequest, BackendExecResponse, ComputeBackend};
 use crate::profile::ExecutionProfile;
 use async_trait::async_trait;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
+use std::sync::OnceLock;
 use std::process::Stdio;
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -69,21 +73,22 @@ impl LocalPythonBackend {
         Ok(resp)
     }
 
-    fn worker_script_path() -> PathBuf {
-        Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("src")
-            .join("python")
-            .join("worker.py")
+    fn worker_script() -> Result<PathBuf, BackendError> {
+        static SCRIPT_PATH: OnceLock<PathBuf> = OnceLock::new();
+        if let Some(path) = SCRIPT_PATH.get() {
+            return Ok(path.clone());
+        }
+        let dir = std::env::temp_dir().join("skelegent-compute");
+        std::fs::create_dir_all(&dir)
+            .map_err(|e| BackendError::Unavailable(format!("cannot create temp dir: {e}")))?;
+        let path = dir.join("worker.py");
+        std::fs::write(&path, WORKER_PY)
+            .map_err(|e| BackendError::Unavailable(format!("cannot write worker script: {e}")))?;
+        Ok(SCRIPT_PATH.get_or_init(|| path).clone())
     }
 
     async fn spawn_worker(&self, profile: &ExecutionProfile) -> Result<ProcIo, BackendError> {
-        let script = Self::worker_script_path();
-        if !script.exists() {
-            return Err(BackendError::Unavailable(format!(
-                "python worker script not found at {}",
-                script.display()
-            )));
-        }
+        let script = Self::worker_script()?;
         let mut cmd = Command::new("python3");
         cmd.arg("-u")
             .arg(script)

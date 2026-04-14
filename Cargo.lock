@@ -1413,10 +1413,12 @@ dependencies = [
 name = "skg-tool-macro"
 version = "0.4.1"
 dependencies = [
+ "async-trait",
  "layer0",
  "proc-macro2",
  "quote",
  "serde_json",
+ "skg-context-engine",
  "skg-tool",
  "syn 2.0.117",
  "tokio",

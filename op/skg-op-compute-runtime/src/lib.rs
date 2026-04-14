@@ -15,6 +15,8 @@ pub mod report;
 pub mod runtime;
 /// Compute session metadata.
 pub mod session;
+/// Operator adapter for executing Python code.
+pub mod tool;
 
 pub use backend::{BackendError, BackendExecRequest, BackendExecResponse, ComputeBackend};
 pub use error::ComputeError;
@@ -22,3 +24,4 @@ pub use profile::{ExecutionProfile, SessionPolicy, SessionReuseMode};
 pub use report::{ExecutionMetrics, ExecutionReport};
 pub use runtime::ComputeRuntime;
 pub use session::ComputeSession;
+pub use tool::PythonExecTool;

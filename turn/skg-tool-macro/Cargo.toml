@@ -5,7 +5,7 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true
-description = "Proc-macro for deriving ToolDyn from annotated async functions"
+description = "Proc-macro for deriving SyncOperator from annotated async functions"
 categories = ["asynchronous"]
 keywords = ["skelegent", "ai", "agent", "tools", "proc-macro"]
 
@@ -19,6 +19,8 @@ proc-macro2 = "1"
 
 [dev-dependencies]
 skg-tool = { path = "../skg-tool", version = "0.4.1" }
+skg-context-engine = { path = "../../op/skg-context-engine", version = "0.4.1" }
 layer0 = { path = "../../layer0", version = "0.4.1" }
+async-trait = "0.1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 serde_json = "1"

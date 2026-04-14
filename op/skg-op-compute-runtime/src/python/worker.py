@@ -49,6 +49,7 @@ class Worker:
             return False, f"prelude error: {e}"
 
     def _exec(self, code: str):
+        self.ns["__SKG_RESULT"] = {"final": None, "notes": []}
         stdout_buf = io.StringIO()
         stderr_buf = io.StringIO()
         ok = True

@@ -1,4 +1,4 @@
-//! Proc-macro for deriving `ToolDyn` from annotated async functions.
+//! Proc-macro for deriving `SyncOperator` from annotated async functions.
 //!
 //! # Usage
 //!
@@ -9,7 +9,7 @@
 //! }
 //! ```
 //!
-//! This generates a `GetWeatherTool` struct implementing `skg_tool::ToolDyn`.
+//! This generates a `GetWeatherTool` struct implementing `skg_context_engine::SyncOperator`.
 
 use proc_macro::TokenStream;
 use proc_macro2::Span;
@@ -86,19 +86,6 @@ fn snake_to_pascal(s: &str) -> String {
         .collect()
 }
 
-/// If `ty` is `Option<T>`, return `Some(T)`; otherwise return `None`.
-fn extract_option_inner(ty: &Type) -> Option<&Type> {
-    if let Type::Path(tp) = ty
-        && tp.qself.is_none()
-        && let Some(last) = tp.path.segments.last()
-        && last.ident == "Option"
-        && let syn::PathArguments::AngleBracketed(args) = &last.arguments
-        && let Some(syn::GenericArgument::Type(inner)) = args.args.first()
-    {
-        return Some(inner);
-    }
-    None
-}
 
 /// Return `true` if `ty` is `&DispatchContext` (any qualifying path ending in `DispatchContext`).
 fn is_dispatch_context_ref(ty: &Type) -> bool {
@@ -111,82 +98,35 @@ fn is_dispatch_context_ref(ty: &Type) -> bool {
     false
 }
 
-/// Map a Rust type to its JSON Schema property object (as a `TokenStream`).
-///
-/// `Option<T>` is unwrapped — requiredness is tracked separately.
-fn type_to_schema(ty: &Type) -> proc_macro2::TokenStream {
-    // Unwrap Option<T> → schema for T
-    if let Some(inner) = extract_option_inner(ty) {
-        return type_to_schema(inner);
-    }
-
-    // Dereference
-    if let Type::Reference(r) = ty {
-        return type_to_schema(&r.elem);
-    }
-
-    if let Type::Path(tp) = ty
-        && tp.qself.is_none()
-    {
-        let last_name = tp.path.segments.last().map(|s| s.ident.to_string());
-        match last_name.as_deref() {
-            Some("String") | Some("str") => {
-                return quote! { ::serde_json::json!({"type": "string"}) };
-            }
-            Some("i8") | Some("i16") | Some("i32") | Some("i64") | Some("i128") | Some("u8")
-            | Some("u16") | Some("u32") | Some("u64") | Some("u128") | Some("isize")
-            | Some("usize") => {
-                return quote! { ::serde_json::json!({"type": "integer"}) };
-            }
-            Some("f32") | Some("f64") => {
-                return quote! { ::serde_json::json!({"type": "number"}) };
-            }
-            Some("bool") => {
-                return quote! { ::serde_json::json!({"type": "boolean"}) };
-            }
-            Some("Value") => {
-                // serde_json::Value → any
-                return quote! { ::serde_json::json!({}) };
-            }
-            _ => {}
-        }
-    }
-
-    // Fallback: any
-    quote! { ::serde_json::json!({}) }
-}
-
 /// Per-parameter metadata extracted from the function signature.
 struct ParamInfo {
     ident: syn::Ident,
     ty: Type,
-    /// True if the parameter type is `Option<_>` (not included in `required`).
-    is_optional: bool,
     /// True if the parameter is `&DispatchContext` (not included in schema, passed through).
     is_ctx: bool,
 }
 
-/// Derive a `ToolDyn` implementation from an annotated async function.
+/// Derive a `SyncOperator` implementation from an annotated async function.
 ///
 /// # Attributes
 ///
-/// - `name = "..."` — tool name returned by `ToolDyn::name`
-/// - `description = "..."` — tool description returned by `ToolDyn::description`
-/// - `concurrent` — if present, `ToolDyn::concurrency_hint` returns `Shared`; otherwise `Exclusive`
+/// - `name = "..."` — tool name returned via `CapabilityDescriptor`
+/// - `description = "..."` — tool description in the descriptor
+/// - `concurrent` — if present, `ExecutionClass::Shared`; otherwise `ExecutionClass::Exclusive`
 ///
 /// # Generated output
 ///
 /// - The original `async fn` is kept intact.
 /// - A `pub struct <PascalCase>Tool` struct is generated.
-/// - `impl ToolDyn for <PascalCase>Tool` is generated.
+/// - `impl skg_context_engine::SyncOperator for <PascalCase>Tool` is generated.
 /// - A `fn new() -> Self` constructor is generated.
 ///
 /// # Parameter handling
 ///
-/// - Parameters of type `&DispatchContext` are excluded from the JSON schema and
-///   passed through to the underlying function via the `call()` context argument.
-/// - `Option<T>` parameters are included in the schema but omitted from `required`.
-/// - All other parameters are required in the schema.
+/// - Parameters of type `&DispatchContext` are excluded from JSON deserialization and
+///   passed through to the underlying function via the `execute()` context argument.
+/// - `Option<T>` parameters deserialise from JSON when present; `None` when absent.
+/// - All other parameters are required in the JSON input.
 #[proc_macro_attribute]
 pub fn skg_tool(attr: TokenStream, item: TokenStream) -> TokenStream {
     let args = parse_macro_input!(attr as MacroArgs);
@@ -200,10 +140,10 @@ pub fn skg_tool(attr: TokenStream, item: TokenStream) -> TokenStream {
     let tool_name = &args.name;
     let tool_desc = &args.description;
 
-    let concurrency_hint = if args.concurrent {
-        quote! { ::skg_tool::ToolConcurrencyHint::Shared }
+    let execution_class = if args.concurrent {
+        quote! { ::layer0::capability::ExecutionClass::Shared }
     } else {
-        quote! { ::skg_tool::ToolConcurrencyHint::Exclusive }
+        quote! { ::layer0::capability::ExecutionClass::Exclusive }
     };
 
     // Collect parameter info from the function signature
@@ -227,49 +167,19 @@ pub fn skg_tool(attr: TokenStream, item: TokenStream) -> TokenStream {
                 };
                 let ty = *pat_ty.ty.clone();
                 let is_ctx = is_dispatch_context_ref(&ty);
-                let is_optional = extract_option_inner(&ty).is_some();
                 params.push(ParamInfo {
                     ident,
                     ty,
-                    is_optional,
                     is_ctx,
                 });
             }
         }
     }
 
-    // Schema: properties object entries
-    let schema_props: Vec<proc_macro2::TokenStream> = params
-        .iter()
-        .filter(|p| !p.is_ctx)
-        .map(|p| {
-            let name_str = p.ident.to_string();
-            let schema = type_to_schema(&p.ty);
-            quote! { #name_str: #schema, }
-        })
-        .collect();
-
-    // Schema: required array entries (non-optional, non-ctx params)
-    let required_fields: Vec<String> = params
-        .iter()
-        .filter(|p| !p.is_ctx && !p.is_optional)
-        .map(|p| p.ident.to_string())
-        .collect();
-
-    let input_schema = quote! {
-        ::serde_json::json!({
-            "type": "object",
-            "properties": {
-                #(#schema_props)*
-            },
-            "required": [#(#required_fields),*]
-        })
-    };
-
-    // call() body: determine whether ctx parameter is used
+    // execute() body: determine whether ctx parameter is used
     let has_ctx = params.iter().any(|p| p.is_ctx);
 
-    // Bind name for the `ctx` parameter in the generated `call()` method:
+    // Bind name for the `ctx` parameter in the generated `execute()` method:
     // prefix with `_` when unused to silence dead-code warnings.
     let ctx_param_name: proc_macro2::TokenStream = if has_ctx {
         quote! { ctx }
@@ -277,10 +187,8 @@ pub fn skg_tool(attr: TokenStream, item: TokenStream) -> TokenStream {
         quote! { _ctx }
     };
 
-    // When the original function takes `&DispatchContext`, the `call()` implementation
-    // must clone `ctx` into an owned value before the `async move` block.
-    // The trait's `'_` lifetime on the return type ties to `&self`, not to `ctx`,
-    // so capturing the raw `ctx` reference in the async block causes a lifetime conflict.
+    // When the original function takes `&DispatchContext`, the `execute()` implementation
+    // must clone `ctx` into an owned value before the `async` block.
     let ctx_clone_stmt: proc_macro2::TokenStream = if has_ctx {
         quote! { let __skg_ctx = ctx.clone(); }
     } else {
@@ -291,6 +199,7 @@ pub fn skg_tool(attr: TokenStream, item: TokenStream) -> TokenStream {
     } else {
         quote! {}
     };
+
     // Deserialise each non-ctx parameter from the JSON input
     let param_deserializations: Vec<proc_macro2::TokenStream> = params
         .iter()
@@ -303,7 +212,11 @@ pub fn skg_tool(attr: TokenStream, item: TokenStream) -> TokenStream {
                 let #name: #ty = ::serde_json::from_value(
                     input.get(#name_str).cloned().unwrap_or(::serde_json::Value::Null)
                 )
-                .map_err(|e| ::skg_tool::ToolError::InvalidInput(e.to_string()))?;
+                .map_err(|e| ::layer0::error::ProtocolError::new(
+                    ::layer0::error::ErrorCode::InvalidInput,
+                    format!("parameter '{}': {}", #name_str, e),
+                    false,
+                ))?;
             }
         })
         .collect();
@@ -340,39 +253,47 @@ pub fn skg_tool(attr: TokenStream, item: TokenStream) -> TokenStream {
             }
         }
 
-        impl ::skg_tool::ToolDyn for #struct_ident {
-            fn name(&self) -> &str {
-                #tool_name
+        #[::async_trait::async_trait]
+        impl ::skg_context_engine::SyncOperator for #struct_ident {
+            fn descriptor(&self) -> ::layer0::capability::CapabilityDescriptor {
+                ::layer0::capability::CapabilityDescriptor::new(
+                    ::layer0::capability::CapabilityId::new(#tool_name),
+                    ::layer0::capability::CapabilityKind::Tool,
+                    #tool_name,
+                    #tool_desc,
+                    ::layer0::capability::SchedulingFacts::new(
+                        #execution_class,
+                        false, false, false, None,
+                    ),
+                    ::layer0::capability::ApprovalFacts::None,
+                    ::layer0::capability::AuthFacts::Open,
+                )
             }
 
-            fn description(&self) -> &str {
-                #tool_desc
-            }
-
-            fn input_schema(&self) -> ::serde_json::Value {
-                #input_schema
-            }
-
-            fn call(
+            async fn execute(
                 &self,
-                input: ::serde_json::Value,
-                #ctx_param_name: &::layer0::DispatchContext,
-            ) -> ::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<::serde_json::Value, ::skg_tool::ToolError>> + Send + '_>>
-            {
-                // When ctx is needed by the original function, clone it into an owned
-                // value so the returned future has no lifetime dependency on the
-                // `ctx: &DispatchContext` borrow (whose lifetime is not reflected in
-                // the trait's return-type `'_`).
+                input: ::layer0::operator::OperatorInput,
+                #ctx_param_name: &::layer0::dispatch_context::DispatchContext,
+            ) -> ::std::result::Result<::layer0::operator::OperatorOutput, ::layer0::error::ProtocolError> {
+                let __skg_input_text = input.message.as_text().unwrap_or("null");
+                let __skg_input: ::serde_json::Value = ::serde_json::from_str(__skg_input_text)
+                    .map_err(|e| ::layer0::error::ProtocolError::new(
+                        ::layer0::error::ErrorCode::InvalidInput,
+                        format!("invalid input JSON: {e}"),
+                        false,
+                    ))?;
+                let input = __skg_input;
                 #ctx_clone_stmt
-                Box::pin(async move {
-                    #ctx_reborrow_stmt
-                    #(#param_deserializations)*
-                    #fn_name(#(#call_args),*).await
-                })
-            }
-
-            fn concurrency_hint(&self) -> ::skg_tool::ToolConcurrencyHint {
-                #concurrency_hint
+                #ctx_reborrow_stmt
+                #(#param_deserializations)*
+                let result = #fn_name(#(#call_args),*).await
+                    .map_err(|e| ::layer0::error::ProtocolError::internal(e.to_string()))?;
+                Ok(::layer0::operator::OperatorOutput::new(
+                    ::layer0::content::Content::text(result.to_string()),
+                    ::layer0::operator::Outcome::Terminal {
+                        terminal: ::layer0::operator::TerminalOutcome::Completed,
+                    },
+                ))
             }
         }
     };
