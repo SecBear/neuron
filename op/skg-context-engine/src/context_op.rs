@@ -45,6 +45,9 @@ pub enum OpResult {
 
 /// A composable predicate that decides whether a [`ContextOp`] runs.
 ///
+/// Predicate function type used by [`Trigger::When`].
+pub type TriggerPredicate = Arc<dyn Fn(&AgentEvent, &Context) -> bool + Send + Sync>;
+
 /// Triggers are evaluated against the current [`AgentEvent`] and [`Context`]
 /// before `apply` is called. They compose: [`All`](Trigger::All) is logical
 /// AND, [`Any`](Trigger::Any) is logical OR.
@@ -60,7 +63,7 @@ pub enum Trigger {
     /// Matches when **any** sub-trigger matches (logical OR).
     Any(Vec<Trigger>),
     /// Matches when the closure returns `true` for the event and context.
-    When(Arc<dyn Fn(&AgentEvent, &Context) -> bool + Send + Sync>),
+    When(TriggerPredicate),
     /// Always matches, regardless of event or context.
     Always,
 }
@@ -154,6 +157,7 @@ pub trait ErasedContextOp: Send + Sync {
     /// Return the trigger predicate for this op.
     fn trigger(&self) -> Trigger;
 
+    #[allow(clippy::type_complexity)]
     /// Apply the context transformation, returning a pinned boxed future.
     fn apply_erased<'a>(
         &'a self,
@@ -214,10 +218,7 @@ impl ContextOpBuilder {
     ///
     /// The op only runs when both the base [`EventKind`] **and** `f` match.
     /// Multiple calls to `when` further narrow with logical AND.
-    pub fn when(
-        self,
-        f: impl Fn(&AgentEvent, &Context) -> bool + Send + Sync + 'static,
-    ) -> Self {
+    pub fn when(self, f: impl Fn(&AgentEvent, &Context) -> bool + Send + Sync + 'static) -> Self {
         let existing = self.trigger;
         ContextOpBuilder {
             trigger: Trigger::All(vec![existing, Trigger::When(Arc::new(f))]),

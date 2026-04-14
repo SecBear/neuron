@@ -45,6 +45,7 @@ impl ReactivePipeline {
         Self { ops: Vec::new() }
     }
 
+    #[allow(clippy::should_implement_trait)]
     /// Add a context op, consuming and returning `self` for chaining.
     pub fn add(mut self, op: impl ContextOp + 'static) -> Self {
         self.ops.push(Box::new(op));
@@ -109,8 +110,8 @@ mod tests {
     use crate::context_op::{Trigger, on};
     use layer0::id::{DispatchId, OperatorId};
     use layer0::wait::WaitReason;
-    use std::sync::atomic::{AtomicU32, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicU32, Ordering};
 
     fn test_dctx() -> DispatchContext {
         DispatchContext::new(DispatchId::new("test"), OperatorId::new("test"))
@@ -121,7 +122,9 @@ mod tests {
         let pipeline = ReactivePipeline::new();
         let mut ctx = Context::new();
         let dctx = test_dctx();
-        let result = pipeline.emit(&AgentEvent::LoopStarted, &mut ctx, &dctx).await;
+        let result = pipeline
+            .emit(&AgentEvent::LoopStarted, &mut ctx, &dctx)
+            .await;
         assert!(matches!(result, OpResult::Continue));
     }
 
@@ -145,7 +148,9 @@ mod tests {
 
         let mut ctx = Context::new();
         let dctx = test_dctx();
-        let result = pipeline.emit(&AgentEvent::LoopStarted, &mut ctx, &dctx).await;
+        let result = pipeline
+            .emit(&AgentEvent::LoopStarted, &mut ctx, &dctx)
+            .await;
         assert!(matches!(result, OpResult::Continue));
         assert_eq!(counter.load(Ordering::SeqCst), 11);
     }
@@ -156,8 +161,8 @@ mod tests {
         let c = counter.clone();
 
         // Registered for BeforeInference only.
-        let pipeline = ReactivePipeline::new()
-            .add(on(EventKind::BeforeInference).apply(move |_, _, _| {
+        let pipeline =
+            ReactivePipeline::new().add(on(EventKind::BeforeInference).apply(move |_, _, _| {
                 c.fetch_add(1, Ordering::SeqCst);
                 async { OpResult::Continue }
             }));
@@ -165,7 +170,9 @@ mod tests {
         let mut ctx = Context::new();
         let dctx = test_dctx();
         // LoopStarted must not trigger a BeforeInference op.
-        let result = pipeline.emit(&AgentEvent::LoopStarted, &mut ctx, &dctx).await;
+        let result = pipeline
+            .emit(&AgentEvent::LoopStarted, &mut ctx, &dctx)
+            .await;
         assert!(matches!(result, OpResult::Continue));
         assert_eq!(counter.load(Ordering::SeqCst), 0);
     }
@@ -188,7 +195,9 @@ mod tests {
 
         let mut ctx = Context::new();
         let dctx = test_dctx();
-        let result = pipeline.emit(&AgentEvent::LoopStarted, &mut ctx, &dctx).await;
+        let result = pipeline
+            .emit(&AgentEvent::LoopStarted, &mut ctx, &dctx)
+            .await;
         assert!(matches!(result, OpResult::Halt(_)));
         assert_eq!(counter.load(Ordering::SeqCst), 0);
     }
@@ -199,9 +208,10 @@ mod tests {
         let c = counter.clone();
 
         let pipeline = ReactivePipeline::new()
-            .add(on(EventKind::LoopStarted).apply(|_, _, _| async {
-                OpResult::Suspend(WaitReason::Approval)
-            }))
+            .add(
+                on(EventKind::LoopStarted)
+                    .apply(|_, _, _| async { OpResult::Suspend(WaitReason::Approval) }),
+            )
             // This op must NOT run after the suspend.
             .add(on(EventKind::LoopStarted).apply(move |_, _, _| {
                 c.fetch_add(1, Ordering::SeqCst);
@@ -210,7 +220,9 @@ mod tests {
 
         let mut ctx = Context::new();
         let dctx = test_dctx();
-        let result = pipeline.emit(&AgentEvent::LoopStarted, &mut ctx, &dctx).await;
+        let result = pipeline
+            .emit(&AgentEvent::LoopStarted, &mut ctx, &dctx)
+            .await;
         assert!(matches!(result, OpResult::Suspend(WaitReason::Approval)));
         assert_eq!(counter.load(Ordering::SeqCst), 0);
     }
@@ -230,7 +242,9 @@ mod tests {
 
         let mut ctx = Context::new();
         let dctx = test_dctx();
-        let result = pipeline.emit(&AgentEvent::LoopStarted, &mut ctx, &dctx).await;
+        let result = pipeline
+            .emit(&AgentEvent::LoopStarted, &mut ctx, &dctx)
+            .await;
         assert!(matches!(result, OpResult::Continue));
         assert_eq!(counter.load(Ordering::SeqCst), 1);
     }
@@ -240,8 +254,8 @@ mod tests {
         let counter = Arc::new(AtomicU32::new(0));
         let c = counter.clone();
 
-        let pipeline = ReactivePipeline::new()
-            .add(on(EventKind::BeforeInference).apply(move |_, _, _| {
+        let pipeline =
+            ReactivePipeline::new().add(on(EventKind::BeforeInference).apply(move |_, _, _| {
                 c.fetch_add(1, Ordering::SeqCst);
                 async { OpResult::Continue }
             }));
@@ -250,7 +264,9 @@ mod tests {
         let dctx = test_dctx();
 
         // LoopStarted must not trigger a BeforeInference op.
-        pipeline.emit(&AgentEvent::LoopStarted, &mut ctx, &dctx).await;
+        pipeline
+            .emit(&AgentEvent::LoopStarted, &mut ctx, &dctx)
+            .await;
         assert_eq!(counter.load(Ordering::SeqCst), 0);
 
         // BeforeInference must trigger it.
@@ -284,13 +300,16 @@ mod tests {
         }
 
         let counter = Arc::new(AtomicU32::new(0));
-        let pipeline =
-            ReactivePipeline::new().add(AlwaysOp { counter: counter.clone() });
+        let pipeline = ReactivePipeline::new().add(AlwaysOp {
+            counter: counter.clone(),
+        });
 
         let mut ctx = Context::new();
         let dctx = test_dctx();
 
-        pipeline.emit(&AgentEvent::LoopStarted, &mut ctx, &dctx).await;
+        pipeline
+            .emit(&AgentEvent::LoopStarted, &mut ctx, &dctx)
+            .await;
         pipeline
             .emit(&AgentEvent::BeforeInference, &mut ctx, &dctx)
             .await;

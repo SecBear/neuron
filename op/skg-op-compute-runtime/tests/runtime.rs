@@ -30,7 +30,7 @@ fn execution_profile_reuses_environment_spec() {
 fn session_policy_has_stable_defaults() {
     let policy = SessionPolicy::default();
     assert_eq!(policy.reuse, SessionReuseMode::Reuse);
-    assert_eq!(policy.reset_on_error, false);
+    assert!(!policy.reset_on_error);
     assert!(policy.idle_timeout >= Duration::from_secs(60));
     assert!(policy.max_lifetime >= policy.idle_timeout);
 }
@@ -255,7 +255,7 @@ async fn in_memory_runtime_close_drops_session() {
 
     rt.close(&sid).await.expect("close");
 
-    let err = rt.inspect(&sid).await.err().expect("expected error");
+    let err = rt.inspect(&sid).await.expect_err("expected error");
     match err {
         ComputeError::SessionNotFound(s) => assert!(s.contains("s-close")),
         _ => panic!("unexpected error: {err:?}"),
@@ -282,7 +282,7 @@ async fn fresh_policy_avoids_persistent_reuse() {
     );
 
     // Inspect should not find a persistent session for Fresh policy
-    let err = rt.inspect(&sid).await.err().expect("expected error");
+    let err = rt.inspect(&sid).await.expect_err("expected error");
     match err {
         ComputeError::SessionNotFound(s) => assert!(s.contains("s-fresh")),
         _ => panic!("unexpected error: {err:?}"),

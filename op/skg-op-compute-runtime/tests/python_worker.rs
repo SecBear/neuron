@@ -204,6 +204,9 @@ final({'answer': x + 1, 'beta': read('beta.txt')})"# }),
     );
 
     write_msg(&mut stdin, &serde_json::json!({"op":"close"}));
+    drop(stdin);
+    drop(stdout);
+    let _ = child.wait();
 
     let _ = fs::remove_dir_all(cwd);
 }
@@ -216,7 +219,7 @@ async fn python_backend_exec_respects_working_dir_and_fs_bindings() {
     let cwd = unique_tempdir("backend-fs");
     fs::write(cwd.join("hello.txt"), "alpha\nbeta\n").expect("seed file");
 
-    let backend = skg_op_compute_runtime::python::LocalPythonBackend::default();
+    let backend = skg_op_compute_runtime::python::LocalPythonBackend;
     let profile = ExecutionProfile {
         working_dir: Some(cwd.clone()),
         ..ExecutionProfile::default()
