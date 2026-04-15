@@ -1,8 +1,6 @@
 #![deny(missing_docs)]
-//! Tool interface for skelegent.
+//! Tool error types and JSON Schema utilities for skelegent.
 
-// TODO(v2): memory tools will be rebuilt as SyncOperator impls
-// pub mod memory;
 pub mod schema;
 
 #[cfg(feature = "macros")]

@@ -6,7 +6,6 @@
 /// Embedded Python worker script (compiled into the binary).
 pub(crate) const WORKER_PY: &str = include_str!("worker.py");
 
-pub(crate) mod bridge;
 pub(crate) mod prelude_generator;
 pub(crate) mod worker_protocol;
 
@@ -14,9 +13,9 @@ use crate::backend::{BackendError, BackendExecRequest, BackendExecResponse, Comp
 use crate::profile::ExecutionProfile;
 use async_trait::async_trait;
 use std::path::PathBuf;
-use std::sync::OnceLock;
 use std::process::Stdio;
 use std::sync::Arc;
+use std::sync::OnceLock;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::process::{ChildStderr, ChildStdin, ChildStdout, Command};
 use tokio::sync::Mutex;
