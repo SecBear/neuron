@@ -18,7 +18,6 @@ quote = "1"
 proc-macro2 = "1"
 
 [dev-dependencies]
-skg-tool = { path = "../skg-tool", version = "0.4.1" }
 skg-context-engine = { path = "../../op/skg-context-engine", version = "0.4.1" }
 layer0 = { path = "../../layer0", version = "0.4.1" }
 async-trait = "0.1"

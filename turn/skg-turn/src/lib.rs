@@ -14,6 +14,7 @@ pub mod infer;
 pub mod infer_middleware;
 pub mod provider;
 pub mod safety;
+pub mod schema;
 pub mod stream;
 pub mod token_counter;
 pub mod types;

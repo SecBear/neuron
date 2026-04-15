@@ -47,3 +47,7 @@ pub use agent_behaviour::{AgentBehaviour, LoopDecision};
 pub use agent_loop::{AgentLoop, PipelineFactory};
 pub use router::Router;
 pub use sync_operator::{SyncOperator, SyncOperatorAdapter};
+
+// Re-export: proc-macro (opt-in via `features = ["macros"]`)
+#[cfg(feature = "macros")]
+pub use skg_tool_macro::skg_tool;

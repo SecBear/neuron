@@ -2,7 +2,6 @@
 resolver = "3"
 members = [
    "layer0",
-   "turn/skg-tool",
    "turn/skg-tool-macro",
    "turn/skg-turn",
    "op/skg-context-engine",

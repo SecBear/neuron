@@ -1244,6 +1244,7 @@ dependencies = [
  "serde",
  "serde_json",
  "skg-state-memory",
+ "skg-tool-macro",
  "skg-turn",
  "thiserror",
  "tokio",
@@ -1352,18 +1353,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "skg-tool"
-version = "0.4.1"
-dependencies = [
- "async-trait",
- "layer0",
- "serde_json",
- "skg-tool-macro",
- "thiserror",
- "tokio",
-]
-
-[[package]]
 name = "skg-tool-macro"
 version = "0.4.1"
 dependencies = [
@@ -1373,7 +1362,6 @@ dependencies = [
  "quote",
  "serde_json",
  "skg-context-engine",
- "skg-tool",
  "syn 2.0.117",
  "tokio",
 ]

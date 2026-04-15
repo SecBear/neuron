@@ -3,11 +3,11 @@
 
 use layer0::capability::CapabilityKind;
 use layer0::content::Content;
+use layer0::error::ProtocolError;
 use layer0::operator::{OperatorInput, TriggerType};
 use layer0::{DispatchContext, DispatchId, OperatorId};
 use serde_json::{Value, json};
 use skg_context_engine::SyncOperator;
-use skg_tool::ToolError;
 use skg_tool_macro::skg_tool;
 
 fn test_ctx() -> DispatchContext {
@@ -21,7 +21,7 @@ fn json_input(value: Value) -> OperatorInput {
 // ── Test 1: basic required-parameter tool ─────────────────────────────────────
 
 #[skg_tool(name = "get_weather", description = "Get current weather")]
-async fn get_weather(location: String) -> Result<Value, ToolError> {
+async fn get_weather(location: String) -> Result<Value, ProtocolError> {
     Ok(json!({"location": location, "temp": 72}))
 }
 
@@ -39,7 +39,10 @@ async fn test_basic_tool_execute() {
     let tool = GetWeatherTool::new();
     let ctx = test_ctx();
     let input = json_input(json!({"location": "San Francisco"}));
-    let output = tool.execute(input, &ctx).await.expect("execute must succeed");
+    let output = tool
+        .execute(input, &ctx)
+        .await
+        .expect("execute must succeed");
     let result: Value =
         serde_json::from_str(output.message.as_text().unwrap()).expect("output must be valid JSON");
     assert_eq!(result["location"], "San Francisco");
@@ -49,7 +52,7 @@ async fn test_basic_tool_execute() {
 // ── Test 2: optional parameter ────────────────────────────────────────────────
 
 #[skg_tool(name = "search", description = "Search for things")]
-async fn search(query: String, limit: Option<i32>) -> Result<Value, ToolError> {
+async fn search(query: String, limit: Option<i32>) -> Result<Value, ProtocolError> {
     Ok(json!({"query": query, "limit": limit}))
 }
 
@@ -58,7 +61,10 @@ async fn test_optional_param_absent() {
     let tool = SearchTool::new();
     let ctx = test_ctx();
     let input = json_input(json!({"query": "rust proc macros"}));
-    let output = tool.execute(input, &ctx).await.expect("execute must succeed");
+    let output = tool
+        .execute(input, &ctx)
+        .await
+        .expect("execute must succeed");
     let result: Value = serde_json::from_str(output.message.as_text().unwrap()).unwrap();
     assert_eq!(result["query"], "rust proc macros");
     assert!(result["limit"].is_null());
@@ -69,7 +75,10 @@ async fn test_optional_param_present() {
     let tool = SearchTool::new();
     let ctx = test_ctx();
     let input = json_input(json!({"query": "rust", "limit": 10}));
-    let output = tool.execute(input, &ctx).await.expect("execute must succeed");
+    let output = tool
+        .execute(input, &ctx)
+        .await
+        .expect("execute must succeed");
     let result: Value = serde_json::from_str(output.message.as_text().unwrap()).unwrap();
     assert_eq!(result["query"], "rust");
     assert_eq!(result["limit"], 10);
@@ -78,7 +87,7 @@ async fn test_optional_param_present() {
 // ── Test 3: DispatchContext parameter ─────────────────────────────────────────
 
 #[skg_tool(name = "agent_info", description = "Returns agent info from context")]
-async fn agent_info(ctx: &DispatchContext, label: String) -> Result<Value, ToolError> {
+async fn agent_info(ctx: &DispatchContext, label: String) -> Result<Value, ProtocolError> {
     let operator_str = ctx.operator_id.to_string();
     Ok(json!({"agent": operator_str, "label": label}))
 }
@@ -87,7 +96,6 @@ async fn agent_info(ctx: &DispatchContext, label: String) -> Result<Value, ToolE
 fn test_ctx_param_excluded_from_descriptor() {
     let tool = AgentInfoTool::new();
     let desc = SyncOperator::descriptor(&tool);
-    // Descriptor must still have the correct name regardless of ctx param
     assert_eq!(desc.name, "agent_info");
     assert_eq!(desc.kind, CapabilityKind::Tool);
 }
@@ -97,7 +105,10 @@ async fn test_ctx_param_passed_through() {
     let ctx = DispatchContext::new(DispatchId::new("test"), OperatorId::new("my-agent"));
     let tool = AgentInfoTool::new();
     let input = json_input(json!({"label": "hello"}));
-    let output = tool.execute(input, &ctx).await.expect("execute must succeed");
+    let output = tool
+        .execute(input, &ctx)
+        .await
+        .expect("execute must succeed");
     let result: Value = serde_json::from_str(output.message.as_text().unwrap()).unwrap();
     assert_eq!(result["label"], "hello");
     assert_eq!(result["agent"], "my-agent");
@@ -110,7 +121,7 @@ async fn test_ctx_param_passed_through() {
     description = "Safe to run concurrently",
     concurrent
 )]
-async fn parallel_op(value: i64) -> Result<Value, ToolError> {
+async fn parallel_op(value: i64) -> Result<Value, ProtocolError> {
     Ok(json!({"value": value}))
 }
 
@@ -133,7 +144,7 @@ fn test_default_is_exclusive_execution_class() {
 // ── Test 5: zero-parameter function ──────────────────────────────────────────
 
 #[skg_tool(name = "ping", description = "Ping the tool")]
-async fn ping() -> Result<Value, ToolError> {
+async fn ping() -> Result<Value, ProtocolError> {
     Ok(json!({"pong": true}))
 }
 
@@ -142,7 +153,10 @@ async fn test_zero_param_execute() {
     let tool = PingTool::new();
     let ctx = test_ctx();
     let input = json_input(json!({}));
-    let output = tool.execute(input, &ctx).await.expect("execute must succeed");
+    let output = tool
+        .execute(input, &ctx)
+        .await
+        .expect("execute must succeed");
     let result: Value = serde_json::from_str(output.message.as_text().unwrap()).unwrap();
     assert_eq!(result["pong"], true);
 }
