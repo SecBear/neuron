@@ -1,41 +1,19 @@
 [workspace]
 resolver = "3"
 members = [
-  # Core (compiles during rebuild)
-  "layer0",
-  "turn/skg-tool",
-  "turn/skg-tool-macro",
-  "turn/skg-turn",
-  "op/skg-context-engine",
-  "op/skg-op-compute-runtime",
-  "state/skg-state-memory",
-  "state/skg-state-fs",
-  "provider/skg-provider-anthropic",
-  "provider/skg-provider-openai",
-  "provider/skg-provider-ollama",
-  "secret/skg-secret",
-  "auth/skg-auth",
-
-  # Temporarily excluded during v2 architecture rebuild.
-  # These depend on deleted Operator/Dispatcher/ToolDyn traits.
-  # Uncomment as each is migrated to new Operator trait.
-  # "skelegent",
-  # "env/skg-env-local",
-  # "orch/skg-orch-local",
-  # "orch/skg-orch-kit",
-  # "orch/skg-orch-patterns",
-  # "op/skg-op-single-shot",
-  # "turn/skg-mcp",
-  # "effects/skg-effects-core",
-  # "effects/skg-effects-local",
-  # "examples/custom_operator_barrier",
-  # "examples/middleware_echo",
-  # "examples/middleware_approval",
-  # "examples/echo-agent",
-  # "examples/workflow",
-  # "examples/react-chatbot",
-  # "examples/multi-agent",
-  # "examples/compute-python-poc",
+   "layer0",
+   "turn/skg-tool",
+   "turn/skg-tool-macro",
+   "turn/skg-turn",
+   "op/skg-context-engine",
+   "op/skg-op-compute-runtime",
+   "state/skg-state-memory",
+   "state/skg-state-fs",
+   "provider/skg-provider-anthropic",
+   "provider/skg-provider-openai",
+   "provider/skg-provider-ollama",
+   "secret/skg-secret",
+   "auth/skg-auth",
 ]
 
 [workspace.package]
