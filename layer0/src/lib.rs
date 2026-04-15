@@ -7,11 +7,8 @@
 //!
 //! | Protocol | Trait | What it does |
 //! |----------|-------|-------------|
-//! | ① Operator | [`Operator`] | What one operator does per cycle |
-//! | ② Dispatch | [`Dispatcher`] | The single invocation primitive |
-//! | ③ State | [`StateStore`] | How data persists across turns |
-//! | ④ Environment | [`Environment`] | Isolation, credentials, resources |
-//!
+//! | ① Operator | [`Operator`] | The universal primitive |
+//! | ② State | [`StateStore`] | How data persists across turns |
 //! ## Cross-Cutting Protocol Surface
 //!
 //! | Surface | Types | What it does |
@@ -22,10 +19,7 @@
 //! ## Design Principle
 //!
 //! Every protocol trait is operation-defined, not mechanism-defined.
-//! [`Operator::execute`] means "cause this agent to process one cycle" —
-//! not "make an API call" or "run a subprocess." This is what makes
-//! implementations swappable: a Temporal workflow, a function call,
-//! and a future system that doesn't exist yet all implement the same trait.
+//! [`Operator::handle`] returns a [`DispatchHandle`], not a direct result.
 //!
 //! ## Companion Documents
 //!
@@ -119,8 +113,8 @@ pub use middleware::{
     StoreMiddleware, StoreReadNext, StoreStack, StoreWriteNext,
 };
 pub use operator::{
-    Operator, OperatorConfig, OperatorInput, OperatorMeta, OperatorMetadata, OperatorOutput,
-    SubDispatchRecord, ToolMetadata, completed_handle, failed_handle,
+    Operator, OperatorConfig, OperatorInput, OperatorMetadata, OperatorOutput,
+    SubDispatchRecord, completed_handle, failed_handle,
 };
 pub use reducer::{AppendList, MergeObject, Overwrite, ReducerRegistry, StateReducer, Sum};
 pub use secret::{SecretAccessEvent, SecretAccessOutcome, SecretSource};

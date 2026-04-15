@@ -27,13 +27,13 @@ skg-turn = "0.4"
 
 ### Setup
 
-Set `OPENAI_API_KEY` in your environment (or inject via `skg-env-local`).
+Set `OPENAI_API_KEY` in your environment.
 
 ```rust
 use skg_provider_openai::OpenAIProvider;
 
 let provider = OpenAIProvider::from_env()?;
-// Use provider with react_loop() from skg-context-engine
+// Use provider with AgentLoop from skg-context-engine
 ```
 
 ### OpenAI-compatible endpoints (Ollama, vLLM, LM Studio, etc.)

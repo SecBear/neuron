@@ -36,8 +36,8 @@ pub struct CompileConfig {
 ///
 /// Produced by [`Context::compile()`]. This snapshots context for a later
 /// provider call, but it is not itself the governance boundary.
-/// Runtime loops should run [`Pipeline::run_before()`] / [`Pipeline::run_after()`]
-/// around inference calls for pre/post-send middleware.
+/// Runtime loops should emit events via [`crate::ReactivePipeline`] around
+/// inference calls for pre/post-send hooks.
 pub struct CompiledContext {
     /// The inference request ready to send.
     pub request: InferRequest,
@@ -84,8 +84,8 @@ impl Context {
     /// Compile the current context into an inference request.
     ///
     /// This snapshots the current assembled context into a provider request.
-    /// The governance boundary is the [`Pipeline`](crate::Pipeline) — run
-    /// `pipeline.run_before()` before compile, not `compile()` itself.
+    /// The governance boundary is the [`crate::ReactivePipeline`] — emit events
+    /// around inference calls, not around `compile()` itself.
     /// The context is NOT consumed — you can compile multiple times (e.g., for retry).
     ///
     /// Messages are cloned into the request. The context continues to exist

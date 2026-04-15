@@ -1,12 +1,13 @@
 //! Per-boundary middleware traits using the continuation pattern.
 //!
-//! Three middleware traits — one per layer0 protocol boundary:
-//! - [`DispatchMiddleware`] wraps [`crate::Dispatcher`]`::dispatch`
+//! Three middleware traits — one per protocol boundary:
+//! - [`DispatchMiddleware`] wraps operator invocation (`Operator::handle`)
 //! - [`StoreMiddleware`] wraps [`crate::StateStore`] read/write
-//! - [`ExecMiddleware`] wraps [`crate::Environment`]`::run`
+//! - [`ExecMiddleware`] wraps environment execution (vestigial: `Environment::run` was deleted;
+//!   `ExecMiddleware` remains for forward compatibility pending `ComputeBackend` integration)
 //!
 //! Provider middleware is NOT here — it lives in the turn layer (Layer 1)
-//! because Provider is RPITIT, not object-safe.
+//! because `Provider` is RPITIT, not object-safe.
 
 use crate::dispatch::DispatchHandle;
 use crate::dispatch_context::DispatchContext;
@@ -19,7 +20,7 @@ use async_trait::async_trait;
 use std::sync::Arc;
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// DISPATCH MIDDLEWARE (wraps Dispatcher::dispatch)
+// DISPATCH MIDDLEWARE (wraps Operator::handle)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 /// The next layer in a dispatch middleware chain.
@@ -36,7 +37,7 @@ pub trait DispatchNext: Send + Sync {
     ) -> Result<DispatchHandle, ProtocolError>;
 }
 
-/// Middleware wrapping `Dispatcher::dispatch`.
+/// Middleware wrapping `Operator::handle`.
 ///
 /// Code before `next.dispatch()` = pre-processing (input mutation, logging).
 /// Code after `next.dispatch()` = post-processing (output mutation, metrics).
@@ -107,7 +108,7 @@ pub trait StoreMiddleware: Send + Sync {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// EXEC MIDDLEWARE (wraps Environment::run)
+// EXEC MIDDLEWARE (vestigial — Environment::run deleted; pending ComputeBackend integration)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 /// The next layer in an exec middleware chain.
@@ -122,7 +123,7 @@ pub trait ExecNext: Send + Sync {
     ) -> Result<OperatorOutput, EnvError>;
 }
 
-/// Middleware wrapping `Environment::run`.
+/// Vestigial middleware for environment execution (pending `ComputeBackend` integration).
 ///
 /// Use for: credential injection, isolation upgrades, resource enforcement.
 #[async_trait]

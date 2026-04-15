@@ -1,8 +1,8 @@
 //! The [`Context`] runtime — first-class mutable substrate for agentic systems.
 //!
 //! Context carries messages, typed extensions, metrics, and intents.
-//! Mutation is direct — no governance wrapper. If you want observation
-//! or intervention, add middleware to the [`Pipeline`](crate::Pipeline).
+//! Mutation is direct — no governance wrapper. If you need observation
+//! or intervention, add a [`crate::ContextOp`] to the [`crate::ReactivePipeline`].
 
 use layer0::content::Content;
 use layer0::context::{Message, Role};
@@ -120,7 +120,7 @@ impl TurnMetrics {
 ///
 /// Mutations are direct — no governance wrapper. If you need observation,
 /// budget guards, or intervention, compose them as
-/// [`Middleware`](crate::Middleware) in a [`Pipeline`](crate::Pipeline).
+/// [`crate::ContextOp`] implementations in a [`crate::ReactivePipeline`].
 pub struct Context {
     /// The message buffer. This is what gets compiled and sent to the model.
     messages: Vec<Message>,

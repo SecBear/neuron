@@ -17,44 +17,22 @@ This repo assumes Rust tooling is provided by the Nix flake.
 
 Core:
 
-- `layer0/` — protocol traits + wire contract
-- `skelegent/` — umbrella crate
+- `layer0/` — protocol kernel
 
 Turn (`turn/`):
 
-- `skg-turn` — turn types + provider abstraction
-- `skg-turn-kit` — turn decomposition primitives
-- `skg-context` — prompt/context assembly
-- `skg-tool` — tool traits + `ToolRegistry`
-- `skg-mcp` — MCP client/server
+- `skg-turn` — `Provider` trait, inference types, streaming
+- `skg-tool-macro` — `#[skg_tool]` proc-macro
 
 Operators (`op/`):
 
-- `skg-context-engine` — ReAct-style operator loop
-- `skg-op-single-shot` — single-shot operator
-
-Orchestration (`orch/`):
-
-- `skg-orch-kit` — composition building blocks
-- `skg-orch-local` — local orchestrator
-
-Effects (`effects/`):
-
-- `skg-effects-core` — effect executor trait
-- `skg-effects-local` — local effect interpreter
-
-Middleware (`hooks/`):
-
-- `skg-hook-security` — security middleware (RedactionMiddleware, ExfilGuardMiddleware)
+- `skg-context-engine` — `Context`, `AgentLoop`, `Router`, `ContextOp`, `ReactivePipeline`, `SyncOperator`
+- `skg-op-compute-runtime` — `ComputeRuntime`, `PythonExecTool`
 
 State (`state/`):
 
-- `skg-state-memory` — in-memory state store
-- `skg-state-fs` — filesystem-backed state store
-
-Environment (`env/`):
-
-- `skg-env-local` — local environment (process/tool execution glue)
+- `skg-state-memory` — in-memory `StateStore`
+- `skg-state-fs` — filesystem `StateStore`
 
 Providers (`provider/`):
 
@@ -62,12 +40,10 @@ Providers (`provider/`):
 - `skg-provider-openai`
 - `skg-provider-ollama`
 
-Security (`secret/`, `auth/`, `crypto/`):
+Security (`secret/`, `auth/`):
 
-- `skg-secret` — secret resolution
-- `skg-secret-vault` — HashiCorp Vault backend
-- `skg-auth` — auth/credential framework
-- `skg-crypto` — cryptographic primitives
+- `skg-secret` — `SecretResolver`
+- `skg-auth` — auth middleware
 
 ## Implementations
 

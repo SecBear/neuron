@@ -1,61 +1,30 @@
-//! Dispatch — the single invocation primitive.
+//! Dispatch — streaming result handles returned by [`crate::operator::Operator::handle`].
 //!
-//! [`Dispatcher`] is the one way to invoke an operator. Orchestrators
-//! implement it. Operators that compose hold `Arc<dyn Dispatcher>` as a
-//! field (constructor injection).
+//! ## Types
 //!
-//! ## Why one trait
+//! - [`DispatchHandle`] — streaming handle returned by `Operator::handle()`
+//! - [`DispatchEvent`] — events emitted during operator execution
+//! - [`DispatchSender`] — sender half for operator implementations
+//! - [`Artifact`] — intermediate deliverable produced during execution
+//! - [`CollectedDispatch`] — result of collecting all events from a handle
 //!
-//! Mature frameworks (Erlang, Akka, LangChain) converge on a single
-//! invocation primitive. `pid ! Message`, `actorRef.tell()`,
-//! `Runnable.invoke()`. There is no separate "orchestrator dispatch"
-//! vs "operator dispatch" — one interface, used everywhere.
+//! ## Usage
 //!
-//! ## Streaming by default
+//! The simplest usage is `handle.collect().await`, which blocks until completion
+//! and returns a [`CollectedDispatch`] with the final [`crate::operator::OperatorOutput`].
+//! Callers that want streaming consume events incrementally via `handle.recv()`.
 //!
-//! Every dispatch returns a [`DispatchHandle`] — a streaming receiver of
-//! [`DispatchEvent`]s. The simplest usage is `handle.collect().await` which
-//! blocks until completion and returns the final [`OperatorOutput`]. But
-//! callers that want streaming (progress updates, intermediate artifacts,
-//! sub-dispatch tracking) can consume events incrementally via
-//! `handle.recv()`.
+//! ## Creating handles (operator implementations)
 //!
-//! ## Composition via constructor injection
+//! Operator implementations call [`DispatchHandle::channel()`] to get a
+//! `(DispatchHandle, DispatchSender)` pair, spawn a task that emits [`DispatchEvent`]s
+//! through the sender, and return the handle to the caller.
 //!
-//! Operators that don't compose never see dispatch infrastructure.
-//! Operators that do compose receive `Arc<dyn Dispatcher>` at
-//! construction time:
+//! ## Interception
 //!
-//! ```rust,ignore
-//! struct CoordinatorOp {
-//!     dispatcher: Arc<dyn Dispatcher>,
-//!     provider: Arc<dyn Provider>,
-//! }
-//!
-//! impl Operator for CoordinatorOp {
-//!     async fn execute(&self, input: OperatorInput, ctx: &DispatchContext) -> Result<OperatorOutput, ProtocolError> {
-//!         // delegate to a sibling — goes through orchestrator middleware
-//!         let child_output = self.dispatcher
-//!             .dispatch(&ctx, child_input)
-//!             .await?
-//!             .collect()
-//!             .await
-//!             .map_err(|e| ProtocolError::internal(e.to_string()))?;
-//!         // ...
-//!     }
-//! }
-//! ```
-//!
-//! The orchestrator passes itself (it implements `Dispatcher`) at
-//! registration time. No circular dependency — operators are registered
-//! first, then the orchestrator wraps itself as `Arc<dyn Dispatcher>`
-//! and injects it into operators that need it.
-//!
-//! ## Depth tracking
-//!
-//! Not a framework concern. Erlang and Akka don't limit message-passing
-//! depth. If you need it, add a [`DispatchMiddleware`](crate::middleware::DispatchMiddleware)
-//! that tracks call depth per session.
+//! [`DispatchHandle::intercept`] wraps a handle to observe or transform events
+//! before they reach the outer caller. Use this for logging, metrics, or
+//! sub-dispatch tracking without modifying the underlying operator.
 
 use crate::content::Content;
 use crate::error::ProtocolError;
@@ -260,8 +229,8 @@ impl std::fmt::Debug for CollectedDispatch {
 
 /// Handle to an in-flight dispatch.
 ///
-/// Returned by [`Dispatcher::dispatch`]. Receives [`DispatchEvent`]s
-/// as the dispatch progresses.
+/// Returned by [`Operator::handle`](crate::operator::Operator::handle). Receives [`DispatchEvent`]s
+/// as the operator progresses.
 ///
 /// - For simple request/response usage: call [`collect`](Self::collect).
 /// - For streaming: call [`recv`](Self::recv) in a loop.
@@ -328,8 +297,8 @@ impl DispatchHandle {
 
     /// Consume all events and return the final output.
     ///
-    /// This is the migration path for callers that don't need streaming.
-    /// Equivalent to the old blocking `Dispatcher::dispatch` behavior.
+    /// This is a convenience for callers that don't need streaming.
+    /// Blocks until the operator completes and returns the final output.
     pub async fn collect(mut self) -> Result<OperatorOutput, ProtocolError> {
         let mut terminal_output = None;
         let mut terminal_error = None;

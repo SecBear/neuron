@@ -1,8 +1,8 @@
 //! Provider trait for LLM backends.
 //!
 //! The [`Provider`] trait uses RPITIT (return-position `impl Trait` in traits)
-//! and is intentionally NOT object-safe. The object-safe boundary is
-//! `layer0::Turn` — Turn<P: Provider> implements Turn.
+//! and is intentionally NOT object-safe. The object-safe boundary for providers
+//! is [`DynProvider`]; the behavioral boundary for operators is `layer0::Operator`.
 //!
 //! [`Message`]: layer0::context::Message
 
@@ -79,8 +79,8 @@ impl ProviderError {
 /// are handled by the provider impl using `InferRequest.provider_options`.
 ///
 /// This trait uses RPITIT and is NOT object-safe. That's intentional —
-/// `Turn<P: Provider>` is generic, and the object-safe boundary
-/// is `layer0::Turn`.
+/// implementations are monomorphized. The object-safe boundary
+/// is [`DynProvider`], which any `Provider` implements via blanket impl.
 pub trait Provider: Send + Sync {
     /// Run inference using [`layer0::context::Message`] types directly.
     ///

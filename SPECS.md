@@ -28,6 +28,7 @@ Authoritative specifications for Skelegent.
 | `specs/v2/15-layer0-invocation-outcome-migration-annex.md` | Migration | Layer0 Outcome migration annex |
 | `specs/v2/16-intent-event-migration-annex.md` | Migration | Intent/ExecutionEvent migration annex |
 | `specs/v2/17-capability-discovery-migration-annex.md` | Migration | Capability discovery migration annex |
+| `specs/v2/20-v2-architecture-redesign.md` | Architecture | v2 architecture redesign — Operator/Behaviour/ContextOp model |
 
 ## v1 Specs (archived)
 

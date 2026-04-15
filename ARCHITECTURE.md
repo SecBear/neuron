@@ -66,10 +66,10 @@ via `FlushToStore`/`InjectFromStore` ops or by holding an `Arc<dyn StateStore>`
 directly. This is internal state — not a cross-boundary side-effect.
 Cross-scope writes remain as `Intent::WriteMemory`.
 
-**Composition dispatch**: Operators may directly dispatch to other operators via
-an injected `Arc<dyn Dispatcher>` capability. The dispatched operator's I/O
-effects are handled by the dispatcher that executes it — the boundary is
-preserved transitively.
+**Composition dispatch**: Operators compose via `Router` — a name-based
+`Operator` implementation that delegates to registered child operators via
+`Operator::handle()`. The dispatched operator's I/O effects are handled by
+its own context — the boundary is preserved transitively.
 
 ### 3. Slim Defaults, Opt-In Complexity
 
@@ -127,7 +127,7 @@ policy above Layer 0, not a built-in context-engine op surface.
 (on-demand within session), cold (cross-session search). Tier assignment is
 per-agent configuration.
 
-**Tools**: Tools are described by `ToolMetadata`, but the current runtime still compiles schemas from `ToolRegistry` and dispatches either through a direct tool path or an explicitly injected `Arc<dyn Dispatcher>`. Do not pretend the dispatcher-only future state has already landed. Expose only the tools the agent actually needs; use lazy catalog or progressive disclosure for the rest.
+**Tools**: Tools are described by `ToolMetadata`, compiled from `SyncOperator` implementations (via `#[skg_tool]`), and dispatched through a `Router`. Expose only the tools the agent actually needs; use lazy catalog or progressive disclosure for the rest.
 
 **Context budget**: Turn-owned. The compaction reserve must never be zero — a
 system at 100% capacity before compacting has no room to run compaction.
@@ -184,17 +184,14 @@ All patterns are built from seven primitives: **Chain**, **Fan-out**, **Fan-in**
 output as input. Observe watches concurrently. Intervene modifies a running
 operator's context from outside. If a new pattern can't be expressed as a
 combination of these seven, the framework may need a new primitive.
-**Dispatch capability**: Operators receive dispatch capability via `Arc<dyn Dispatcher>`
-injected at construction time. `Dispatcher` is the single invocation primitive —
-one trait, one method (`dispatch`), used everywhere. There is no separate
-"orchestrator dispatch" vs "operator dispatch."
+**Dispatch capability**: Sub-operator dispatch uses `Router` — a name-based
+`Operator` implementation. All invocations go through `Operator::handle()`;
+there is no separate orchestrator vs operator dispatch path.
 
 **The Orchestrator is a pattern, not a trait**: The code that builds operators,
-wires their dependencies (state stores, providers, middleware, dispatchers),
-registers them with a Dispatcher implementation, and manages lifecycle — this
-is application code. Different applications wire differently. The Dispatcher is
-the swappable part.
-Different applications wire differently. The Dispatcher is the swappable part.
+wires their dependencies (state stores, providers, `ReactivePipeline`, `Router`),
+and manages lifecycle — this is application code. Different applications wire
+differently. `Router` is the swappable dispatch core.
 
 **Context transfer**: Task-only injection is the default. Context boundaries
 should be enforced by infrastructure (separate process), not by prompt
@@ -209,7 +206,7 @@ acceptable for simple cases but does not scale.
 Conversation-scoped handoff (child inherits the conversation, parent terminates)
 is a distinct pattern from delegation.
 
-**Communication**: Synchronous call/return is the default (`Dispatcher::dispatch`).
+**Communication**: Synchronous call/return is the default (`Operator::handle()`).
 Signals for distributed orchestration (`Intent::Signal`). `ExecutionEvent` is the
 semantic observation plane. Observation and intervention are buildable above the
 kernel as middleware and orchestration adapters; they are not built into `Context`.
@@ -269,9 +266,9 @@ and must not be unified:
 - Steering is poll-driven, returns messages, composes by concatenation.
 - Planner is declarative, returns batch plans, composes by delegation.
 
-Security middleware (`RedactionMiddleware`, `ExfilGuardMiddleware` from
-`skg-hook-security`) provides visibility into steering and dispatch
-without conflating architecturally distinct primitives.
+Security middleware (`RedactionMiddleware`, `ExfilGuardMiddleware`) provides
+visibility into steering and dispatch without conflating architecturally distinct
+primitives.
 
 Middleware composition varies by boundary: dispatch middleware wraps sub-operator
 dispatch, store middleware wraps state access, exec middleware wraps operator
@@ -320,16 +317,14 @@ construct. The parent controls the parameters. The child owns the behavior.
 let config = OperatorConfig { max_cost: Some(dec!(5.0)), ..Default::default() };
 let mut input = OperatorInput::new(message, TriggerType::Task);
 input.config = Some(config);
-dispatcher.dispatch(&operator_id, input).await;
+router.handle(input, &ctx).await;
 
 // Child constructs the pipeline (behavior):
-let mut pipeline = Pipeline::new();
-if let Some(max_cost) = input.config.as_ref().and_then(|c| c.max_cost) {
-    pipeline.push_before(Box::new(BudgetGuard::with_config(BudgetGuardConfig {
-        max_cost: Some(max_cost),
+let pipeline = ReactivePipeline::new()
+    .add(BudgetGuard::with_config(BudgetGuardConfig {
+        max_cost: input.config.as_ref().and_then(|c| c.max_cost),
         ..Default::default()
-    })));
-}
+    }));
 ```
 
 ### Why not a MiddlewareSpec enum?
@@ -342,11 +337,10 @@ to untyped JSON. This is a central registry — it violates composability
 
 ### The dispatch boundary
 
-Same-process dispatch (`LocalDispatcher`): the agent registry — the thing
-that maps `OperatorId` to a constructed `Operator` — is where behavior is wired.
-Middleware is attached at operator construction, not per-dispatch. If a system
-architect wants agent B to always run with a budget guard, they configure that
-when registering agent B.
+Same-process dispatch (`Router`): the `Router` — which maps names to constructed
+`Operator` children — is where behavior is wired. Middleware is attached at
+operator construction, not per-dispatch. If a system architect wants agent B to
+always run with a budget guard, they configure that when constructing agent B.
 
 Cross-process dispatch (durable orchestrators): only data crosses the wire.
 `OperatorConfig` serializes. The remote process constructs behavior from that

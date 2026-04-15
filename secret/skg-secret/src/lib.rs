@@ -11,7 +11,7 @@
 //!   The name->source mapping lives in `CredentialRef`.
 //! - [`SecretValue`] uses scoped exposure (`with_bytes`) to prevent accidental leaks.
 //! - [`SecretRegistry`] dispatches by [`SecretSource`] variant, following the same
-//!   composition pattern as `ToolRegistry`.
+//!   composition pattern as `Router`.
 
 pub mod middleware;
 pub use middleware::{SecretMiddleware, SecretNext, SecretStack, SecretStackBuilder};

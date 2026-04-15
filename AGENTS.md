@@ -19,53 +19,60 @@ separated from execution, slim defaults with opt-in complexity. See
 
 You must understand these types to work in this codebase:
 
-| Type                                      | Crate              | Role                                                                                                                                                                                                                                          |
-| ----------------------------------------- | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Operator`                                | layer0             | Object-safe trait. `execute(input, ctx) -> Result<OperatorOutput, ProtocolError>`. The unit of agent behavior.                                                                                                                                |
-| `DispatchContext`                         | layer0             | Execution metadata threaded through every boundary: dispatch ID, trace context, auth, typed extensions. Every operator, tool, and middleware receives this.                                                                                   |
-| `Context`                                 | skg-context-engine | Mutable conversation substrate: messages, extensions, metrics, intents. Direct synchronous mutations. Intents declared via `push_intent()` and drained into `OperatorOutput::intents`.                                                        |
-| `Middleware` / `Pipeline`                  | skg-context-engine | `Middleware` is the single abstraction for context transformation. `Pipeline` holds ordered before_send/after_send middleware phases. Budget guards, compaction, telemetry are all middleware.                                                  |
-| `Intent`                                  | layer0             | Executable declarations (Delegate, Handoff, Signal, WriteMemory, etc.). Operators declare intent; outer layers execute.                                                                                                                        |
-| `ExecutionEvent`                          | layer0             | Semantic observation envelope: status changes, tool calls, intent declarations, artifacts, completion. Stream-first.                                                                                                                           |
-| `CapabilitySource` / `CapabilityDescriptor` | layer0           | Read-only discovery. Sibling to `Dispatcher`. Describes what operators are available and what they accept.                                                                                                                                    |
-| `Outcome`                                 | layer0             | Typed invocation result: Terminal, Suspended, Transferred, Limited, Intercepted.                                                                                                                                                              |
-| `ProtocolError`                           | layer0             | Canonical serializable failure at invocation boundaries.                                                                                                                                                                                      |
-| `Provider`                                | skg-turn           | NOT object-safe. Generic `<P: Provider>` everywhere, erased at the `Operator` boundary. Wraps LLM inference (Anthropic, OpenAI, Ollama, etc.).                                                                                               |
-| `Dispatcher`                              | layer0             | Invokes operators by ID. The orchestration boundary.                                                                                                                                                                                          |
+| Type                             | Crate              | Role                                                                                                                                                                                    |
+| -------------------------------- | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Operator`                       | layer0             | Streaming-first universal primitive. `descriptor() -> CapabilityDescriptor` + `handle(input, ctx) -> Result<DispatchHandle, ProtocolError>`. Everything is an Operator.                |
+| `DispatchContext`                | layer0             | Execution metadata threaded through every boundary: dispatch ID, trace context, auth, typed extensions. Every operator receives this.                                                   |
+| `Context`                        | skg-context-engine | Mutable conversation substrate: messages, extensions, metrics, intents. Direct synchronous mutations. Intents declared via `push_intent()`, drained into `OperatorOutput::intents`.    |
+| `ContextOp` / `ReactivePipeline` | skg-context-engine | Event-driven context transformations. `ContextOp::trigger()` selects which `AgentEvent`s fire it; `ReactivePipeline::emit()` evaluates matching ops at every loop boundary.            |
+| `AgentLoop` / `AgentBehaviour`   | skg-context-engine | The agentic loop. `AgentBehaviour` callbacks: `init_context`, `capabilities`, `handle_response`, `handle_action_result`. Returns `LoopDecision` (Continue/Complete/Suspend/Delegate).  |
+| `SyncOperator`                   | skg-context-engine | Convenience trait for simple tools/operators. `execute(input, ctx) -> Result<OperatorOutput, ProtocolError>`. Wrapped as `Operator` via `SyncOperatorAdapter`.                         |
+| `Router`                         | skg-context-engine | Name-based dispatch to registered `Arc<dyn Operator>` children. Implements `Operator`.                                                                                                 |
+| `Intent`                         | layer0             | Executable declarations (Delegate, Handoff, Signal, WriteMemory, etc.). Operators declare; outer layers execute.                                                                        |
+| `ExecutionEvent`                 | layer0             | Semantic observation envelope: status changes, tool calls, intent declarations, artifacts, completion. Stream-first.                                                                    |
+| `CapabilityDescriptor`           | layer0             | Read-only discovery. Describes what an operator accepts and produces. Returned by `Operator::descriptor()`.                                                                             |
+| `Outcome`                        | layer0             | Typed invocation result: Terminal, Suspended, Transferred, Limited, Intercepted.                                                                                                        |
+| `ProtocolError`                  | layer0             | Canonical serializable failure at invocation boundaries.                                                                                                                                |
+| `Provider`                       | skg-turn           | NOT object-safe. Generic `<P: Provider>` in `AgentLoop`. Erased at the `Operator` boundary. Wraps LLM inference (Anthropic, OpenAI, Ollama, etc.).                                     |
 
 ### How they connect
 
 ```
 User message
-  → Dispatcher.dispatch(ctx: &DispatchContext, input)
-    → Operator.execute(input, &DispatchContext)
-      → react_loop(Context, Provider, Tools, &DispatchContext, config, &Pipeline)
-        → Pipeline.run_before(ctx) runs middleware
-        → Context.compile() + Provider.infer(request)
-        → Pipeline.run_after(ctx) runs middleware
-        → Provider.infer(request) → response (projected into ExecutionEvents)
-        → Tools execute with DispatchContext
-        → Context.push_intent(Intent) declares executable intent
-      → OperatorOutput { content, outcome: Outcome, intents, metadata }
-    → Outer layer executes declared intents
+  → Router.handle(input, ctx)
+    → looks up ctx.operator_id → delegates to child Operator
+    → AgentLoop.handle(input, ctx)
+      → spawns task, returns DispatchHandle
+      → behaviour.init_context()
+      → pipeline.emit(LoopStarted)
+      → loop:
+          pipeline.emit(BeforeInference)
+          behaviour.capabilities() → compile context
+          provider.infer(request) → response
+          pipeline.emit(AfterInference)
+          behaviour.handle_response() → LoopDecision
+          if actions: dispatch via router
+            → pipeline.emit(ActionRequested)
+            → child Operator.handle()
+            → pipeline.emit(ActionCompleted)
+      → pipeline.emit(LoopEnding)
+    → OperatorOutput { content, outcome, intents, metadata }
+  → outer layer executes declared intents
 ```
 
 ## Where to Make Changes
 
-| Task                                                     | Where                                                                   |
-| -------------------------------------------------------- | ----------------------------------------------------------------------- |
-| New protocol trait or wire type                          | `layer0/`                                                               |
-| Change operator behavior (runtime loop, middleware, pipeline) | `op/skg-context-engine/`                                                |
-| New simple operator                                      | `op/skg-op-single-shot/` or new `op/` crate                             |
-| New LLM provider                                         | new `provider/skg-provider-*` crate implementing `Provider`             |
-| New intent variant                                       | `layer0/src/intent.rs` (enum) + `effects/skg-effects-local/` (handler)  |
-| New middleware                                           | `skg-context-engine` for context/runtime middleware; `layer0` for dispatch/store/exec middleware traits |
-| New state backend                                        | new `state/` crate implementing `StateStore`                            |
-| New environment                                          | new `env/` crate implementing `Environment`                             |
-| Tool infrastructure                                      | `turn/skg-tool/` (trait, registry) or `turn/skg-mcp/` (MCP bridge)      |
-| Orchestration patterns                                   | `orch/skg-orch-kit/` (utilities) or `orch/skg-orch-local/` (local impl) |
-| Auth/secrets                                             | `auth/`, `secret/`                                                      |
-| The umbrella crate                                       | `skelegent/`                                                            |
+| Task                                         | Where                                                              |
+| -------------------------------------------- | ------------------------------------------------------------------ |
+| New protocol trait or wire type              | `layer0/`                                                          |
+| New context operation                        | `op/skg-context-engine/` implementing `ContextOp`                  |
+| New operator behaviour                       | `op/skg-context-engine/` (like `AgentLoop`, `Router`)              |
+| New simple operator/tool                     | implement `SyncOperator`, use `#[skg_tool]` macro                  |
+| New LLM provider                             | new `provider/skg-provider-*` crate implementing `Provider`        |
+| New intent variant                           | `layer0/src/intent.rs`                                             |
+| New state backend                            | new `state/` crate implementing `StateStore`                       |
+| Compute runtime                              | `op/skg-op-compute-runtime/`                                       |
+| Auth/secrets                                 | `auth/`, `secret/`                                                 |
 
 ## Where Truth Lives
 
@@ -112,26 +119,26 @@ Do not claim "done" without fresh evidence from the relevant commands.
 
 ## Patterns to Know
 
-**Intents are on Context, not a separate parameter.** Operators declare intents
-via `ctx.push_intent(intent)` during execution. These are drained into
-`OperatorOutput::intents` by the runtime output helpers. There is no separate
-intent emitter parameter on `Operator::execute`.
+**Everything is an Operator.** Tools, agents, routers — all implement `Operator`. `SyncOperator` is the
+convenience path for simple tools; `SyncOperatorAdapter` wraps it automatically.
 
-**AgentOperator is the thin adapter.** It wraps `react_loop()` as a
-`dyn Operator`. It forwards the `DispatchContext` it receives — it does not
-fabricate one. Its config is `ReactLoopConfig`.
+**Context operations are first-class.** `ContextOp` with the `Trigger` system fires on `AgentEvent`s.
+`ReactivePipeline::emit()` evaluates matching ops at every loop boundary. Budget guards, compaction,
+and telemetry are all `ContextOp` implementations.
 
-**Context mutations are direct.** `Context` is a mutable substrate with
-synchronous mutation methods. Middleware runs through `Pipeline::run_before()`
-and `Pipeline::run_after()` around inference boundaries. Budget guards,
-compaction, and telemetry are middleware.
+**AgentLoop is the agentic behaviour.** `AgentBehaviour` trait provides callbacks (`init_context`,
+`capabilities`, `handle_response`, `handle_action_result`). The loop emits 14 `AgentEvent` variants
+through the `ReactivePipeline` at every boundary.
 
-**ExecutionEvent is the semantic observation plane.** Provider chunks are projected into semantic events at meaningful boundaries — status changes, tool calls, intent declarations, artifacts, completion. Observers subscribe to these events rather than raw provider chunks.
+**Router replaces Dispatcher.** Name-based dispatch to registered `Arc<dyn Operator>` children.
+There is no `Dispatcher` trait; routing is done via `Router`, which itself implements `Operator`.
 
-**Provider is generic, Operator is object-safe.** `react_loop<P: Provider>` is
-generic over the provider. The object-safe boundary is `Operator`, which erases
-the provider type. This is by design — see ARCHITECTURE.md §"The Object-Safety
-Decision."
+**Provider is generic, Operator is object-safe.** `AgentLoop<P: Provider, B: AgentBehaviour>` is
+generic over the provider. The object-safe boundary is `Operator::handle()`, which erases the
+provider type. This is by design — see ARCHITECTURE.md §"The Object-Safety Decision."
+
+**Intents are on Context.** Operators declare via `ctx.push_intent()` during execution. These are
+drained into `OperatorOutput::intents` by the runtime. There is no separate intent parameter.
 
 ## Codifying Learnings
 
