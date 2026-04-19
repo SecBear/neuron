@@ -1252,6 +1252,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "skg-env-local"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "layer0",
+ "tokio",
+]
+
+[[package]]
 name = "skg-op-compute-runtime"
 version = "0.4.1"
 dependencies = [

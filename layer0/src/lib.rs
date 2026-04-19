@@ -105,7 +105,7 @@ pub use dispatch::{
 };
 pub use dispatch_context::{AuthIdentity, DispatchContext, Extensions, TraceContext};
 pub use duration::DurationMs;
-pub use environment::EnvironmentSpec;
+pub use environment::{EnvironmentProvider, EnvironmentSpec, ProvisionedEnv};
 pub use id::{DispatchId, OperatorId, SessionId, WorkflowId};
 pub use lifecycle::CompactionPolicy;
 pub use middleware::{
@@ -113,8 +113,8 @@ pub use middleware::{
     StoreMiddleware, StoreReadNext, StoreStack, StoreWriteNext,
 };
 pub use operator::{
-    Operator, OperatorConfig, OperatorInput, OperatorMetadata, OperatorOutput,
-    SubDispatchRecord, completed_handle, failed_handle,
+    completed_handle, failed_handle, Operator, OperatorConfig, OperatorInput, OperatorMetadata,
+    OperatorOutput, SubDispatchRecord,
 };
 pub use reducer::{AppendList, MergeObject, Overwrite, ReducerRegistry, StateReducer, Sum};
 pub use secret::{SecretAccessEvent, SecretAccessOutcome, SecretSource};

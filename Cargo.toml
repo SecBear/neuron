@@ -13,6 +13,7 @@ members = [
    "provider/skg-provider-ollama",
    "secret/skg-secret",
    "auth/skg-auth",
+   "env/skg-env-local",
 ]
 
 [workspace.package]
