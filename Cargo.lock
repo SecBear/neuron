@@ -1223,6 +1223,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e3a9fe34e3e7a50316060351f37187a3f546bce95496156754b601a5fa71b76e"
 
 [[package]]
+name = "skelegent"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "layer0",
+ "skg-auth",
+ "skg-context-engine",
+ "skg-env-local",
+ "skg-op-compute-runtime",
+ "skg-provider-anthropic",
+ "skg-provider-ollama",
+ "skg-provider-openai",
+ "skg-secret",
+ "skg-state-fs",
+ "skg-state-memory",
+ "skg-turn",
+ "tokio",
+]
+
+[[package]]
 name = "skg-auth"
 version = "0.4.1"
 dependencies = [

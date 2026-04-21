@@ -1,0 +1,44 @@
+[package]
+name = "skelegent"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Composable agentic AI runtime — umbrella crate"
+readme = "README.md"
+
+[dependencies]
+# Core
+layer0 = { path = "../layer0" }
+skg-context-engine = { path = "../op/skg-context-engine", features = [
+   "macros",
+] }
+skg-turn = { path = "../turn/skg-turn" }
+
+# Providers
+skg-provider-anthropic = { path = "../provider/skg-provider-anthropic" }
+skg-provider-openai = { path = "../provider/skg-provider-openai" }
+skg-provider-ollama = { path = "../provider/skg-provider-ollama" }
+
+# State stores
+skg-state-memory = { path = "../state/skg-state-memory" }
+skg-state-fs = { path = "../state/skg-state-fs" }
+
+# Compute
+skg-op-compute-runtime = { path = "../op/skg-op-compute-runtime" }
+
+# Environment
+skg-env-local = { path = "../env/skg-env-local" }
+
+# Secrets + auth
+skg-secret = { path = "../secret/skg-secret" }
+skg-auth = { path = "../auth/skg-auth" }
+
+# Re-exported utilities
+async-trait = "0.1"
+
+[dev-dependencies]
+layer0 = { path = "../layer0", features = ["test-utils"] }
+skg-turn = { path = "../turn/skg-turn", features = ["test-utils"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
