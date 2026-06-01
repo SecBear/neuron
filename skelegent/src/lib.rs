@@ -82,12 +82,15 @@ pub use skg_turn as turn;
 // ── Providers ───────────────────────────────────────────────────────────────
 
 /// Anthropic provider implementation. Re-export of `skg-provider-anthropic`.
+#[cfg(feature = "anthropic")]
 pub use skg_provider_anthropic as anthropic;
 
 /// OpenAI provider implementation. Re-export of `skg-provider-openai`.
+#[cfg(feature = "openai")]
 pub use skg_provider_openai as openai;
 
 /// Ollama provider implementation. Re-export of `skg-provider-ollama`.
+#[cfg(feature = "ollama")]
 pub use skg_provider_ollama as ollama;
 
 // ── State stores ────────────────────────────────────────────────────────────
@@ -118,4 +121,4 @@ pub use skg_auth as auth;
 
 // ── Top-level builder ───────────────────────────────────────────────────────
 
-pub use builder::{agent, AgentBuilder};
+pub use builder::{AgentBuilder, agent};

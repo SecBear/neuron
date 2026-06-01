@@ -12,14 +12,14 @@ readme = "README.md"
 # Core
 layer0 = { path = "../layer0" }
 skg-context-engine = { path = "../op/skg-context-engine", features = [
-   "macros",
+  "macros",
 ] }
 skg-turn = { path = "../turn/skg-turn" }
 
 # Providers
-skg-provider-anthropic = { path = "../provider/skg-provider-anthropic" }
-skg-provider-openai = { path = "../provider/skg-provider-openai" }
-skg-provider-ollama = { path = "../provider/skg-provider-ollama" }
+skg-provider-anthropic = { path = "../provider/skg-provider-anthropic", optional = true }
+skg-provider-openai = { path = "../provider/skg-provider-openai", optional = true }
+skg-provider-ollama = { path = "../provider/skg-provider-ollama", optional = true }
 
 # State stores
 skg-state-memory = { path = "../state/skg-state-memory" }
@@ -37,6 +37,13 @@ skg-auth = { path = "../auth/skg-auth" }
 
 # Re-exported utilities
 async-trait = "0.1"
+
+[features]
+default = ["anthropic", "openai", "ollama"]
+anthropic = ["dep:skg-provider-anthropic"]
+openai = ["dep:skg-provider-openai"]
+ollama = ["dep:skg-provider-ollama"]
+providers = ["anthropic", "openai", "ollama"]
 
 [dev-dependencies]
 layer0 = { path = "../layer0", features = ["test-utils"] }
