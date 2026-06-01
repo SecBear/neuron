@@ -1,4 +1,4 @@
-use layer0::dispatch::{DispatchEvent, InvocationHandle};
+use layer0::dispatch::{DispatchEvent, DispatchHandle};
 use layer0::error::ErrorCode;
 use layer0::id::DispatchId;
 use layer0::intent::{Intent, IntentKind};
@@ -15,7 +15,7 @@ fn completed_outcome() -> Outcome {
 
 #[tokio::test]
 async fn collect_preserves_intents_from_completed_output() {
-    let (handle, sender) = InvocationHandle::channel(DispatchId::new("intent-test"));
+    let (handle, sender) = DispatchHandle::channel(DispatchId::new("intent-test"));
     tokio::spawn(async move {
         let mut output = OperatorOutput::new(Content::text("done"), completed_outcome());
         output.intents.push(Intent::new(IntentKind::DeleteMemory {
@@ -37,7 +37,7 @@ async fn collect_preserves_intents_from_completed_output() {
 
 #[tokio::test]
 async fn missing_terminal_event_returns_error() {
-    let (handle, sender) = InvocationHandle::channel(DispatchId::new("no-terminal"));
+    let (handle, sender) = DispatchHandle::channel(DispatchId::new("no-terminal"));
     // Drop the sender without sending a terminal event.
     drop(sender);
 
@@ -48,7 +48,7 @@ async fn missing_terminal_event_returns_error() {
 
 #[tokio::test]
 async fn missing_terminal_after_cancellation_returns_error() {
-    let (handle, sender) = InvocationHandle::channel(DispatchId::new("cancelled"));
+    let (handle, sender) = DispatchHandle::channel(DispatchId::new("cancelled"));
     handle.cancel();
     // Drop sender after cancellation to simulate no terminal event.
     drop(sender);
@@ -65,7 +65,7 @@ async fn missing_terminal_after_cancellation_returns_error() {
 
 #[tokio::test]
 async fn collect_propagates_failed_event_as_error() {
-    let (handle, sender) = InvocationHandle::channel(DispatchId::new("fail-test"));
+    let (handle, sender) = DispatchHandle::channel(DispatchId::new("fail-test"));
     tokio::spawn(async move {
         let _ = sender
             .send(DispatchEvent::Failed {

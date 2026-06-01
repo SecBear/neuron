@@ -99,10 +99,7 @@ pub use approval::{
 };
 pub use content::{Content, ContentBlock};
 pub use context::{Message, MessageMeta, Role};
-pub use dispatch::{
-    Artifact, CollectedDispatch, CollectedInvocation, DispatchEvent, DispatchHandle,
-    DispatchSender, InvocationHandle,
-};
+pub use dispatch::{Artifact, CollectedDispatch, DispatchEvent, DispatchHandle, DispatchSender};
 pub use dispatch_context::{AuthIdentity, DispatchContext, Extensions, TraceContext};
 pub use duration::DurationMs;
 pub use environment::{EnvironmentProvider, EnvironmentSpec, ProvisionedEnv};
@@ -113,8 +110,8 @@ pub use middleware::{
     StoreMiddleware, StoreReadNext, StoreStack, StoreWriteNext,
 };
 pub use operator::{
-    completed_handle, failed_handle, Operator, OperatorConfig, OperatorInput, OperatorMetadata,
-    OperatorOutput, SubDispatchRecord,
+    Operator, OperatorConfig, OperatorInput, OperatorMetadata, OperatorOutput, SubDispatchRecord,
+    completed_handle, failed_handle,
 };
 pub use reducer::{AppendList, MergeObject, Overwrite, ReducerRegistry, StateReducer, Sum};
 pub use secret::{SecretAccessEvent, SecretAccessOutcome, SecretSource};

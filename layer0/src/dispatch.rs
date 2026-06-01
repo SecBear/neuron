@@ -502,19 +502,6 @@ impl std::fmt::Debug for DispatchSender {
     }
 }
 
-// ── Type aliases ─────────────────────────────────────────────────────────────
-
-/// Alias for `DispatchHandle` — the v2 name for invocation handles.
-///
-/// `InvocationHandle` is the preferred name going forward. `DispatchHandle`
-/// remains available as a deprecated alias.
-pub type InvocationHandle = DispatchHandle;
-
-/// Alias for `CollectedDispatch` — the v2 name for collected invocation results.
-///
-/// `CollectedInvocation` is the preferred name going forward.
-pub type CollectedInvocation = CollectedDispatch;
-
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // TESTS
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

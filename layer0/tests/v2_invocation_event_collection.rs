@@ -1,4 +1,4 @@
-use layer0::dispatch::{DispatchEvent, InvocationHandle};
+use layer0::dispatch::{DispatchEvent, DispatchHandle};
 use layer0::error::ErrorCode;
 use layer0::id::DispatchId;
 use layer0::intent::{Intent, IntentKind};
@@ -15,7 +15,7 @@ fn completed_outcome() -> Outcome {
 async fn collect_with_events(
     events: Vec<DispatchEvent>,
 ) -> Result<OperatorOutput, layer0::ProtocolError> {
-    let (handle, sender) = InvocationHandle::channel(DispatchId::new("collect-test"));
+    let (handle, sender) = DispatchHandle::channel(DispatchId::new("collect-test"));
     tokio::spawn(async move {
         for event in events {
             if sender.send(event).await.is_err() {
@@ -49,7 +49,7 @@ async fn collect_does_not_duplicate_intents_from_completed_output() {
 #[tokio::test]
 async fn missing_terminal_event_returns_unavailable() {
     // Send only intermediate events, no terminal.
-    let (handle, sender) = InvocationHandle::channel(DispatchId::new("no-terminal"));
+    let (handle, sender) = DispatchHandle::channel(DispatchId::new("no-terminal"));
     tokio::spawn(async move {
         let _ = sender
             .send(DispatchEvent::Progress {
@@ -67,7 +67,7 @@ async fn missing_terminal_event_returns_unavailable() {
 async fn failed_event_takes_precedence_over_completed() {
     // If both Failed and Completed are sent (shouldn't happen, but test defensively),
     // Failed takes precedence.
-    let (handle, sender) = InvocationHandle::channel(DispatchId::new("both-terminals"));
+    let (handle, sender) = DispatchHandle::channel(DispatchId::new("both-terminals"));
     tokio::spawn(async move {
         let _ = sender
             .send(DispatchEvent::Failed {
