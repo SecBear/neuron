@@ -282,23 +282,7 @@ impl OpenAIProvider {
             }
         }
 
-        let tools: Vec<OpenAITool> = request
-            .tools
-            .iter()
-            .map(|t| {
-                // TODO: plumb ToolSchema.extra — OpenAI supports `strict: true`
-                // per function; read from t.extra and set OpenAIFunction.strict
-                // once the wire-format contract is settled.
-                OpenAITool {
-                    tool_type: "function".into(),
-                    function: OpenAIFunction {
-                        name: t.name.clone(),
-                        description: t.description.clone(),
-                        parameters: t.input_schema.clone(),
-                    },
-                }
-            })
-            .collect();
+        let tools: Vec<OpenAITool> = request.tools.iter().map(tool_schema_to_openai).collect();
 
         // Extract OpenAI-specific fields from provider_options["openai"].
         let openai_opts = request
@@ -911,6 +895,28 @@ fn map_error_response(status: reqwest::StatusCode, body: &str) -> ProviderError 
     }
 }
 
+/// Convert a [`ToolSchema`] into an OpenAI tool definition.
+///
+/// Reads an optional boolean `"strict"` key from the tool's `extra` bag and
+/// propagates it to [`OpenAIFunction::strict`]. Absent or non-boolean values
+/// yield `None`, which is omitted from the serialized payload.
+fn tool_schema_to_openai(t: &skg_turn::types::ToolSchema) -> OpenAITool {
+    let strict = t
+        .extra
+        .as_ref()
+        .and_then(|v| v.get("strict"))
+        .and_then(|v| v.as_bool());
+    OpenAITool {
+        tool_type: "function".into(),
+        function: OpenAIFunction {
+            name: t.name.clone(),
+            description: t.description.clone(),
+            parameters: t.input_schema.clone(),
+            strict,
+        },
+    }
+}
+
 /// Extract plain text from a layer0 [`Content`] value.
 fn content_to_text(content: &Content) -> String {
     match content {
@@ -978,11 +984,42 @@ mod tests {
                     },
                     "required": ["location"]
                 }),
+                strict: None,
             },
         };
         let json = serde_json::to_value(&tool).unwrap();
         assert_eq!(json["type"], "function");
         assert_eq!(json["function"]["name"], "get_weather");
+    }
+
+    #[test]
+    fn strict_true_in_extra_serializes_strict() {
+        let tool = skg_turn::types::ToolSchema::new(
+            "get_weather",
+            "Get current weather",
+            json!({"type": "object", "properties": {}}),
+        )
+        .with_extra(json!({"strict": true}));
+        let openai = tool_schema_to_openai(&tool);
+        assert_eq!(openai.function.strict, Some(true));
+        let value = serde_json::to_value(&openai).unwrap();
+        assert_eq!(value["function"]["strict"], json!(true));
+    }
+
+    #[test]
+    fn absent_strict_omits_key_on_wire() {
+        let tool = skg_turn::types::ToolSchema::new(
+            "get_weather",
+            "Get current weather",
+            json!({"type": "object", "properties": {}}),
+        );
+        let openai = tool_schema_to_openai(&tool);
+        assert_eq!(openai.function.strict, None);
+        let value = serde_json::to_value(&openai).unwrap();
+        assert!(
+            value["function"].get("strict").is_none(),
+            "strict key must be absent when not requested, got: {value}"
+        );
     }
 
     #[test]

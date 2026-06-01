@@ -132,6 +132,12 @@ pub struct OpenAIFunction {
     pub description: String,
     /// JSON Schema for the function parameters.
     pub parameters: serde_json::Value,
+    /// Whether to enforce strict schema adherence (OpenAI structured outputs).
+    ///
+    /// Sourced from the tool's `extra` bag (`{"strict": true}`). Omitted from
+    /// the wire payload when `None` to preserve default request shape.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub strict: Option<bool>,
 }
 
 /// OpenAI Chat Completions API response body.
