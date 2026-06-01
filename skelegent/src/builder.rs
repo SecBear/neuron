@@ -33,15 +33,13 @@
 
 use std::sync::Arc;
 
+use layer0::OperatorId;
 use layer0::capability::{
     ApprovalFacts, AuthFacts, CapabilityDescriptor, CapabilityId, CapabilityKind, ExecutionClass,
     SchedulingFacts,
 };
 use layer0::operator::Operator;
-use layer0::OperatorId;
-use skg_context_engine::{
-    AgentBehaviour, AgentLoop, PipelineFactory, ReactivePipeline, Router,
-};
+use skg_context_engine::{AgentBehaviour, AgentLoop, PipelineFactory, ReactivePipeline, Router};
 use skg_turn::Provider;
 
 /// Start building an agent.
@@ -188,18 +186,14 @@ mod tests {
     use layer0::test_utils::EchoOperator;
     use skg_context_engine::{AgentBehaviour, Context, LoopDecision};
     use skg_turn::InferResponse;
-    use skg_turn::test_utils::{make_text_response, TestProvider};
+    use skg_turn::test_utils::{TestProvider, make_text_response};
 
     // Minimal behaviour: completes on first response.
     struct Completer;
 
     #[async_trait]
     impl AgentBehaviour for Completer {
-        async fn init_context(
-            &self,
-            _input: &OperatorInput,
-            _ctx: &DispatchContext,
-        ) -> Context {
+        async fn init_context(&self, _input: &OperatorInput, _ctx: &DispatchContext) -> Context {
             Context::new()
         }
 
@@ -244,10 +238,7 @@ mod tests {
             .build();
 
         let input = OperatorInput::new(Content::text("go"), TriggerType::User);
-        let ctx = DispatchContext::new(
-            DispatchId::new("d-1"),
-            OperatorId::new("test.agent"),
-        );
+        let ctx = DispatchContext::new(DispatchId::new("d-1"), OperatorId::new("test.agent"));
         let output = agent_op
             .handle(input, &ctx)
             .await
@@ -272,17 +263,13 @@ mod tests {
             .build();
 
         let input = OperatorInput::new(Content::text("go"), TriggerType::User);
-        let ctx = DispatchContext::new(
-            DispatchId::new("d-1"),
-            OperatorId::new("skelegent.agent"),
-        );
+        let ctx = DispatchContext::new(DispatchId::new("d-1"), OperatorId::new("skelegent.agent"));
         let _ = agent_op.handle(input, &ctx).await.expect("handle");
     }
 
     #[test]
     fn builder_accepts_custom_router() {
-        let router = Router::new("custom.router", "Custom")
-            .route("echo", Arc::new(EchoOperator));
+        let router = Router::new("custom.router", "Custom").route("echo", Arc::new(EchoOperator));
         let _ = agent(test_provider("x"), Completer).router(router);
     }
 
@@ -303,6 +290,8 @@ mod tests {
     #[tokio::test]
     async fn builder_accepts_custom_pipeline() {
         let factory: PipelineFactory = Arc::new(ReactivePipeline::new);
-        let _agent = agent(test_provider("x"), Completer).pipeline(factory).build();
+        let _agent = agent(test_provider("x"), Completer)
+            .pipeline(factory)
+            .build();
     }
 }

@@ -166,10 +166,7 @@ mod tests {
     }
 
     fn test_ctx() -> DispatchContext {
-        DispatchContext::new(
-            DispatchId::new("dispatch-1"),
-            OperatorId::new("op-echo"),
-        )
+        DispatchContext::new(DispatchId::new("dispatch-1"), OperatorId::new("op-echo"))
     }
 
     // ── tests ────────────────────────────────────────────────────────────────
@@ -188,10 +185,7 @@ mod tests {
         let input = OperatorInput::new(Content::text("hello world"), TriggerType::User);
         let ctx = test_ctx();
 
-        let handle = op
-            .handle(input, &ctx)
-            .await
-            .expect("handle should succeed");
+        let handle = op.handle(input, &ctx).await.expect("handle should succeed");
 
         let output = handle.collect().await.expect("collect should succeed");
 

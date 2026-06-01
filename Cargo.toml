@@ -1,20 +1,20 @@
 [workspace]
 resolver = "3"
 members = [
-   "layer0",
-   "turn/skg-tool-macro",
-   "turn/skg-turn",
-   "op/skg-context-engine",
-   "op/skg-op-compute-runtime",
-   "state/skg-state-memory",
-   "state/skg-state-fs",
-   "provider/skg-provider-anthropic",
-   "provider/skg-provider-openai",
-   "provider/skg-provider-ollama",
-   "secret/skg-secret",
-   "auth/skg-auth",
-   "env/skg-env-local",
-   "skelegent",
+  "layer0",
+  "turn/skg-tool-macro",
+  "turn/skg-turn",
+  "op/skg-context-engine",
+  "op/skg-op-compute-runtime",
+  "state/skg-state-memory",
+  "state/skg-state-fs",
+  "provider/skg-provider-anthropic",
+  "provider/skg-provider-openai",
+  "provider/skg-provider-ollama",
+  "secret/skg-secret",
+  "auth/skg-auth",
+  "env/skg-env-local",
+  "skelegent",
 ]
 
 [workspace.package]

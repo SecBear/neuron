@@ -86,7 +86,6 @@ fn snake_to_pascal(s: &str) -> String {
         .collect()
 }
 
-
 /// Return `true` if `ty` is `&DispatchContext` (any qualifying path ending in `DispatchContext`).
 fn is_dispatch_context_ref(ty: &Type) -> bool {
     if let Type::Reference(r) = ty
@@ -167,11 +166,7 @@ pub fn skg_tool(attr: TokenStream, item: TokenStream) -> TokenStream {
                 };
                 let ty = *pat_ty.ty.clone();
                 let is_ctx = is_dispatch_context_ref(&ty);
-                params.push(ParamInfo {
-                    ident,
-                    ty,
-                    is_ctx,
-                });
+                params.push(ParamInfo { ident, ty, is_ctx });
             }
         }
     }

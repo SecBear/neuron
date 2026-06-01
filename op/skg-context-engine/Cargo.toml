@@ -26,7 +26,7 @@ skg-tool-macro = { path = "../../turn/skg-tool-macro", version = "0.4.1", option
 [dev-dependencies]
 layer0 = { path = "../../layer0", features = ["test-utils"], version = "0.4.1" }
 skg-turn = { path = "../../turn/skg-turn", features = [
-   "test-utils",
+  "test-utils",
 ], version = "0.4.1" }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 skg-state-memory = { path = "../../state/skg-state-memory" }

@@ -142,9 +142,11 @@ async fn run_loop<P, B>(
     let mut ctx = behaviour.init_context(&input, &dispatch_ctx).await;
 
     // ── LoopStarted ───────────────────────────────────────────────────────────
-    if let Some(outcome) =
-        pipeline_halt(&pipeline.emit(&AgentEvent::LoopStarted, &mut ctx, &dispatch_ctx).await)
-    {
+    if let Some(outcome) = pipeline_halt(
+        &pipeline
+            .emit(&AgentEvent::LoopStarted, &mut ctx, &dispatch_ctx)
+            .await,
+    ) {
         send_ending(&pipeline, &mut ctx, &dispatch_ctx, outcome, &sender).await;
         return;
     }
@@ -197,11 +199,7 @@ async fn run_loop<P, B>(
             LoopDecision::Complete(output) => {
                 let outcome = output.outcome.clone();
                 let _ = pipeline
-                    .emit(
-                        &AgentEvent::LoopEnding { outcome },
-                        &mut ctx,
-                        &dispatch_ctx,
-                    )
+                    .emit(&AgentEvent::LoopEnding { outcome }, &mut ctx, &dispatch_ctx)
                     .await;
                 let _ = sender.send(DispatchEvent::Completed { output }).await;
                 return;
@@ -373,11 +371,7 @@ async fn apply_decision(
         LoopDecision::Complete(output) => {
             let outcome = output.outcome.clone();
             let _ = pipeline
-                .emit(
-                    &AgentEvent::LoopEnding { outcome },
-                    ctx,
-                    dispatch_ctx,
-                )
+                .emit(&AgentEvent::LoopEnding { outcome }, ctx, dispatch_ctx)
                 .await;
             let _ = sender.send(DispatchEvent::Completed { output }).await;
             Some(true)
@@ -410,10 +404,8 @@ async fn apply_decision(
                     dispatch_ctx,
                 )
                 .await;
-            let output = OperatorOutput::new(
-                Content::text(format!("delegated to {target_id}")),
-                outcome,
-            );
+            let output =
+                OperatorOutput::new(Content::text(format!("delegated to {target_id}")), outcome);
             let _ = sender.send(DispatchEvent::Completed { output }).await;
             Some(true)
         }
@@ -472,6 +464,7 @@ mod tests {
     use crate::context_op::{OpResult, on};
     use crate::reactive_pipeline::ReactivePipeline;
     use async_trait::async_trait;
+    use layer0::ProtocolError;
     use layer0::capability::{
         ApprovalFacts, AuthFacts, CapabilityDescriptor, CapabilityId, CapabilityKind,
         ExecutionClass, SchedulingFacts,
@@ -483,7 +476,6 @@ mod tests {
         Operator, OperatorInput, OperatorOutput, Outcome, TerminalOutcome, TriggerType,
         completed_handle,
     };
-    use layer0::ProtocolError;
     use skg_turn::infer::InferResponse;
     use skg_turn::test_utils::{TestProvider, make_text_response, make_tool_call_response};
     use std::sync::Mutex;
@@ -520,11 +512,7 @@ mod tests {
 
     #[async_trait]
     impl AgentBehaviour for CompleteBehaviour {
-        async fn init_context(
-            &self,
-            _input: &OperatorInput,
-            _ctx: &DispatchContext,
-        ) -> Context {
+        async fn init_context(&self, _input: &OperatorInput, _ctx: &DispatchContext) -> Context {
             Context::new()
         }
 
@@ -611,11 +599,7 @@ mod tests {
 
     #[async_trait]
     impl AgentBehaviour for ToolBehaviour {
-        async fn init_context(
-            &self,
-            _input: &OperatorInput,
-            _ctx: &DispatchContext,
-        ) -> Context {
+        async fn init_context(&self, _input: &OperatorInput, _ctx: &DispatchContext) -> Context {
             Context::new()
         }
 

@@ -13,8 +13,8 @@ use layer0::dispatch_context::DispatchContext;
 use layer0::error::{ErrorCode, ProtocolError};
 use layer0::id::SessionId;
 use layer0::operator::{
-    completed_handle, failed_handle, Operator, OperatorInput, OperatorOutput, Outcome,
-    TerminalOutcome,
+    Operator, OperatorInput, OperatorOutput, Outcome, TerminalOutcome, completed_handle,
+    failed_handle,
 };
 use serde_json::json;
 

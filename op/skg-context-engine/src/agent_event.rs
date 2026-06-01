@@ -5,9 +5,9 @@
 //! [`Trigger::Event`](crate::Trigger) for type-safe pattern matching without
 //! binding event payloads.
 
-use layer0::id::OperatorId;
-use layer0::operator::{Outcome, OperatorInput, OperatorOutput};
 use layer0::ProtocolError;
+use layer0::id::OperatorId;
+use layer0::operator::{OperatorInput, OperatorOutput, Outcome};
 use rust_decimal::Decimal;
 use serde_json::Value;
 
@@ -72,7 +72,6 @@ pub enum TimeoutKind {
 #[derive(Debug)]
 pub enum AgentEvent {
     // ── Inference lifecycle ───────────────────────────────────────────────────
-
     /// The loop is about to dispatch an inference call.
     BeforeInference,
 
@@ -83,7 +82,6 @@ pub enum AgentEvent {
     },
 
     // ── Action lifecycle ──────────────────────────────────────────────────────
-
     /// The model requested a tool or sub-operator call.
     ActionRequested {
         /// Operator identifier for the requested action.
@@ -109,7 +107,6 @@ pub enum AgentEvent {
     },
 
     // ── Context thresholds ────────────────────────────────────────────────────
-
     /// Token count crossed a configured monitoring threshold.
     TokenThreshold {
         /// Current token count at the time of the threshold crossing.
@@ -135,7 +132,6 @@ pub enum AgentEvent {
     },
 
     // ── Time ──────────────────────────────────────────────────────────────────
-
     /// A named timer fired.
     Timer {
         /// Identifier of the timer that fired.
@@ -149,7 +145,6 @@ pub enum AgentEvent {
     },
 
     // ── External ─────────────────────────────────────────────────────────────
-
     /// An external signal was received by the agent.
     Signal {
         /// Signal kind label.
@@ -159,7 +154,6 @@ pub enum AgentEvent {
     },
 
     // ── Lifecycle ─────────────────────────────────────────────────────────────
-
     /// The agent loop has started its first iteration.
     LoopStarted,
 
@@ -170,7 +164,6 @@ pub enum AgentEvent {
     },
 
     // ── Escape hatch ──────────────────────────────────────────────────────────
-
     /// A custom, application-defined event not covered by the standard set.
     Custom {
         /// Application-defined event kind label.

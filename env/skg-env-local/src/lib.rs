@@ -24,11 +24,13 @@
 //! for those specs, letting the caller decide whether to proceed without
 //! isolation or fail loudly.
 
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use async_trait::async_trait;
-use layer0::environment::{EnvironmentProvider, EnvironmentSpec, IsolationBoundary, ProvisionedEnv};
+use layer0::environment::{
+    EnvironmentProvider, EnvironmentSpec, IsolationBoundary, ProvisionedEnv,
+};
 use layer0::error::EnvError;
 use layer0::operator::Operator;
 
@@ -78,7 +80,9 @@ impl EnvironmentProvider for LocalEnvironmentProvider {
     fn supports(&self, spec: &EnvironmentSpec) -> bool {
         // Accept specs with no isolation or only Process isolation.
         // Reject anything that requires real sandboxing.
-        spec.isolation.iter().all(|boundary| matches!(boundary, IsolationBoundary::Process))
+        spec.isolation
+            .iter()
+            .all(|boundary| matches!(boundary, IsolationBoundary::Process))
     }
 
     async fn provision(
@@ -125,7 +129,8 @@ mod tests {
 
     #[test]
     fn rejects_container_isolation() {
-        let spec = EnvironmentSpec::new().with_isolation(vec![IsolationBoundary::Container { image: None }]);
+        let spec = EnvironmentSpec::new()
+            .with_isolation(vec![IsolationBoundary::Container { image: None }]);
         assert!(!local().supports(&spec));
     }
 
@@ -154,7 +159,8 @@ mod tests {
 
     #[test]
     fn rejects_wasm() {
-        let spec = EnvironmentSpec::new().with_isolation(vec![IsolationBoundary::Wasm { runtime: None }]);
+        let spec =
+            EnvironmentSpec::new().with_isolation(vec![IsolationBoundary::Wasm { runtime: None }]);
         assert!(!local().supports(&spec));
     }
 
@@ -213,7 +219,10 @@ mod tests {
 
         provider.teardown(&env.env_id).await.expect("teardown 1");
         provider.teardown(&env.env_id).await.expect("teardown 2");
-        provider.teardown("nonexistent").await.expect("teardown unknown");
+        provider
+            .teardown("nonexistent")
+            .await
+            .expect("teardown unknown");
     }
 
     #[test]

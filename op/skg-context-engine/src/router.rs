@@ -19,6 +19,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use layer0::OperatorId;
 use layer0::capability::{
     ApprovalFacts, AuthFacts, CapabilityDescriptor, CapabilityId, CapabilityKind, ExecutionClass,
     SchedulingFacts,
@@ -27,7 +28,6 @@ use layer0::dispatch::DispatchHandle;
 use layer0::dispatch_context::DispatchContext;
 use layer0::error::ProtocolError;
 use layer0::operator::{Operator, OperatorInput};
-use layer0::OperatorId;
 
 /// Routes operator invocations to registered child [`Operator`]s.
 ///
@@ -156,8 +156,7 @@ mod tests {
 
     #[tokio::test]
     async fn routes_to_registered_operator() {
-        let router = Router::new("router.test", "Test Router")
-            .route("echo", echo_op());
+        let router = Router::new("router.test", "Test Router").route("echo", echo_op());
 
         let input = OperatorInput::new(Content::text("hello"), TriggerType::User);
         let ctx = dispatch_ctx("echo");
@@ -210,8 +209,7 @@ mod tests {
 
     #[test]
     fn capabilities_returns_child_descriptors() {
-        let router = Router::new("router.test", "Test Router")
-            .route("echo", echo_op());
+        let router = Router::new("router.test", "Test Router").route("echo", echo_op());
 
         let caps = router.capabilities();
         assert_eq!(caps.len(), 1);
