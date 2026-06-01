@@ -1,5 +1,13 @@
 # Layer0 Invocation / Outcome Migration Annex
 
+> **Status — historical record, framing superseded.** This annex predates
+> `specs/v2/20`, which merged the standalone `Dispatcher` trait into `Operator`
+> and reorganized the runtime; `Dispatcher` references below describe the
+> pre-redesign `layer0`. The `DispatchHandle` → `InvocationHandle` rename was
+> **abandoned**: `DispatchHandle` is the canonical name and the transitional
+> `InvocationHandle` / `CollectedInvocation` aliases were removed. Read as a
+> migration record, not current API.
+
 ## Purpose
 
 Define the first implementation-grade `v2` migration slice for `layer0`:

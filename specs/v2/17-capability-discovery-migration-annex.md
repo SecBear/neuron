@@ -1,5 +1,11 @@
 # Capability Discovery Migration Annex
 
+> **Status — implemented; framing superseded.** `CapabilitySource` and a
+> descriptor-first discovery model landed in `layer0::capability`. This annex
+> predates `specs/v2/20`, which merged the standalone `Dispatcher` trait into
+> `Operator`; read every "sibling to `Dispatcher`" statement as "sibling to the
+> `Operator` invocation path." Read as a migration record, not current API.
+
 ## Purpose
 
 Define the third implementation-grade `v2` migration slice for native capability

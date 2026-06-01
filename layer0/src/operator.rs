@@ -1,8 +1,8 @@
 //! The Operator protocol — the universal primitive for agentic systems.
 //!
 //! Everything is an Operator: tools, agents, routers, supervisors.
-//! Streaming-first: [`Operator::handle`] returns an [`OperatorHandle`]
-//! that emits [`OperatorEvent`]s. Simple operators emit one `Completed`
+//! Streaming-first: [`Operator::handle`] returns a [`DispatchHandle`]
+//! that emits [`DispatchEvent`]s. Simple operators emit one `Completed`
 //! event. Complex operators emit progress, artifacts, and completion.
 
 use crate::context::Message;

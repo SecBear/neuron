@@ -3,7 +3,7 @@
 ## Purpose
 
 Define native discovery for tools, prompts, resources, agents, and services
-without overloading `Dispatcher`.
+without overloading the `Operator` invocation path.
 
 ## CapabilitySource
 
@@ -13,13 +13,13 @@ V2 adds a sibling discovery protocol:
 pub trait CapabilitySource: Send + Sync {
     async fn list(
         &self,
-        filter: Option<CapabilityFilter>,
-    ) -> Result<Vec<CapabilityDescriptor>, CapabilityError>;
+        filter: CapabilityFilter,
+    ) -> Result<Vec<CapabilityDescriptor>, ProtocolError>;
 
     async fn get(
         &self,
         id: &CapabilityId,
-    ) -> Result<Option<CapabilityDescriptor>, CapabilityError>;
+    ) -> Result<Option<CapabilityDescriptor>, ProtocolError>;
 }
 ```
 

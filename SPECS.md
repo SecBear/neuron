@@ -6,6 +6,13 @@ Authoritative specifications for Skelegent.
 
 - `specs/v2/` is the current architecture. All implementation work targets these.
 - v1 specs have been archived to `../skg-archived/specs/`.
+- **`specs/v2/20` is the current runtime architecture and supersedes the
+  runtime, invocation, tool-dispatch, and environment direction of specs
+  `01`–`17`.** The standalone `Dispatcher` trait was merged into `Operator`,
+  name-based dispatch is `Router`, and the shipped code follows spec 20. Specs
+  `01`–`17` remain authoritative only for the wire types/semantics that survive
+  (Content, Intent, ExecutionEvent, Outcome, CapabilityDescriptor,
+  DispatchContext).
 ## v2 Specs (current)
 
 | Spec | Domain | Summary |

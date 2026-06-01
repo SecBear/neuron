@@ -1,20 +1,25 @@
 # Skelegent V2 Specifications
 
-This directory defines the draft `v2` core architecture for Skelegent.
+This directory defines the `v2` core architecture for Skelegent — the current,
+shipped architecture. The original v1 numbered specs are archived under
+`../skg-archived/specs/`.
 
-The v2 track is a separate specification pack, not a silent rewrite of the
-current numbered specs. It exists to make the next core architecture
-decision-complete before implementation begins.
+`specs/v2/20-v2-architecture-redesign.md` is the current runtime redesign and
+supersedes the runtime, invocation, tool-dispatch, and environment direction of
+specs `01`–`17`. Specs `00`–`17` remain authoritative only for the wire types
+and semantics that survive (Content, Intent, ExecutionEvent, Outcome,
+CapabilityDescriptor, DispatchContext).
 
 ## Status and Authority
 
-- Current numbered specs in `specs/` remain authoritative for shipped behavior.
-- Files in `specs/v2/` are the draft target architecture for the next core.
-- The first implementation of the `v2` track is intended to be a breaking
-  cutover from the current kernel surfaces, not a compatibility-preserving
-  rollout.
-- A v2 spec becomes implementation-authoritative only when a future change
-  explicitly adopts it.
+- The `v2` track has been implemented as a breaking cutover; it is the shipped
+  architecture. The original v1 numbered specs are archived under
+  `../skg-archived/specs/`.
+- `specs/v2/20` is implementation-authoritative for the runtime, invocation,
+  tool-dispatch, and environment model. Where `01`–`17` disagree with `20` or
+  with the code, `20` and the code win.
+- Authority order (per `AGENTS.md`): `ARCHITECTURE.md` > `specs/v2` > `rules` >
+  agent judgment.
 
 ## Reading Order
 
@@ -38,6 +43,7 @@ Read in order:
 16. `specs/v2/15-layer0-invocation-outcome-migration-annex.md`
 17. `specs/v2/16-intent-event-migration-annex.md`
 18. `specs/v2/17-capability-discovery-migration-annex.md`
+19. `specs/v2/20-v2-architecture-redesign.md`
 
 ## Core Commitments
 
@@ -72,3 +78,4 @@ V2 commits Skelegent to:
 | `specs/v2/15-layer0-invocation-outcome-migration-annex.md` | Implementation Annex | Lock the first layer0 migration slice for outcomes, invocation handles, waits, and structured protocol errors |
 | `specs/v2/16-intent-event-migration-annex.md` | Implementation Annex | Lock the intent/event cutover slice: replace Effect + DispatchEvent with Intent + ExecutionEvent and stream projection rules |
 | `specs/v2/17-capability-discovery-migration-annex.md` | Implementation Annex | Lock the capability discovery cutover slice: CapabilitySource/Descriptor replace tool-metadata-centric discovery |
+| `specs/v2/20-v2-architecture-redesign.md` | Architecture | Current runtime redesign — Operator/Behaviour/ContextOp model; supersedes 01–17 runtime direction |

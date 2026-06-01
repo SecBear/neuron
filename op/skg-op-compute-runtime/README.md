@@ -20,7 +20,7 @@ The current v0 implementation is:
 - a persistent **local Python subprocess worker**
 - a generated **core + fs Python prelude**
 - an explicit `working_dir` on `ExecutionProfile` so file access is deterministic when the backend supports it
-- a minimal `ComputeOperator` that asks a model for fenced Python, executes it, and returns the result
+- a `PythonExecTool` (an `Operator`/tool) that executes model-supplied Python code via the runtime and returns the structured result
 
 ## What it is not
 
@@ -41,7 +41,7 @@ src/
   lib.rs
   backend.rs        # ComputeBackend + request/response types
   error.rs          # ComputeError
-  operator.rs       # minimal ComputeOperator PoC
+  tool.rs           # PythonExecTool — Operator/tool adapter
   profile.rs        # ExecutionProfile + SessionPolicy + SessionReuseMode
   report.rs         # ExecutionReport + ExecutionMetrics
   runtime.rs        # ComputeRuntime + InMemoryComputeRuntime
@@ -57,21 +57,22 @@ src/
 
 ## End-to-end flow
 
-The current PoC runs like this:
+`PythonExecTool` is an `Operator`; register it in a `Router` so an `AgentLoop`
+can call it as the `python_exec` tool. The agent (model) supplies the Python
+code in the tool-call input:
 
 ```text
-user input
-  -> ComputeOperator
-    -> prompts model to return ONE fenced Python block
-    -> extracts the Python code
-    -> chooses SessionId from OperatorInput.session or a per-dispatch fallback
+agent tool call: python_exec { "code": "...", "session": "..."? }
+  -> PythonExecTool
+    -> parses input JSON: required `code`, optional `session`
+    -> session key = input.session, else the dispatch ID (isolated per dispatch)
     -> calls ComputeRuntime::exec(session_id, code, profile)
       -> InMemoryComputeRuntime resolves/reuses a session
       -> LocalPythonBackend starts or reuses a persistent worker process
       -> worker.py executes code in a shared namespace
       -> generated prelude provides helper functions
       -> worker returns stdout/stderr/final_result/notes
-    -> ComputeOperator returns final_result if present, else stdout
+    -> PythonExecTool returns final_result if present, else stdout
 ```
 
 ## Python UX
@@ -102,7 +103,7 @@ final({"answer": x + y})
 Not JSON-ish tool payloads.
 Not file-write plus bash indirection.
 
-The operator prompt now explicitly tells the model that these helpers exist and that `capabilities()` / `help_bindings()` are the discovery path for built-ins.
+The tool's capability descriptor documents that these helpers exist; `capabilities()` / `help_bindings()` are the in-session discovery path for built-ins.
 
 ## Sessions
 
@@ -161,7 +162,7 @@ This keeps the runtime self-describing and avoids overloading the prompt with al
 
 ## Current tests
 
-This crate currently has three test groups:
+This crate currently has two test groups:
 
 ### `tests/runtime.rs`
 Locks the public compute nouns and session behavior:
@@ -184,31 +185,18 @@ Locks the Python-specific substrate:
 - reset clears namespace
 - backend exec respects `working_dir` and fs helpers
 
-### `tests/operator.rs`
-Locks the minimal operator behavior:
-- return stdout when there is no `final_result`
-- prefer `final_result` over stdout when present
-- pass a configured `ExecutionProfile` through `ComputeConfig`
+### `PythonExecTool`
+No dedicated test yet — gap. The tool's input parsing and result mapping are
+exercised only indirectly. (TODO: add `tests/tool.rs`.)
 
-## Example
+## Usage
 
-See:
-
-- `examples/compute-python-poc/src/main.rs`
-
-Run from the workspace root:
-
-```bash
-cargo run -p compute-python-poc
-```
-
-Expected output:
-
-```text
-final_result: {
-  "answer": 42
-}
-```
+The standalone `examples/compute-python-poc` binary was removed in the v2
+redesign. Use `PythonExecTool` as a tool inside an agent: construct it with
+`PythonExecTool::new(runtime, profile)` (a `ComputeRuntime` such as
+`InMemoryComputeRuntime`, plus an `ExecutionProfile`), register it in a
+`Router`, and drive it from an `AgentLoop`. The agent calls it as the
+`python_exec` tool with `{ "code": "...", "session": "..."? }`.
 
 ## Ergonomic issues / signals from the PoC
 
@@ -240,7 +228,6 @@ Not in this PoC yet:
 - Nix / bubblewrap backend
 - Docker backend
 - microVM / remote backend
-- umbrella export via `skelegent`
 - public binding plugin API
 - public language adapter abstraction
 - notebook/display-rich execution

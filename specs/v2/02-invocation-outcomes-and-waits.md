@@ -7,24 +7,27 @@ control.
 
 ## Invocation Primitive
 
-`Dispatcher` remains the immediate invocation trait:
+`Operator` is the immediate invocation trait (the standalone `Dispatcher`
+trait was merged into `Operator` by `specs/v2/20`):
 
 ```rust
-pub trait Dispatcher: Send + Sync {
-    async fn dispatch(
+pub trait Operator: Send + Sync {
+    fn descriptor(&self) -> CapabilityDescriptor;
+
+    async fn handle(
         &self,
-        ctx: &DispatchContext,
         input: OperatorInput,
-    ) -> Result<InvocationHandle, DispatchError>;
+        ctx: &DispatchContext,
+    ) -> Result<DispatchHandle, ProtocolError>;
 }
 ```
 
 The handle is the primary result. Non-streaming callers consume it through
 collection helpers. Blocking completion is a convenience, not the native path.
 
-## InvocationHandle Contract
+## DispatchHandle Contract
 
-An `InvocationHandle` must support:
+A `DispatchHandle` must support:
 
 - receiving semantic execution events in order
 - cancellation

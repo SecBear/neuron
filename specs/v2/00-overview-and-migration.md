@@ -15,8 +15,10 @@ The following v1 decisions remain load-bearing and are preserved:
 
 - operators declare intent; outer layers execute it
 - `DispatchContext` is the universal cross-boundary execution context
-- `Dispatcher` remains the immediate invocation primitive
-- durable run/control remains above immediate dispatch, not inside `Dispatcher`
+- the immediate invocation primitive is `Operator::handle` (the standalone
+  `Dispatcher` trait was merged into `Operator` by `specs/v2/20`)
+- durable run/control remains above immediate invocation, not inside the
+  `Operator` invocation path
 - Layer 0 stays minimal, stable, and technology-agnostic
 
 ## V2 Goals

@@ -11,6 +11,20 @@ invocation, tool dispatch, and environment models. Wire types (Content, Intent,
 ExecutionEvent, Outcome, OperatorInput, OperatorOutput, CapabilityDescriptor,
 DispatchContext) survive with minimal changes.
 
+> **Implementation divergences (shipped code vs. this design).** The shipped
+> code follows this spec's structure but diverges in these named details — read
+> the rest of this document with them in mind:
+> - **Handles/events were not renamed.** `OperatorHandle` / `OperatorEvent` were
+>   never created. `layer0::dispatch` keeps `DispatchHandle` / `DispatchEvent` as
+>   the live types; `Operator::handle` returns `DispatchHandle`. (The transitional
+>   `InvocationHandle` / `CollectedInvocation` aliases have since been removed.)
+> - **`Pipeline` shipped as `ReactivePipeline`** (in `skg-context-engine`).
+> - **`Supervisor` and `StateMachine` are not implemented** (deferred).
+> - **The `skg-tool` crate was deleted**, not retained; its surface moved into
+>   `skg-turn` and `skg-context-engine`, and the `#[skg_tool]` macro lives in
+>   `turn/skg-tool-macro`.
+> - **The compute tool shipped as `PythonExecTool`** (`tool.rs`), an `Operator`.
+
 ## Design Principles
 
 ### Everything is an Operator
@@ -95,10 +109,10 @@ backends are separate crates, not core framework code.
 | `Outcome` / `TerminalOutcome` | `layer0/src/operator.rs` | Keep as-is |
 | `TriggerType` | `layer0/src/operator.rs` | Keep as-is |
 | `OperatorConfig` | `layer0/src/operator.rs` | Keep as-is |
-| `DispatchHandle` | `layer0/src/dispatch.rs` | Rename to `OperatorHandle` |
-| `DispatchEvent` | `layer0/src/dispatch.rs` | Rename to `OperatorEvent` |
+| `DispatchHandle` | `layer0/src/dispatch.rs` | NOT renamed; `DispatchHandle` is canonical (transitional `InvocationHandle` alias since removed) |
+| `DispatchEvent` | `layer0/src/dispatch.rs` | NOT renamed; kept as `DispatchEvent` |
 | `Artifact` | `layer0/src/dispatch.rs` | Keep as-is |
-| `CollectedDispatch` | `layer0/src/dispatch.rs` | Rename to `CollectedOutput` |
+| `CollectedDispatch` | `layer0/src/dispatch.rs` | NOT renamed; canonical (transitional `CollectedInvocation` alias since removed) |
 | `Content` / `ContentBlock` | `layer0/src/content.rs` | Keep as-is |
 | `Intent` / `IntentKind` | `layer0/src/intent.rs` | Keep as-is |
 | `ExecutionEvent` | `layer0/src/event.rs` | Keep as-is |
@@ -118,6 +132,12 @@ backends are separate crates, not core framework code.
 | All provider crates | `provider/` | Keep as-is |
 | State crates | `state/` | Keep as-is |
 | Secret/auth crates | `secret/`, `auth/` | Keep as-is |
+
+> **Handle/event renames not performed; naming now resolved.** The
+> `DispatchHandle` / `DispatchEvent` / `CollectedDispatch` renames proposed in
+> this spec did not land. The question is resolved: those `Dispatch*` names are
+> canonical, the transitional `InvocationHandle` / `CollectedInvocation` aliases
+> have been removed, and `OperatorHandle` / `OperatorEvent` were never created.
 
 ---
 
@@ -621,7 +641,7 @@ Documentation must be explicit about what is and isn't guaranteed.
 ### Core (layer0)
 
 - `Operator` trait (streaming-first)
-- `OperatorHandle`, `OperatorEvent`, `Artifact`
+- `DispatchHandle`, `DispatchEvent`, `Artifact` (rename to `Operator*` not done)
 - `OperatorInput`, `OperatorOutput`, `Outcome`
 - `DispatchContext`
 - `CapabilityDescriptor`, `CapabilitySource`
@@ -635,25 +655,26 @@ Documentation must be explicit about what is and isn't guaranteed.
 - `Context` (mutable substrate)
 - `AgentEvent` (system event enum)
 - `ContextOp` trait, `Trigger`, `OpResult`
-- `Pipeline` (reactive event engine)
+- `ReactivePipeline` (reactive event engine)
 - `AgentLoop` + `AgentBehaviour` (agentic loop behaviour)
 - `SyncOperator` trait + blanket Operator impl
 - `Router` (name-based dispatch)
-- `Supervisor` + `ChildSpec` + `RestartStrategy`
-- `StateMachine` + `StateMachineBehaviour`
+- `Supervisor` + `ChildSpec` + `RestartStrategy` — **not yet implemented** (deferred)
+- `StateMachine` + `StateMachineBehaviour` — **not yet implemented** (deferred)
 - `CompileConfig`, `CompiledContext`
-- Built-in ContextOps (BudgetGuard, CompactOnThreshold, etc.)
+- Built-in ContextOps (e.g. BudgetGuard, CompactOnThreshold) — **not yet implemented**; `ContextOp` / `ReactivePipeline` are the extension point
 
-### Tool infrastructure (skg-tool, skg-tool-macro)
+### Tool infrastructure (skg-tool-macro)
 
-- `#[skg_tool]` macro (generates SyncOperator impls)
-- Schema derivation utilities
-- `skg-tool/src/lib.rs` re-exports `SyncOperator` and schema helpers
+- `#[skg_tool]` macro (generates `SyncOperator` impls) — crate `turn/skg-tool-macro`
+- `SyncOperator` + `SyncOperatorAdapter` live in `skg-context-engine`
+- The `skg-tool` crate was **deleted**; its surface was absorbed into `skg-turn`
+  and `skg-context-engine`, which re-exports the macro behind the `macros` feature
 
 ### Everything else
 
 Provider, state, secret, auth, MCP, orch crates: unchanged in this pass.
-They will need minor updates to import paths (DispatchHandle → OperatorHandle).
+No import-path renames were performed; downstream crates continue to import `DispatchHandle` / `DispatchEvent`.
 
 ---
 

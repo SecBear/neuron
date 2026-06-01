@@ -42,14 +42,15 @@ external protocol adapters.
 V2 keeps these surfaces conceptually intact:
 
 - `DispatchContext` as the shared execution context
-- `Dispatcher` as the immediate invocation primitive
+- `Operator::handle` as the immediate invocation primitive (the standalone
+  `Dispatcher` trait was merged into `Operator` by `specs/v2/20`)
 - a declarative environment contract rather than hard-coding container or platform semantics
 
 ## New Sibling Protocol
 
-V2 introduces `CapabilitySource` as a sibling read surface to `Dispatcher`.
+V2 introduces `CapabilitySource` as a sibling read surface to `Operator`.
 
-`Dispatcher` answers: "invoke this now."
+`Operator::handle` answers: "invoke this now."
 
 `CapabilitySource` answers: "what exists and how may it be invoked."
 
@@ -63,7 +64,7 @@ The two concerns stay separate so callers may have:
 
 This spec supersedes the architectural direction in `specs/01-architecture-and-layering.md`
 for the v2 track while preserving the core invariants around `DispatchContext`,
-`Dispatcher`, and the declaration/execution boundary.
+`Operator`, and the declaration/execution boundary.
 
 ## Compatibility Rule
 
